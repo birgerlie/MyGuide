@@ -15,6 +15,8 @@ import Testing
         (OpenAIError.malformedResponse, "Couldn't tell a story about this photo."),
         (PhotoStoryError.noPosition, "This photo has no location. Use where you are now?"),
         (ImageProcessingError.unreadableImage, "Couldn't read this photo."),
+        (PhotoStoryError.noFurtherLevel, "That's the whole story for this place."),
+        (ImageProcessingError.encodeFailed, "Couldn't read this photo."),
         (CancellationError(), ""),
     ])
     func messages(error: Error, expected: String) { #expect(UserFacingMessage.message(for: error) == expected) }

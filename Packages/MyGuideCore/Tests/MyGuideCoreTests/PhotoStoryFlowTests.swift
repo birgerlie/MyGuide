@@ -54,12 +54,19 @@ import Testing
     }
     @Test func priorsAreLookedUpByCandidateIDsAndSent() async throws {
         let http = Self.http()
-        let seen = LockedBox<[String]>([])
-        let flow = Self.flow(http) { ids, _, _ in
-            seen.set(ids); return [PriorStory(placeID: "osm:node/1", level: .first, text: "Told before: the coachman.", toldAt: .now)]
+        let seen = LockedBox<(ids: [String], near: Coordinate, session: UUID?)?>(nil)
+        let flow = Self.flow(http) { ids, near, session in
+            seen.set((ids, near, session))
+            return [PriorStory(placeID: "osm:node/1", level: .first, text: "Told before: the coachman.", toldAt: .now)]
         }
-        _ = try await flow.tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: Self.capture, language: .english)
-        #expect(Set(seen.value) == ["osm:node/1", "wiki:en/5"])
+        // Non-zero coordinate so a hard-coded (0, 0) would be caught.
+        var cap = Self.capture
+        cap.coordinate = Coordinate(latitude: 0.0001, longitude: 0.0002)
+        _ = try await flow.tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: cap, language: .english)
+        let call = try #require(seen.value)
+        #expect(Set(call.ids) == ["osm:node/1", "wiki:en/5"])
+        #expect(call.near == cap.coordinate)
+        #expect(call.session == nil)
         let body = String(decoding: http.requests.first { $0.url!.host == "api.openai.com" }!.httpBody!, as: UTF8.self)
         #expect(body.contains("Told before: the coachman."))
     }
