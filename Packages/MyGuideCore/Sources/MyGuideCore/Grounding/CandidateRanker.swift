@@ -9,31 +9,36 @@ public enum CandidateRanker {
     /// a Wikipedia candidate with the same wikidata id or article title is folded into the OSM one
     /// (supplying its summary if the OSM one has none). Same-name candidates within `duplicateRadius` are dropped.
     public static func merge(osm: [Candidate], wiki: [Candidate]) -> [Candidate] {
-        var consumed = Set<Int>()
         var kept: [Candidate] = []
 
-        func isDuplicate(_ c: Candidate) -> Bool {
+        /// Adds `c` unless a same-name twin is already kept; a dropped candidate donates missing fields to its twin.
+        func add(_ c: Candidate) {
             let name = c.name.lowercased()
-            return kept.contains { $0.name.lowercased() == name && GeoMath.distance($0.coordinate, c.coordinate) <= duplicateRadius }
+            guard let twin = kept.firstIndex(where: {
+                $0.name.lowercased() == name && GeoMath.distance($0.coordinate, c.coordinate) <= duplicateRadius
+            }) else {
+                kept.append(c)
+                return
+            }
+            if kept[twin].summary == nil { kept[twin].summary = c.summary }
+            if kept[twin].wikidata == nil { kept[twin].wikidata = c.wikidata }
+            if kept[twin].wikipediaTitle == nil { kept[twin].wikipediaTitle = c.wikipediaTitle }
         }
 
+        // Every OSM candidate may match (differently named parts of one site share an article);
+        // matched articles are consumed only after the loop.
+        var consumed = Set<Int>()
         for var o in osm {
-            let match = wiki.indices.first { i in
-                guard !consumed.contains(i) else { return false }
-                let w = wiki[i]
-                if let q = o.wikidata, q == w.wikidata { return true }
-                if let t = o.wikipediaTitle, t == w.wikipediaTitle { return true }
-                return false
+            for (i, w) in wiki.enumerated() {
+                let sameQ = o.wikidata != nil && o.wikidata == w.wikidata
+                let sameTitle = o.wikipediaTitle != nil && o.wikipediaTitle == w.wikipediaTitle
+                guard sameQ || sameTitle else { continue }
+                consumed.insert(i)
+                if o.summary == nil { o.summary = w.summary }
             }
-            if let match {
-                consumed.insert(match)
-                if o.summary == nil { o.summary = wiki[match].summary }
-            }
-            if !isDuplicate(o) { kept.append(o) }
+            add(o)
         }
-        for (i, w) in wiki.enumerated() where !consumed.contains(i) {
-            if !isDuplicate(w) { kept.append(w) }
-        }
+        for (i, w) in wiki.enumerated() where !consumed.contains(i) { add(w) }
         return kept
     }
 

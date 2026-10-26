@@ -27,6 +27,8 @@ public struct GroundingService: Sendable {
         async let wiki = Self.attempt { try await wikipedia.articles(around: here, radius: Self.wikiRadius, language: language) }
         async let geo = Self.attempt { try await geocoder.address(for: here) }
         let (osmResult, wikiResult, geoResult) = try await (osm, wiki, geo)
+        // Some sources signal cancellation with their own error type (CLError, MKError); do not report that as a failure.
+        try Task.checkCancellation()
 
         var failed: [GroundingSource] = []
         if osmResult == nil { failed.append(.openStreetMap) }

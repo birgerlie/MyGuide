@@ -100,4 +100,39 @@ import Testing
         let g = try await s.ground(Self.capture(heading: 0, acc: 10), language: .english)
         #expect(g.candidates.isEmpty && g.address == nil && g.failedSources == [.openStreetMap, .wikipedia, .geocoder])
     }
+
+    @Test func droppedDuplicateDonatesSummaryAndWikiTagsToKeptTwin() {
+        let osm = [Self.cand("osm:way/1", n: 0, e: 0, name: "Hofburg"),
+                   Self.cand("osm:way/2", n: 20, e: 0, name: "Hofburg", q: "Q9")]
+        let wiki = [Self.cand("wiki:en/1", n: 5, e: 0, name: "Hofburg Palace", q: "Q9", summary: "Palace story.")]
+        let merged = CandidateRanker.merge(osm: osm, wiki: wiki)
+        #expect(merged.map(\.id) == ["osm:way/1"])
+        #expect(merged[0].summary == "Palace story." && merged[0].wikidata == "Q9")
+    }
+    @Test func oneArticleEnrichesEveryMatchingOSMCandidateAndIsNotAppended() {
+        let osm = [Self.cand("osm:way/1", n: 0, e: 0, name: "Wing A", q: "Q9"),
+                   Self.cand("osm:way/2", n: 200, e: 0, name: "Wing B", q: "Q9")]
+        let wiki = [Self.cand("wiki:en/1", n: 100, e: 0, name: "Palace", q: "Q9", summary: "Palace story.")]
+        let merged = CandidateRanker.merge(osm: osm, wiki: wiki)
+        #expect(merged.map(\.id) == ["osm:way/1", "osm:way/2"])
+        #expect(merged.allSatisfy { $0.summary == "Palace story." })
+    }
+    @Test func cancelledTaskThrowsEvenWhenSourceFailsWithOtherError() async {
+        let s = service(geoFail: true)
+        let capture = Self.capture(heading: 0, acc: 10)
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return try await s.ground(capture, language: .english)
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+    }
+    @Test func limitIsAppliedAfterSorting() {
+        let near = (1...20).map { Self.cand("out\($0)", n: -Double($0), e: 0) }          // behind, out of view
+        let far = (1...3).map { Self.cand("in\($0)", n: 100 + Double($0), e: 0) }         // ahead, in view
+        let r = CandidateRanker.rank(near + far, capture: Self.capture(heading: 0, acc: 10))
+        #expect(r.count == 15)
+        #expect(r.prefix(3).map(\.candidate.id) == ["in1", "in2", "in3"])
+    }
 }
+
