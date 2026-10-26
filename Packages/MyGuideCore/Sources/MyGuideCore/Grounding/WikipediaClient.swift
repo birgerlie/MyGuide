@@ -34,7 +34,13 @@ public struct WikipediaClient: Sendable {
         guard language != .english, primary.count < Self.fallbackThreshold else { return primary }
 
         // A failed English fallback must not discard the story-language results.
-        guard let english = try? await fetch(code: StoryLanguage.english.wikipediaCode, around: around, radius: radius) else {
+        // Cancellation is the exception: it must propagate.
+        let english: [Candidate]
+        do {
+            english = try await fetch(code: StoryLanguage.english.wikipediaCode, around: around, radius: radius)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
             return primary
         }
         let known = Set(primary.compactMap(\.wikidata))
@@ -51,6 +57,8 @@ public struct WikipediaClient: Sendable {
         let (data, response) = try await http.send(request)
         guard (200..<300).contains(response.statusCode) else { throw GroundingFetchError.http(response.statusCode) }
         guard let decoded = try? JSONDecoder().decode(Response.self, from: data) else { throw GroundingFetchError.malformed }
+        // MediaWiki reports API errors as HTTP 200 with a top-level "error" object and no "query".
+        if let error = decoded.error { throw GroundingFetchError.apiError(error.code ?? "unknown") }
         // MediaWiki omits "query" (or "pages") when nothing is found: zero results, not an error.
         let pages = decoded.query?.pages ?? []
         return pages.compactMap { $0.value.flatMap { Self.candidate(from: $0, code: code) } }
@@ -73,6 +81,11 @@ public struct WikipediaClient: Sendable {
 
     private struct Response: Decodable {
         var query: Query?
+        var error: APIError?
+    }
+
+    private struct APIError: Decodable {
+        var code: String?
     }
 
     private struct Query: Decodable {
@@ -106,6 +119,7 @@ public struct WikipediaClient: Sendable {
 public enum TextTrim {
     /// Cuts at the last whitespace at or before `maxCharacters` and appends `…`; hard-cuts when there is none.
     public static func truncate(_ s: String, maxCharacters: Int) -> String {
+        let maxCharacters = max(0, maxCharacters)
         guard s.count > maxCharacters else { return s }
         let window = s.prefix(maxCharacters + 1)
         if let space = window.lastIndex(where: \.isWhitespace), space > window.startIndex {

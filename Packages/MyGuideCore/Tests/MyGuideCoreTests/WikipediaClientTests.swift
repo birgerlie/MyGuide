@@ -85,11 +85,37 @@ import Foundation
         #expect(summary.count <= WikipediaClient.summaryLimit + 1)
         #expect(summary.hasSuffix("word…"))
     }
+    @Test func apiErrorBodyThrows() async {
+        let http = StubHTTPClient { _ in (200, Data(#"{"error":{"code":"toobig","info":"too big"}}"#.utf8)) }
+        await #expect(throws: GroundingFetchError.apiError("toobig")) {
+            try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .english)
+        }
+    }
+    @Test func apiErrorInFallbackIsSwallowed() async throws {
+        let http = StubHTTPClient { r in
+            r.url!.host == "no.wikipedia.org"
+                ? (200, Self.body([Self.page(10, "Hofburg", q: "Q2")]))
+                : (200, Data(#"{"error":{"code":"toobig","info":"x"}}"#.utf8))
+        }
+        let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
+        #expect(c.map(\.id) == ["wiki:no/10"])
+    }
+    @Test func cancellationInFallbackPropagates() async {
+        let http = StubHTTPClient { r in
+            if r.url!.host == "no.wikipedia.org" { return (200, Self.body([Self.page(10, "A", q: nil), Self.page(11, "B", q: nil)])) }
+            throw CancellationError()
+        }
+        await #expect(throws: CancellationError.self) {
+            try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
+        }
+    }
     @Test func truncateAtWordBoundary() {
         #expect(TextTrim.truncate("one two three", maxCharacters: 9) == "one two…")
         #expect(TextTrim.truncate("short", maxCharacters: 9) == "short")
         #expect(TextTrim.truncate("abcdefghijk", maxCharacters: 5) == "abcde…")  // no space: hard cut
         #expect(TextTrim.truncate("one two three", maxCharacters: 7) == "one two…")  // space exactly at the limit
+        #expect(TextTrim.truncate("æøå æøå", maxCharacters: 5) == "æøå…")  // multibyte
+        #expect(TextTrim.truncate("abc", maxCharacters: -1) == "…")  // negative clamps to 0
         #expect(TextTrim.truncate("exactly9!", maxCharacters: 9) == "exactly9!")
     }
 }

@@ -30,4 +30,6 @@ public enum GroundingFetchError: Error, Equatable {
     case malformed
     /// Overpass answered 200 but reported a server-side failure (timeout, out of memory).
     case overpassRuntime(String)
+    /// MediaWiki answered 200 but reported an API error (e.g. "toobig"); the associated value is its code.
+    case apiError(String)
 }
