@@ -57,7 +57,7 @@ import Testing
 
     // Additions beyond the brief: edge cases.
     @Test func malformedBodyThrows() async {
-        for body in ["not json", #"{"remark":"x"}"#] {
+        for body in ["not json", #"{"version":0.6}"#] {
             await #expect(throws: GroundingFetchError.malformed) {
                 try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
             }
@@ -92,5 +92,27 @@ import Testing
         let r = try await c.places(around: vienna, radius: 250, language: .english)
         #expect(r.map(\.kind) == ["tourism=museum", "amenity=place_of_worship", "building=yes"])
         #expect(r[2].wikidata == "Q3")
+    }
+
+    @Test func runtimeRemarkThrowsEvenWithElements() async {
+        let remark = "runtime error: Query timed out in \"query\" at line 3 after 10 seconds."
+        let escaped = remark.replacingOccurrences(of: "\"", with: "\\\"")
+        let empty = #"{"elements":[],"remark":"\#(escaped)"}"#
+        let partial = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"A","historic":"yes"}}],"remark":"\#(escaped)"}"#
+        for body in [empty, partial] {
+            await #expect(throws: GroundingFetchError.overpassRuntime(remark)) {
+                try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
+            }
+        }
+    }
+    @Test func otherRemarkIsIgnored() async throws {
+        let body = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"A","historic":"yes"}}],"remark":"note: something"}"#
+        let r = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
+        #expect(r.map(\.id) == ["osm:node/1"])
+    }
+    @Test func wikipediaOnlyElementHasWikipediaKind() async throws {
+        let body = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"A","wikipedia":"en:A"}}]}"#
+        let r = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
+        #expect(r.map(\.kind) == ["wikipedia"])
     }
 }

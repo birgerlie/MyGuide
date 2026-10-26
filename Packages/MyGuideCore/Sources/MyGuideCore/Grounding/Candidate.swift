@@ -6,7 +6,7 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
     public var id: String
     public var name: String
     public var coordinate: Coordinate
-    /// OSM-style "key=value" describing what the place is.
+    /// OSM-style "key=value" describing what the place is, or "wikipedia" for places known only from a Wikipedia article.
     public var kind: String
     public var summary: String?
     /// Language-prefixed article title, e.g. "de:Michaelertor".
@@ -28,4 +28,6 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
 public enum GroundingFetchError: Error, Equatable {
     case http(Int)
     case malformed
+    /// Overpass answered 200 but reported a server-side failure (timeout, out of memory).
+    case overpassRuntime(String)
 }

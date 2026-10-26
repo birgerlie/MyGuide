@@ -45,6 +45,8 @@ public struct OverpassClient: Sendable {
         let (data, response) = try await http.send(request)
         guard (200..<300).contains(response.statusCode) else { throw GroundingFetchError.http(response.statusCode) }
         guard let decoded = try? JSONDecoder().decode(Response.self, from: data) else { throw GroundingFetchError.malformed }
+        // Overpass reports timeouts and out-of-memory as HTTP 200 with a remark, possibly with partial elements.
+        if let remark = decoded.remark, remark.hasPrefix("runtime error") { throw GroundingFetchError.overpassRuntime(remark) }
         return decoded.elements.compactMap { $0.value.flatMap { Self.candidate(from: $0, language: language) } }
     }
 
@@ -86,12 +88,13 @@ public struct OverpassClient: Sendable {
         if let v = tags["tourism"] { return "tourism=\(v)" }
         if tags["amenity"] == "place_of_worship" { return "amenity=place_of_worship" }
         if let v = tags["building"] { return "building=\(v)" }
-        // Matched only through a wikipedia tag.
-        return "place"
+        // Matched only through a wikipedia tag; same kind as Wikipedia candidates.
+        return "wikipedia"
     }
 
     private struct Response: Decodable {
         var elements: [Lossy<Element>]
+        var remark: String?
     }
 
     /// One bad element must not discard the rest.
