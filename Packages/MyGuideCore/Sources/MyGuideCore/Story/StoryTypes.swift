@@ -82,3 +82,35 @@ public struct PriorStory: Sendable, Equatable {
         self.toldAt = toldAt
     }
 }
+
+/// One photo's story as it is being told: the capture, what was found, and the levels told so far.
+public struct StorySession: Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var capture: CaptureContext
+    /// The 1536 px upload version, kept as "photos taken" (spec 8.2).
+    public var photoJPEG: Data
+    public var thumbnailJPEG: Data
+    public var language: StoryLanguage
+    public var grounding: Grounding
+    public var identified: IdentifiedStory
+    /// Story texts told so far; `levels[0]` is level 1.
+    public var levels: [String]
+
+    public init(id: UUID, capture: CaptureContext, photoJPEG: Data, thumbnailJPEG: Data, language: StoryLanguage,
+                grounding: Grounding, identified: IdentifiedStory, levels: [String]) {
+        self.id = id
+        self.capture = capture
+        self.photoJPEG = photoJPEG
+        self.thumbnailJPEG = thumbnailJPEG
+        self.language = language
+        self.grounding = grounding
+        self.identified = identified
+        self.levels = levels
+    }
+
+    public var matchedCandidate: RankedCandidate? {
+        grounding.candidates.first { $0.candidate.id == identified.matchedCandidateID }
+    }
+
+    public var nextLevel: StoryLevel? { StoryLevel(rawValue: levels.count + 1) }
+}
