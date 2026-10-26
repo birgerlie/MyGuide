@@ -23,12 +23,18 @@ struct CheckResult: Equatable {
     var detail: String
 }
 
+private enum FixFailure: Error {
+    case timeout
+}
+
 /// One-shot location + heading probe for the device check.
 @MainActor
 final class LocationProbe: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
-    private var authContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
-    private var fixContinuation: CheckedContinuation<CLLocation?, Never>?
+    private var authContinuation: CheckedContinuation<CLAuthorizationStatus?, Never>?
+    private var authTimeout: Task<Void, Never>?
+    private var fixContinuation: CheckedContinuation<Result<CLLocation, Error>, Never>?
+    private var fixTimeout: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -37,12 +43,19 @@ final class LocationProbe: NSObject, CLLocationManagerDelegate {
     }
 
     func run() async -> CheckResult {
-        var status = manager.authorizationStatus
+        var status: CLAuthorizationStatus? = manager.authorizationStatus
         if status == .notDetermined {
             status = await withCheckedContinuation { continuation in
                 authContinuation = continuation
+                authTimeout = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                    self?.finishAuth(nil)
+                }
                 manager.requestWhenInUseAuthorization()
             }
+        }
+        guard let status else {
+            return CheckResult(passed: false, detail: "No answer to the location permission prompt within 60 s")
         }
         guard status == .authorizedWhenInUse || status == .authorizedAlways else {
             return CheckResult(passed: false, detail: "Location permission not granted")
@@ -50,22 +63,42 @@ final class LocationProbe: NSObject, CLLocationManagerDelegate {
         guard CLLocationManager.headingAvailable() else {
             return CheckResult(passed: false, detail: "Heading (compass) not available")
         }
-        let fix: CLLocation? = await withCheckedContinuation { continuation in
+        let outcome: Result<CLLocation, Error> = await withCheckedContinuation { continuation in
             fixContinuation = continuation
-            manager.requestLocation()
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(15))
-                self?.finishFix(nil)
+            fixTimeout = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                self?.finishFix(.failure(FixFailure.timeout))
             }
+            manager.requestLocation()
         }
-        guard let fix else {
-            return CheckResult(passed: false, detail: "No location fix within 15 s")
+        switch outcome {
+        case .success(let fix):
+            return CheckResult(passed: true, detail: "Fix ±\(Int(fix.horizontalAccuracy)) m, heading available")
+        case .failure(let error):
+            return CheckResult(passed: false, detail: Self.describe(error))
         }
-        return CheckResult(passed: true, detail: "Fix ±\(Int(fix.horizontalAccuracy)) m, heading available")
     }
 
-    private func finishFix(_ location: CLLocation?) {
-        fixContinuation?.resume(returning: location)
+    private static func describe(_ error: Error) -> String {
+        if error is FixFailure { return "No location fix within 15 s" }
+        let nsError = error as NSError
+        if nsError.domain == kCLErrorDomain, nsError.code == CLError.denied.rawValue {
+            return "Location access denied (kCLErrorDenied)"
+        }
+        return "Location error: \(nsError.domain) code \(nsError.code): \(nsError.localizedDescription)"
+    }
+
+    private func finishAuth(_ status: CLAuthorizationStatus?) {
+        authTimeout?.cancel()
+        authTimeout = nil
+        authContinuation?.resume(returning: status)
+        authContinuation = nil
+    }
+
+    private func finishFix(_ outcome: Result<CLLocation, Error>) {
+        fixTimeout?.cancel()
+        fixTimeout = nil
+        fixContinuation?.resume(returning: outcome)
         fixContinuation = nil
     }
 
@@ -73,18 +106,17 @@ final class LocationProbe: NSObject, CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         Task { @MainActor in
             guard status != .notDetermined else { return }
-            self.authContinuation?.resume(returning: status)
-            self.authContinuation = nil
+            self.finishAuth(status)
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        let last = locations.last
-        Task { @MainActor in self.finishFix(last) }
+        guard let last = locations.last else { return }
+        Task { @MainActor in self.finishFix(.success(last)) }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        Task { @MainActor in self.finishFix(nil) }
+        Task { @MainActor in self.finishFix(.failure(error)) }
     }
 }
 
@@ -100,15 +132,17 @@ final class SelfCheckModel {
     private var locationProbe: LocationProbe?
 
     func run() async {
+        guard !running else { return }
         running = true
         camera = nil; location = nil; keychain = nil; swiftData = nil
+        // Local checks first so they always run, even if a permission prompt never resolves.
+        keychain = checkKeychain()
+        swiftData = checkSwiftData()
         camera = await checkCamera()
         let probe = LocationProbe()
         locationProbe = probe
         location = await probe.run()
         locationProbe = nil
-        keychain = checkKeychain()
-        swiftData = checkSwiftData()
         running = false
     }
 
