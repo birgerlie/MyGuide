@@ -19,6 +19,8 @@ public struct URLSessionHTTPClient: HTTPClient {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw OpenAIError.malformedResponse }
             return (data, http)
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch let error as URLError {
             throw OpenAIError.network(error.localizedDescription)
         }

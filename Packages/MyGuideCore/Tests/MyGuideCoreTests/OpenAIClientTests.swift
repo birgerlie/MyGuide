@@ -68,8 +68,54 @@ import Testing
         (429, #"{"error":{"message":"no money","code":"insufficient_quota"}}"#, OpenAIError.quotaExceeded),
         (429, #"{"error":{"message":"slow down","code":"rate_limit_exceeded"}}"#, OpenAIError.rateLimited("slow down")),
         (500, "oops", OpenAIError.server(500)),
+        (403, "forbidden", OpenAIError.server(403)),
+        (200, "not json", OpenAIError.malformedResponse),
     ])
     func mapsHTTPErrors(status: Int, body: String, expected: OpenAIError) async {
         await #expect(throws: expected) { try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (status, Data(body.utf8)) })) }
+    }
+
+    @Test func cancelledURLErrorBecomesCancellationError() async {
+        let client = OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in throw URLError(.cancelled) })
+        await #expect(throws: CancellationError.self) { try await call(client) }
+    }
+    @Test func otherURLErrorBecomesNetwork() async {
+        let client = OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in throw URLError(.notConnectedToInternet) })
+        do {
+            _ = try await call(client)
+            Issue.record("expected throw")
+        } catch let OpenAIError.network(message) {
+            #expect(!message.isEmpty)
+        } catch {
+            Issue.record("wrong error \(error)")
+        }
+    }
+    @Test func missingUsageYieldsZero() async throws {
+        let body = Data(#"{"output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}]}"#.utf8)
+        let r = try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (200, body) }))
+        #expect(r.usage == TokenUsage(inputTokens: 0, outputTokens: 0))
+    }
+    @Test func partialUsageKeepsStory() async throws {
+        let body = Data(#"{"output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}],"usage":{"input_tokens":7}}"#.utf8)
+        let r = try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (200, body) }))
+        #expect(r.usage == TokenUsage(inputTokens: 7, outputTokens: 0))
+    }
+    @Test(arguments: ["incomplete", "failed"])
+    func nonCompletedStatusIsMalformed(status: String) async {
+        let body = Data(#"{"status":"\#(status)","output":[{"type":"message","content":[{"type":"output_text","text":"{\"sto"}]}],"usage":{"input_tokens":1,"output_tokens":1}}"#.utf8)
+        await #expect(throws: OpenAIError.malformedResponse) { try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (200, body) })) }
+    }
+    @Test func completedStatusIsAccepted() async throws {
+        let body = Data(#"{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}]}"#.utf8)
+        let r = try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (200, body) }))
+        #expect(String(decoding: r.json, as: UTF8.self) == "{}")
+    }
+    @Test func apiKeyIsRedactedInReflection() {
+        let client = OpenAIClient(apiKey: "sk-secret-123", http: StubHTTPClient { _ in (200, Data()) })
+        var dumped = ""
+        dump(client, to: &dumped)
+        for text in [String(describing: client), String(reflecting: client), "\(client)", dumped] {
+            #expect(!text.contains("sk-secret-123"))
+        }
     }
 }

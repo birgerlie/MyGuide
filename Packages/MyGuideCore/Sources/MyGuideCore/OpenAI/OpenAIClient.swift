@@ -1,6 +1,6 @@
 import Foundation
 
-public struct OpenAIClient: Sendable {
+public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     private let apiKey: String
     private let http: HTTPClient
     private let baseURL: URL
@@ -9,6 +9,13 @@ public struct OpenAIClient: Sendable {
         self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         self.http = http
         self.baseURL = baseURL
+    }
+
+    // The API key must never leak through print/dump/interpolation.
+    public var description: String { "OpenAIClient(apiKey: <redacted>, baseURL: \(baseURL.absoluteString))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror {
+        Mirror(self, children: ["apiKey": "<redacted>", "baseURL": baseURL.absoluteString], displayStyle: .struct)
     }
 
     /// Structured-output call to the Responses API. Returns the model's JSON text and token usage.
@@ -65,6 +72,8 @@ public struct OpenAIClient: Sendable {
         let response: HTTPURLResponse
         do {
             (data, response) = try await http.send(request)
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch let error as URLError {
             throw OpenAIError.network(error.localizedDescription)
         }
@@ -111,20 +120,28 @@ public struct OpenAIClient: Sendable {
             var content: [Content]?
         }
         struct Usage: Decodable {
-            var input_tokens: Int
-            var output_tokens: Int
+            // Optional: a partial usage block must never discard a paid story.
+            // The cost counter undercounts in that case.
+            var input_tokens: Int?
+            var output_tokens: Int?
         }
+        var status: String?
         var output: [Item]
         var usage: Usage?
     }
 
     private static func parseResponse(_ data: Data) throws -> (json: Data, usage: TokenUsage) {
-        guard let payload = try? JSONDecoder().decode(ResponsesPayload.self, from: data),
-              let message = payload.output.first(where: { $0.type == "message" })
+        guard let payload = try? JSONDecoder().decode(ResponsesPayload.self, from: data)
         else { throw OpenAIError.malformedResponse }
 
+        // A truncated or failed response must not be returned as JSON.
+        if let status = payload.status, status == "incomplete" || status == "failed" {
+            throw OpenAIError.malformedResponse
+        }
         let usage = TokenUsage(inputTokens: payload.usage?.input_tokens ?? 0,
                                outputTokens: payload.usage?.output_tokens ?? 0)
+        guard let message = payload.output.first(where: { $0.type == "message" })
+        else { throw OpenAIError.malformedResponse }
         for part in message.content ?? [] {
             switch part.type {
             case "refusal":
