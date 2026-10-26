@@ -33,3 +33,58 @@ public enum GroundingFetchError: Error, Equatable {
     /// MediaWiki answered 200 but reported an API error (e.g. "toobig"); the associated value is its code.
     case apiError(String)
 }
+
+/// A candidate with its position relative to the capture point.
+public struct RankedCandidate: Sendable, Equatable, Codable {
+    public var candidate: Candidate
+    /// Metres from the capture point.
+    public var distance: Double
+    /// Degrees clockwise from north, 0..<360.
+    public var bearing: Double
+    /// Whether the candidate lies in the camera's field of view; nil when there is no usable heading.
+    public var inView: Bool?
+
+    public init(candidate: Candidate, distance: Double, bearing: Double, inView: Bool?) {
+        self.candidate = candidate
+        self.distance = distance
+        self.bearing = bearing
+        self.inView = inView
+    }
+}
+
+public struct Address: Sendable, Equatable, Codable {
+    public var line: String?
+    public var city: String?
+    public var country: String?
+
+    public init(line: String? = nil, city: String? = nil, country: String? = nil) {
+        self.line = line
+        self.city = city
+        self.country = country
+    }
+
+    /// The non-nil parts joined with ", ".
+    public var display: String {
+        [line, city, country].compactMap { $0 }.joined(separator: ", ")
+    }
+}
+
+public enum GroundingSource: String, Sendable, Codable {
+    case openStreetMap, wikipedia, geocoder
+}
+
+public struct Grounding: Sendable, Equatable, Codable {
+    public var candidates: [RankedCandidate]
+    public var address: Address?
+    public var failedSources: [GroundingSource]
+
+    public init(candidates: [RankedCandidate], address: Address?, failedSources: [GroundingSource]) {
+        self.candidates = candidates
+        self.address = address
+        self.failedSources = failedSources
+    }
+}
+
+public protocol ReverseGeocoding: Sendable {
+    func address(for: Coordinate) async throws -> Address
+}
