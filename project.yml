@@ -1,0 +1,30 @@
+name: MyGuide
+options:
+  bundleIdPrefix: io.github.birgerlie
+  deploymentTarget: { iOS: "26.0" }
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+packages:
+  MyGuideCore: { path: Packages/MyGuideCore }
+targets:
+  MyGuide:
+    type: application
+    platform: iOS
+    sources: [MyGuide]
+    dependencies: [{ package: MyGuideCore }]
+    info:
+      path: MyGuide/Info.plist
+      properties:
+        CFBundleDisplayName: MyGuide
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: "MyGuide uses the camera to photograph what you want a story about."
+        NSLocationWhenInUseUsageDescription: "MyGuide uses your exact position and compass heading to work out what you are looking at."
+        NSPhotoLibraryUsageDescription: "MyGuide reads where a picked photo was taken so it can tell its story."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.birgerlie.MyGuide
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"

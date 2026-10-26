@@ -68,3 +68,6 @@ fastlane/test_output
 Secrets.xcconfig
 *.secrets
 .env
+
+# Local signing config (team ID)
+Config/Local.xcconfig
