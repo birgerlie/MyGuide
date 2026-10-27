@@ -64,7 +64,7 @@ struct SettingsView: View {
             }
             Section {
                 NavigationLink("Device check") { SelfCheckView() }
-                NavigationLink("Walking check") { WalkingCheckView(model: services.walkingCheck) }
+                NavigationLink("Walking check") { WalkingCheckView(model: services.walkingCheck, watch: services.watchLink) }
             }
         }
         .navigationTitle("Settings")

@@ -3,6 +3,7 @@ import SwiftUI
 /// Checks, on the owner's own device, that background location and audio from a notification action work.
 struct WalkingCheckView: View {
     let model: WalkingCheckModel
+    let watch: WatchLink
 
     var body: some View {
         // Pushed from Settings, so it lives in the app's NavigationStack rather than its own.
@@ -19,12 +20,22 @@ struct WalkingCheckView: View {
             }
             row("Live Activity", status: model.activityStatus, result: model.activityResult) {
                 Button(model.activityRunning ? "End" : "Start") {
-                    if model.activityRunning { model.endActivity() } else { model.startActivity() }
+                    if model.activityRunning { model.endActivity() } else { Task { await model.startActivity() } }
                 }
+            }
+            row("Watch", status: watchStatus, result: model.watchTellResult) {
+                Text(model.watchTellStatus).font(.footnote).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Walking check")
     }
+
+    private var watchStatus: String {
+        let link = "Paired: \(yesNo(watch.isPaired)) · app installed: \(yesNo(watch.isInstalled)) · reachable: \(yesNo(watch.isReachable))"
+        return "\(link) · last message: \(watch.lastReceived ?? "none")"
+    }
+
+    private func yesNo(_ value: Bool) -> String { value ? "yes" : "no" }
 
     @ViewBuilder
     private func row(_ title: String, status: String, result: CheckResult?,

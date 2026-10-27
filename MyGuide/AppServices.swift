@@ -20,6 +20,8 @@ final class AppServices {
     /// The Walking check model lives here, not in its view, so a running check survives leaving the screen
     /// (the owner locks the phone and walks) and notification actions still find it.
     let walkingCheck = WalkingCheckModel()
+    /// The one WatchConnectivity link. Messages from the watch reach the Walking check through it.
+    let watchLink = WatchLink()
     private let http: HTTPClient = URLSessionHTTPClient()
 
     /// False when the persistent store could not be opened and memory is held in RAM only.
@@ -28,6 +30,12 @@ final class AppServices {
     init(memory: MemoryStore, memoryIsPersistent: Bool = true) {
         self.memory = memory
         self.memoryIsPersistent = memoryIsPersistent
+        let walkingCheck = walkingCheck
+        watchLink.onMessage = { message in
+            if message["type"] as? String == "check.tell" { walkingCheck.handleWatchTell() }
+            return [:]
+        }
+        watchLink.activate()
     }
 
     /// Logs a memory failure without any story text: only the error's type, and domain and code when it has them.

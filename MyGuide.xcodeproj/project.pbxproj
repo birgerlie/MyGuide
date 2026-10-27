@@ -10,10 +10,14 @@
 		031FC67AC4F02F2C47A0EC45 /* WalkingCheckModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */; };
 		08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */; };
 		0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */; };
+		11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */; };
 		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
 		2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */; };
+		4A41F0BABB7371E08C5F20E8 /* MyGuideWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */; };
 		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
+		56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */; };
+		5EFA0074A45D0C954418D2A4 /* MyGuideWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7601A9D4143D662A6232BA41 /* AppServices.swift */; };
 		65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */; };
 		6AD7BBF413B4C419E0755A62 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
@@ -24,10 +28,13 @@
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
 		9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
 		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
+		B8D753A876BD7F2DBBED7DE1 /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */; };
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
 		CE4081054052B226778217DA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB976060B732B94CFFDBA0D /* AppDelegate.swift */; };
+		CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262854964F0668D9EA23A15A /* TellMeIntent.swift */; };
 		D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D718A718A1BAB633570C16E /* WalkingCheckView.swift */; };
+		F0B8DAD8B104CB1D547EA859 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D59629C52B71A28FA9DCBB /* WatchLink.swift */; };
 		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
 /* End PBXBuildFile section */
 
@@ -38,6 +45,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = DC5AF3183E01E983A566A820;
 			remoteInfo = MyGuideWidgets;
+		};
+		33CB4AD1F6ED262A8A635CFE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 26A387503C2C22ECEAE0C829 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FBC3F90268ABD22A3B8F9899;
+			remoteInfo = MyGuideWatch;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -53,6 +67,17 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8EA0F8C4509ABF144378C8B6 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				5EFA0074A45D0C954418D2A4 /* MyGuideWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -61,17 +86,23 @@
 		11AC3F6758B70A451EA067EB /* SelfCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCheckView.swift; sourceTree = "<group>"; };
 		18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
 		18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckModel.swift; sourceTree = "<group>"; };
+		218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCheckView.swift; sourceTree = "<group>"; };
+		262854964F0668D9EA23A15A /* TellMeIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TellMeIntent.swift; sourceTree = "<group>"; };
 		2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWidgetsBundle.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
 		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
 		3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4D718A718A1BAB633570C16E /* WalkingCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckView.swift; sourceTree = "<group>"; };
+		4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWatchApp.swift; sourceTree = "<group>"; };
 		517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLiveActivity.swift; sourceTree = "<group>"; };
 		5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryViewModel.swift; sourceTree = "<group>"; };
+		58D59629C52B71A28FA9DCBB /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
+		6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuideWatch.entitlements; sourceTree = "<group>"; };
 		7601A9D4143D662A6232BA41 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8AB976060B732B94CFFDBA0D /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		8CFD5C325D6D5A568828170F /* MyGuideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideApp.swift; sourceTree = "<group>"; };
+		8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyGuideWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		96B316F6601D1952CFEF86BE /* MyGuide.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuide.entitlements; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
@@ -80,7 +111,10 @@
 		D4F54BE4CD7C5098E4E6DACF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		E5588654A1B24191FA872223 /* MyGuideWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MyGuideWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutKeeper.swift; sourceTree = "<group>"; };
+		F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneLink.swift; sourceTree = "<group>"; };
 		F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingActivityAttributes.swift; sourceTree = "<group>"; };
+		F878CC395772D74A4E843693 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FA60F0A75E58FC553F167C80 /* MyGuideCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MyGuideCore; path = Packages/MyGuideCore; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -130,8 +164,23 @@
 				4F29DA919A204B6D5A248304 /* Settings */,
 				00FA2DDF8C4E1866C2BA625A /* Story */,
 				16AF014B38938FD6A126E7B0 /* WalkingCheck */,
+				AF3C068C7CF2506235E77B4D /* Watch */,
 			);
 			path = MyGuide;
+			sourceTree = "<group>";
+		};
+		3B2A02D6212714FC8C838ABB /* MyGuideWatch */ = {
+			isa = PBXGroup;
+			children = (
+				F878CC395772D74A4E843693 /* Info.plist */,
+				6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */,
+				4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */,
+				F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */,
+				262854964F0668D9EA23A15A /* TellMeIntent.swift */,
+				218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */,
+				E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */,
+			);
+			path = MyGuideWatch;
 			sourceTree = "<group>";
 		};
 		4F29DA919A204B6D5A248304 /* Settings */ = {
@@ -185,6 +234,14 @@
 			path = Capture;
 			sourceTree = "<group>";
 		};
+		AF3C068C7CF2506235E77B4D /* Watch */ = {
+			isa = PBXGroup;
+			children = (
+				58D59629C52B71A28FA9DCBB /* WatchLink.swift */,
+			);
+			path = Watch;
+			sourceTree = "<group>";
+		};
 		B6865EF0D1262BE2D32A9637 /* MyGuideWidgets */ = {
 			isa = PBXGroup;
 			children = (
@@ -200,6 +257,7 @@
 			children = (
 				E4CDA82B4D48CB386EC8A119 /* Config */,
 				355D01E0692B42DA97F82825 /* MyGuide */,
+				3B2A02D6212714FC8C838ABB /* MyGuideWatch */,
 				B6865EF0D1262BE2D32A9637 /* MyGuideWidgets */,
 				A2045D91DF9C1D35D8527131 /* Packages */,
 				87526A6788AC8C36C40DAF1D /* Shared */,
@@ -227,6 +285,7 @@
 			isa = PBXGroup;
 			children = (
 				7E7402C10EF3BE222D383C88 /* MyGuide.app */,
+				8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */,
 				E5588654A1B24191FA872223 /* MyGuideWidgets.appex */,
 			);
 			name = Products;
@@ -242,11 +301,13 @@
 				2B43ADB8CFFFC76D5FEE2175 /* Sources */,
 				2962C0D8DF1D83FD3546567A /* Frameworks */,
 				74E34A7FCBA1CF9F2BEA0D6F /* Embed Foundation Extensions */,
+				8EA0F8C4509ABF144378C8B6 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				F6E78D359DC59B5F6C9351DE /* PBXTargetDependency */,
+				033B18513824CAD973CB4B99 /* PBXTargetDependency */,
 			);
 			name = MyGuide;
 			packageProductDependencies = (
@@ -273,6 +334,23 @@
 			productReference = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		FBC3F90268ABD22A3B8F9899 /* MyGuideWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 462D46FBA3B040A1BE183335 /* Build configuration list for PBXNativeTarget "MyGuideWatch" */;
+			buildPhases = (
+				0CFDCA4FFB52F366F7F1974D /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MyGuideWatch;
+			packageProductDependencies = (
+			);
+			productName = MyGuideWatch;
+			productReference = 8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -286,6 +364,9 @@
 						ProvisioningStyle = Automatic;
 					};
 					DC5AF3183E01E983A566A820 = {
+						ProvisioningStyle = Automatic;
+					};
+					FBC3F90268ABD22A3B8F9899 = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -308,6 +389,7 @@
 			projectRoot = "";
 			targets = (
 				1C5D53266C348E4046C9E9F1 /* MyGuide */,
+				FBC3F90268ABD22A3B8F9899 /* MyGuideWatch */,
 				DC5AF3183E01E983A566A820 /* MyGuideWidgets */,
 			);
 		};
@@ -321,6 +403,18 @@
 				2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */,
 				6AD7BBF413B4C419E0755A62 /* WalkingActivityAttributes.swift in Sources */,
 				BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0CFDCA4FFB52F366F7F1974D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4A41F0BABB7371E08C5F20E8 /* MyGuideWatchApp.swift in Sources */,
+				B8D753A876BD7F2DBBED7DE1 /* PhoneLink.swift in Sources */,
+				CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */,
+				56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */,
+				11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -345,12 +439,18 @@
 				9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */,
 				031FC67AC4F02F2C47A0EC45 /* WalkingCheckModel.swift in Sources */,
 				D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */,
+				F0B8DAD8B104CB1D547EA859 /* WatchLink.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		033B18513824CAD973CB4B99 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FBC3F90268ABD22A3B8F9899 /* MyGuideWatch */;
+			targetProxy = 33CB4AD1F6ED262A8A635CFE /* PBXContainerItemProxy */;
+		};
 		F6E78D359DC59B5F6C9351DE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = DC5AF3183E01E983A566A820 /* MyGuideWidgets */;
@@ -416,7 +516,6 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -473,7 +572,6 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -498,6 +596,38 @@
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
+		};
+		6ED714699326FD52363EC5C3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MyGuideWatch/MyGuideWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = MyGuideWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.birgerlie.MyGuide.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		CEB5C72627AB5E1290B19BA9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MyGuideWatch/MyGuideWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = MyGuideWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.birgerlie.MyGuide.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
 		};
 		D409F066354C76E9C771F145 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -559,6 +689,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		462D46FBA3B040A1BE183335 /* Build configuration list for PBXNativeTarget "MyGuideWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6ED714699326FD52363EC5C3 /* Debug */,
+				CEB5C72627AB5E1290B19BA9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		5D93665C39C466DB21A53F1C /* Build configuration list for PBXProject "MyGuide" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

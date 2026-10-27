@@ -36,6 +36,10 @@ final class WalkingCheckModel: NSObject {
     private(set) var activityStatus = "Not started"
     private(set) var activityResult: CheckResult?
 
+    // Watch
+    private(set) var watchTellStatus = "No Tell me received from the watch yet"
+    private(set) var watchTellResult: CheckResult?
+
     @ObservationIgnored private let manager = CLLocationManager()
     @ObservationIgnored private var activitySession: CLBackgroundActivitySession?
     @ObservationIgnored private var lastFixAt: Date?
@@ -220,25 +224,39 @@ final class WalkingCheckModel: NSObject {
         buzzPending = false
         switch response.actionIdentifier {
         case Self.tellAction:
-            let inBackground = UIApplication.shared.applicationState == .background
-            beginBackgroundWork()
-            do {
-                try player.play(try Self.toneURL())
-                buzzStatus = "Playing the tone"
-                buzzResult = inBackground
-                    ? CheckResult(passed: true, detail: "Played from background ✓")
-                    : CheckResult(passed: false, detail: "Played, but the app was in the foreground — lock the phone and try again")
-            } catch {
-                endBackgroundWork()
-                buzzStatus = "Playback failed"
-                buzzResult = CheckResult(passed: false, detail: "Playback error: \(error.localizedDescription)")
-            }
+            let outcome = playTone()
+            buzzStatus = outcome.status
+            buzzResult = outcome.result
         case Self.skipAction:
             buzzStatus = "Skipped"
             buzzResult = CheckResult(passed: false, detail: "Skipped — tap Tell me to test audio")
         default:
             buzzStatus = "Notification opened without an action"
         }
+    }
+
+    /// Plays the check tone under a background task. Shared by the notification action and the watch's `check.tell`.
+    /// Takes the background task synchronously, before anything can suspend the app.
+    private func playTone() -> (status: String, result: CheckResult) {
+        let inBackground = UIApplication.shared.applicationState == .background
+        beginBackgroundWork()
+        do {
+            try player.play(try Self.toneURL())
+        } catch {
+            endBackgroundWork()
+            return ("Playback failed", CheckResult(passed: false, detail: "Playback error: \(error.localizedDescription)"))
+        }
+        let result = inBackground
+            ? CheckResult(passed: true, detail: "Played from background ✓")
+            : CheckResult(passed: false, detail: "Played, but the app was in the foreground — lock the phone and try again")
+        return ("Playing the tone", result)
+    }
+
+    /// The watch's Action button (or watch check screen) sent `check.tell`.
+    func handleWatchTell() {
+        let outcome = playTone()
+        watchTellStatus = "Tell me from the watch: \(outcome.status.lowercased())"
+        watchTellResult = outcome.result
     }
 
     /// A 2 s tone at 880 Hz in Caches, written again if the system purged it.
@@ -254,10 +272,14 @@ final class WalkingCheckModel: NSObject {
 
     /// Starts an activity in the foreground, then updates it from the background after 60 s.
     /// The update relies on the background location run (row 1) keeping the app alive until then.
-    func startActivity() {
+    func startActivity() async {
         guard !activityRunning else { return }
+        activityRunning = true  // also guards against a second tap while old activities are being ended
         activityResult = nil
+        // Ended first, so an activity left over from an earlier launch does not stay on the lock screen beside the new one.
+        await Self.endAllActivities()
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            activityRunning = false
             activityStatus = "Live Activities are turned off"
             activityResult = CheckResult(passed: false, detail: "Live Activities are turned off in Settings")
             return
@@ -267,11 +289,11 @@ final class WalkingCheckModel: NSObject {
             activityID = try Activity.request(attributes: WalkingActivityAttributes(startedAt: .now),
                                               content: ActivityContent(state: state, staleDate: nil)).id
         } catch {
+            activityRunning = false
             activityStatus = "Could not start: \(error.localizedDescription)"
             activityResult = CheckResult(passed: false, detail: "Live Activity error: \(error.localizedDescription)")
             return
         }
-        activityRunning = true
         let hint = locationRunning ? "" : " Start Background location first, or the app may be suspended."
         activityStatus = "Started. Lock the phone; it updates in \(Int(Self.activityUpdateDelay)) s.\(hint)"
         activityTimer = Task { [weak self] in
@@ -288,6 +310,12 @@ final class WalkingCheckModel: NSObject {
         activityRunning = false
         activityStatus = "Ended"
         if let id { Task { await Self.endActivity(id: id) } }
+    }
+
+    private nonisolated static func endAllActivities() async {
+        for activity in Activity<WalkingActivityAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
     }
 
     // `Activity` is not Sendable, so it is looked up by id inside these nonisolated helpers
@@ -317,8 +345,8 @@ final class WalkingCheckModel: NSObject {
         activityTimer = nil
         switch (succeeded, inBackground) {
         case (true, true):
-            activityStatus = "Updated from background"
-            activityResult = CheckResult(passed: true, detail: "Updated from background ✓")
+            activityStatus = "Update sent from background"
+            activityResult = CheckResult(passed: true, detail: "Update sent from background ✓")
         case (true, false):
             activityStatus = "Updated, in the foreground"
             activityResult = CheckResult(passed: false, detail: "Updated, but the app was in the foreground — lock the phone and try again")
