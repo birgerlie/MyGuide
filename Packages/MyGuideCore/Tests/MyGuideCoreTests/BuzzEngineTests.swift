@@ -87,6 +87,32 @@ import Testing
         #expect(e.evaluate(places: [p2], position: .at(north: 1125), accuracy: 5, course: 0, now: Self.t0 + 600) == nil)
         #expect(e.evaluate(places: [p2], position: .at(north: 1125), accuracy: 5, course: 0, now: Self.t0 + 660)?.usedOverride == true)
     }
+    @Test func overrideSkipsANearerTopPlaceThatIsNotPassing() {
+        // 5/h: "a" (top, 5 m) buzzes at t0 and spends the budget; B (top, 40 m north) is due, closest 40.
+        // A (top) sits 65 m south and 50 m east: at the origin sqrt(65² + 50²) = 82 m (not due).
+        // t0+60 at 65 m south: B is 40 + 65 = 105 m away (≥ 90, > 40 + 10); A is sqrt(0² + 50²) = 50 m away, so it
+        // is nearer and sorts first, but 50 < 90 → A does not qualify. Budget 60·5/3600 = 0.08 → B overrides.
+        var e = Self.engine(perHour: 5)
+        let a = Self.place("a", .top, north: 5), b = Self.place("b", .top, north: 40)
+        let nearer = Self.place("A", .top, north: -65, east: 50)
+        #expect(e.evaluate(places: [a, b, nearer], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
+        let o = e.evaluate(places: [a, b, nearer], position: .at(north: -65), accuracy: 5, course: 0, now: Self.t0 + 60)
+        #expect(o?.place == b)
+        #expect(o?.usedOverride == true)
+    }
+    @Test func dueSetIsUpdatedWhileBusy() {
+        // Busy at the origin: the place at 55 m enters the due set but nothing buzzes.
+        // Later at 45 m south it is 55 + 45 = 100 m away (> 60, ≤ 120) → still due, fresh budget → buzzes.
+        var e = Self.engine()
+        let p = Self.place("p", .good, north: 55)
+        e.isBusy = true
+        #expect(e.evaluate(places: [p], position: .at(), accuracy: 5, course: 0, now: Self.t0) == nil)
+        e.isBusy = false
+        #expect(e.evaluate(places: [p], position: .at(north: -45), accuracy: 5, course: 0, now: Self.t0 + 5)?.place == p)
+        // Control: without the busy evaluation the place was never due, and 100 m is outside the due radius.
+        var f = Self.engine()
+        #expect(f.evaluate(places: [p], position: .at(north: -45), accuracy: 5, course: 0, now: Self.t0 + 5) == nil)
+    }
     @Test func noOverrideForGoodTier() {
         var e = Self.engine(perHour: 5)
         let a = Self.place("a", .good, north: 5), church = Self.place("church", .good, north: 30)

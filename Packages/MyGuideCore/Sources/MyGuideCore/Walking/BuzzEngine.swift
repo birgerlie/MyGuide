@@ -84,10 +84,12 @@ public struct BuzzEngine: Sendable {
             return buzz(first.place, first.distance, first.bearing, course, usedOverride: false)
         }
 
-        if let top = candidates.first(where: { $0.place.tier == .top }),
-           top.distance >= Self.overrideMinDistance,
-           top.distance > (closest[top.place.candidate.id] ?? top.distance) + Self.overridePassingMargin,
-           lastOverride.map({ now.timeIntervalSince($0) >= Self.overrideInterval }) ?? true {
+        // The first top-tier candidate (tier/distance order) that is far enough and has been passed; the interval
+        // check is not part of the choice.
+        if let top = candidates.first(where: {
+            $0.place.tier == .top && $0.distance >= Self.overrideMinDistance
+                && $0.distance > (closest[$0.place.candidate.id] ?? $0.distance) + Self.overridePassingMargin
+        }), lastOverride.map({ now.timeIntervalSince($0) >= Self.overrideInterval }) ?? true {
             lastOverride = now
             return buzz(top.place, top.distance, top.bearing, course, usedOverride: true)
         }
