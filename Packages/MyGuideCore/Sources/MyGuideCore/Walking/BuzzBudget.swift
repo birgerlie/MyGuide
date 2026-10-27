@@ -30,10 +30,10 @@ public struct BuzzBudget: Sendable, Equatable {
         available(at: now) >= 1
     }
 
-    /// Takes one buzz if one is available. Returns false and changes nothing otherwise.
+    /// Takes one buzz if one is available. Returns false and mutates no state otherwise (not even the accrual point).
     public mutating func spend(at now: Date) -> Bool {
+        guard available(at: now) >= 1 else { return false }
         accrue(to: now)
-        guard tokens >= 1 else { return false }
         tokens -= 1
         return true
     }

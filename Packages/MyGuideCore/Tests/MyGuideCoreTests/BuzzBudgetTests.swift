@@ -63,8 +63,10 @@ import Testing
         // 20/h, spent at t0 → 0. Failed spend at t0+90 (0.5 accrued, not spendable) must change nothing.
         // At t0+180 the total accrued is 180/180 = 1.0; a failed spend that subtracted anyway would show 0.5.
         var b = BuzzBudget(perHour: 20, now: Self.t0); _ = b.spend(at: Self.t0)
+        let before = b
         let failed = b.spend(at: Self.t0 + 90)
         #expect(!failed)
+        #expect(b == before)
         #expect(abs(b.available(at: Self.t0 + 180) - 1.0) < 1e-9)
     }
     @Test func spendingFromCapDropsToTwo() {
