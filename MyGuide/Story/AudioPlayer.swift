@@ -6,9 +6,18 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var observers: [any NSObjectProtocol] = []
 
-    /// Called on the main actor when playback ends without `stop()` being called:
-    /// finished, decode error, interruption began, or the output device went away.
-    var onFinish: (() -> Void)?
+    /// How playback ended without `stop()` being called.
+    enum Ending {
+        /// The file played to its end.
+        case completed
+        /// The file could not be decoded.
+        case failed
+        /// An interruption began (call, Siri) or the output device went away.
+        case interrupted
+    }
+
+    /// Called on the main actor when playback ends without `stop()` being called.
+    var onFinish: ((Ending) -> Void)?
 
     isolated deinit {
         removeObservers()
@@ -66,22 +75,22 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     private func endedExternally() {
         guard player != nil else { return }
         stop()
-        onFinish?()
+        onFinish?(.interrupted)
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ finished: AVAudioPlayer, successfully flag: Bool) {
         let id = ObjectIdentifier(finished)
-        Task { @MainActor in self.didEnd(id) }
+        Task { @MainActor in self.didEnd(id, .completed) }
     }
 
     nonisolated func audioPlayerDecodeErrorDidOccur(_ failed: AVAudioPlayer, error: Error?) {
         let id = ObjectIdentifier(failed)
-        Task { @MainActor in self.didEnd(id) }
+        Task { @MainActor in self.didEnd(id, .failed) }
     }
 
-    private func didEnd(_ id: ObjectIdentifier) {
+    private func didEnd(_ id: ObjectIdentifier, _ ending: Ending) {
         guard let player, ObjectIdentifier(player) == id else { return }
         stop()
-        onFinish?()
+        onFinish?(ending)
     }
 }

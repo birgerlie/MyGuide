@@ -6,6 +6,8 @@ public struct WalkingPlayback: Sendable, Equatable {
     public enum Event: Sendable, Equatable {
         case buzzSent(UUID), storyReady(UUID), storyFailed(UUID), moreReady(UUID, level: Int), moreFailed(UUID)
         case tellMe(UUID), more(UUID), skip(UUID), finished(UUID, level: Int), stoppedExternally
+        /// The listener picked one level of a story that has its text (the in-app story screen).
+        case listen(UUID, level: Int)
     }
 
     public enum Effect: Sendable, Equatable {
@@ -48,11 +50,23 @@ public struct WalkingPlayback: Sendable, Equatable {
         }
     }
 
+    /// True while the story is preparing, ready or fetching more: "tell me" can be answered without memory.
+    /// False for a failed, skipped, forgotten or never-seen id.
+    public func hasStory(_ id: UUID) -> Bool {
+        switch phases[id] {
+        case .preparing, .ready, .fetching: true
+        case .failed, nil: false
+        }
+    }
+
+    /// The highest level played or being played for the story; nil when none was played or the id is unknown.
+    public func deepestLevel(_ id: UUID) -> Int? { levels[id] }
+
     public mutating func handle(_ event: Event) -> [Effect] {
         let effects = process(event)
         switch event {
         case .buzzSent(let id), .storyReady(let id), .storyFailed(let id), .moreReady(let id, _), .moreFailed(let id),
-             .tellMe(let id), .more(let id), .skip(let id), .finished(let id, _):
+             .tellMe(let id), .more(let id), .skip(let id), .finished(let id, _), .listen(let id, _):
             touch(id)
         case .stoppedExternally:
             break
@@ -111,7 +125,8 @@ public struct WalkingPlayback: Sendable, Equatable {
             }
 
         case .more(let id):
-            guard phases[id] == .ready, let level = levels[id], level < StoryLevel.allCases.count else { return [] }
+            // A ready story has level 1 even when nothing was played yet (the story screen's "Tell me more").
+            guard phases[id] == .ready, (levels[id] ?? 1) < StoryLevel.allCases.count else { return [] }
             phases[id] = .fetching
             return [.fetchMore(id)]
 
@@ -147,6 +162,20 @@ public struct WalkingPlayback: Sendable, Equatable {
         case .stoppedExternally:
             playing = nil
             return []
+
+        case .listen(let id, let level):
+            guard (1...StoryLevel.allCases.count).contains(level) else { return [] }
+            switch phases[id] {
+            case .ready, .fetching:
+                // A level of the story already playing replaces it in the player (`play` for the same id).
+                if let current = playing, current.id == id, current.level == level { return [] }
+                return start(id, level: level)
+            case .preparing:
+                // No text yet; "tell me" is the way to wait for it.
+                return []
+            case .failed, nil:
+                return [.reportFailure(id)]
+            }
         }
     }
 

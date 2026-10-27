@@ -30,14 +30,15 @@ struct MyGuideApp: App {
         _services = State(initialValue: services)
         // Set before the app finishes launching, so an action that cold-launches the app is not dropped.
         AppDelegate.responseHandler = { response in
-            // The Walking check owns category CHECK; walking mode owns category BUZZ.
+            // The Walking check owns category CHECK; walking mode owns BUZZ, MORE and STORY_FAILED.
             switch response.notification.request.content.categoryIdentifier {
             case WalkingCheckModel.category: services.walkingCheck.handle(response)
-            case BuzzNotifier.category: services.walking.handle(response)
+            case BuzzNotifier.category, BuzzNotifier.moreCategory, BuzzNotifier.failedCategory:
+                services.walking.handle(response)
             default: break
             }
         }
-        Task { await BuzzNotifier.registerCategory() }
+        Task { await BuzzNotifier.registerCategories() }
     }
 
     var body: some Scene {

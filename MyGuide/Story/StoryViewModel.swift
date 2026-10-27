@@ -67,7 +67,7 @@ final class StoryViewModel {
     init(services: AppServices, language: StoryLanguage = .english) {
         self.services = services
         self.newSessionLanguage = language
-        audio.onFinish = { [weak self] in self?.speech = [:] }
+        audio.onFinish = { [weak self] _ in self?.speech = [:] }
     }
 
     /// Opens a stored session from History: shows its levels at once, with no auto-play. Speech cache keys use
@@ -77,7 +77,7 @@ final class StoryViewModel {
         self.session = session
         self.state = .showing
         loadStoredThenImage(sessionID: session.id)
-        audio.onFinish = { [weak self] in self?.speech = [:] }
+        audio.onFinish = { [weak self] _ in self?.speech = [:] }
     }
 
     // Backstop: work for a dropped screen must not keep running (the owner normally calls cancel()).

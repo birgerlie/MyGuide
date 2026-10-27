@@ -36,8 +36,14 @@ final class AppServices {
         self.memoryIsPersistent = memoryIsPersistent
         let http = http
         let keychain = keychain
+        let stories = WalkingStories(
+            memory: memory,
+            makeFlow: { try Self.walkingFlow(openAI: Self.openAI(keychain: keychain, http: http), memory: memory) },
+            makeSpeech: { try Self.speech(openAI: Self.openAI(keychain: keychain, http: http)) },
+            recordUsage: { Self.recordUsage($0, memory: memory) })
         walking = WalkingController(
             memory: memory,
+            stories: stories,
             makeSource: { Self.walkingSource(http: http) },
             hasAPIKey: { ((try? keychain.read(Self.apiKeyAccount)) ?? nil)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false })
         let walkingCheck = walkingCheck
@@ -56,7 +62,11 @@ final class AppServices {
 
     /// Throws `OpenAIError.missingAPIKey` when no non-blank key is stored; Keychain failures propagate.
     func makeOpenAI() throws -> OpenAIClient {
-        let key = try keychain.read(Self.apiKeyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        try Self.openAI(keychain: keychain, http: http)
+    }
+
+    private static func openAI(keychain: KeychainStore, http: HTTPClient) throws -> OpenAIClient {
+        let key = try keychain.read(apiKeyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !key.isEmpty else { throw OpenAIError.missingAPIKey }
         return OpenAIClient(apiKey: key, http: http)
     }
@@ -77,7 +87,21 @@ final class AppServices {
 
     /// Throws `OpenAIError.missingAPIKey` when no non-blank key is stored.
     func makeSpeech() throws -> SpeechService {
-        SpeechService(openAI: try makeOpenAI(), cacheDirectory: Self.speechCacheDirectory)
+        Self.speech(openAI: try makeOpenAI())
+    }
+
+    private static func speech(openAI: OpenAIClient) -> SpeechService {
+        SpeechService(openAI: openAI, cacheDirectory: speechCacheDirectory)
+    }
+
+    /// Throws `OpenAIError.missingAPIKey` when no key is stored.
+    func makeWalkingFlow() throws -> WalkingStoryFlow {
+        Self.walkingFlow(openAI: try makeOpenAI(), memory: memory)
+    }
+
+    /// Walking stories get the same memory priors as photo stories.
+    private static func walkingFlow(openAI: OpenAIClient, memory: MemoryStore) -> WalkingStoryFlow {
+        WalkingStoryFlow(openAI: openAI, priors: priorLookup(memory: memory))
     }
 
     /// Throws `OpenAIError.missingAPIKey` when no key is stored.
@@ -86,9 +110,12 @@ final class AppServices {
         let grounding = GroundingService(overpass: OverpassClient(http: http),
                                          wikipedia: WikipediaClient(http: http),
                                          geocoder: MapKitReverseGeocoder())
-        let memory = memory
-        // A memory failure must never block a story: log it and tell the flow there are no priors.
-        let priors: PriorStoryLookup = { placeIDs, near, excluding in
+        return PhotoStoryFlow(grounding: grounding, openAI: openAI, priors: Self.priorLookup(memory: memory))
+    }
+
+    /// A memory failure must never block a story: it is logged and the flow is told there are no priors.
+    private static func priorLookup(memory: MemoryStore) -> PriorStoryLookup {
+        { placeIDs, near, excluding in
             await MainActor.run {
                 do {
                     return try memory.priorStories(placeIDs: placeIDs, near: near, excludingSession: excluding)
@@ -98,16 +125,19 @@ final class AppServices {
                 }
             }
         }
-        return PhotoStoryFlow(grounding: grounding, openAI: openAI, priors: priors)
     }
 
     /// Records usage entries with today's prices. A failure is logged and swallowed: counting must never
     /// block or hide a story, and it does not use the save banner.
     func recordUsage(_ entries: [UsageEntry]) {
+        Self.recordUsage(entries, memory: memory)
+    }
+
+    private static func recordUsage(_ entries: [UsageEntry], memory: MemoryStore) {
         do {
             try memory.recordUsage(entries, prices: .current)
         } catch {
-            Self.logMemoryFailure("usage record failed", error)
+            logMemoryFailure("usage record failed", error)
         }
     }
 

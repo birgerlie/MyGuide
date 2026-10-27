@@ -39,6 +39,7 @@ struct CaptureScreen: View {
                 hud
                 WalkingStatusPill(controller: services.walking)
                 Spacer()
+                WalkingPanel(stories: services.walking.stories)
                 controls
             }
             .padding()
@@ -66,6 +67,13 @@ struct CaptureScreen: View {
         .navigationDestination(isPresented: storyPresented) {
             if let story {
                 StoryView(model: story, location: location)
+            }
+        }
+        // A tap on a walking notification (or the panel's title) opens that story.
+        .navigationDestination(isPresented: walkStoryPresented) {
+            if let id = services.walking.stories.openID {
+                WalkStoryView(stories: services.walking.stories, id: id)
+                    .id(id)
             }
         }
         .alert("Couldn't use the photo", isPresented: errorPresented) {
@@ -215,6 +223,13 @@ struct CaptureScreen: View {
             // The story screen is being dropped (navigated back): stop its work silently.
             story?.cancel()
             story = nil
+        })
+    }
+
+    private var walkStoryPresented: Binding<Bool> {
+        let stories = services.walking.stories
+        return Binding(get: { stories.openID != nil }, set: { presented in
+            if !presented { stories.openID = nil }
         })
     }
 

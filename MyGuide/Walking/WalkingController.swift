@@ -4,9 +4,13 @@ import Observation
 import os
 import UserNotifications
 
-/// What the owner can do to a buzz. Later tasks add more cases.
+/// What the owner can do to a buzz, from its notification, the watch, the panel or the story screen.
 enum WalkingCommand {
+    case tellMe(buzzID: UUID)
+    case more(buzzID: UUID)
     case skip(buzzID: UUID)
+    /// Show the story in the app.
+    case open(buzzID: UUID)
 }
 
 /// Walking mode on the phone: follows the walker in the background, keeps the nearby places fresh and
@@ -25,7 +29,10 @@ final class WalkingController {
     /// Why walking mode did not start (or stopped); empty when nothing is in the way.
     private(set) var problems: [String] = []
     private(set) var buzzCount = 0
+    /// The time of the last fix the buzz engine could use; nil until one arrives.
     private(set) var lastFixAt: Date?
+    /// The walking stories: prepared at buzz time, played, continued and skipped.
+    let stories: WalkingStories
 
     @ObservationIgnored private let memory: MemoryStore
     @ObservationIgnored private let makeSource: () -> WalkingPlaceSource
@@ -42,11 +49,20 @@ final class WalkingController {
     @ObservationIgnored private var postedCandidates: [UUID: Candidate] = [:]
     /// Identifies the start in progress; `stop()` clears it so a start that is waiting on a prompt gives up.
     @ObservationIgnored private var startToken: UUID?
+    /// Identifies the current run (start to stop), so work begun in an earlier run never touches this one.
+    @ObservationIgnored private var runToken: UUID?
 
-    init(memory: MemoryStore, makeSource: @escaping () -> WalkingPlaceSource, hasAPIKey: @escaping () -> Bool) {
+    init(memory: MemoryStore, stories: WalkingStories, makeSource: @escaping () -> WalkingPlaceSource,
+         hasAPIKey: @escaping () -> Bool) {
         self.memory = memory
+        self.stories = stories
         self.makeSource = makeSource
         self.hasAPIKey = hasAPIKey
+        // No buzz while a story is preparing, being continued or playing.
+        stories.onBusyChanged = { [weak self] busy in self?.engine?.isBusy = busy }
+        stories.onHeard = { [weak self] placeID in self?.noteHeard(placeID: placeID) }
+        stories.onRetire = { [weak self] id, candidate, level in self?.retire(id, candidate: candidate, deepestLevel: level) }
+        stories.currentTripID = { [weak self] in self?.tripID }
         location.onLocation = { [weak self] fix in self?.handle(fix) }
         location.onDenied = { [weak self] in
             guard let self, isOn else { return }
@@ -90,7 +106,7 @@ final class WalkingController {
         // Only now: nothing blocks, so upgrading to Always is the one thing left to ask.
         location.requestAlways()
 
-        await BuzzNotifier.registerCategory()
+        await BuzzNotifier.registerCategories()
         let now = Date.now
         do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
         let city = await Self.city(near: location.lastKnown)
@@ -108,7 +124,11 @@ final class WalkingController {
         do { excluded.formUnion(try memory.placeIDsBuzzed(tripID: trip)) } catch { AppServices.logMemoryFailure("buzzed places failed", error) }
 
         appliedPerHour = Self.configuredPerHour()
-        engine = BuzzEngine(perHour: appliedPerHour, now: now, excluded: excluded)
+        var engine = BuzzEngine(perHour: appliedPerHour, now: now, excluded: excluded)
+        // A story from before this run may still be playing or ending.
+        engine.isBusy = stories.isBusy
+        self.engine = engine
+        runToken = UUID()
         feed = PlaceFeed()
         source = makeSource()
         postedCandidates = [:]
@@ -123,6 +143,7 @@ final class WalkingController {
         startToken = nil
         guard isOn else { return }
         isOn = false
+        runToken = nil
         location.stop()
         flushTrack()
         do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
@@ -132,19 +153,24 @@ final class WalkingController {
         engine = nil
         source = nil
         problems = []
-        Task { await BuzzNotifier.removeDelivered() }
+        // Preparations and fetches still end with their (silent) failure events, so the machine never stays busy.
+        stories.stopAll()
+        Task { await BuzzNotifier.removeWalkNotifications() }
     }
 
     // MARK: - Commands
 
+    /// Every command goes through the playback machine (Skip too), so there is one path per command.
     func handle(_ command: WalkingCommand) {
         switch command {
-        case .skip(let buzzID):
-            skip(buzzID)
+        case .tellMe(let buzzID): stories.tellMe(buzzID)
+        case .more(let buzzID): stories.more(buzzID)
+        case .skip(let buzzID): stories.skip(buzzID)
+        case .open(let buzzID): stories.open(buzzID)
         }
     }
 
-    /// Routes a response to a BUZZ notification.
+    /// Routes a response to a BUZZ, MORE or STORY_FAILED notification.
     func handle(_ response: UNNotificationResponse) {
         if let command = BuzzNotifier.command(for: response) { handle(command) }
     }
@@ -154,29 +180,33 @@ final class WalkingController {
         engine?.exclude(placeID)
     }
 
-    private func skip(_ buzzID: UUID) {
+    /// The playback machine's `retire` effect for a skipped buzz. `candidate` is the story's place, when known.
+    private func retire(_ buzzID: UUID, candidate: Candidate?, deepestLevel: Int) {
         let now = Date.now
+        let candidate = postedCandidates[buzzID] ?? candidate
         // The place is retired in the same save as the outcome. When the buzz was never logged, store the place
-        // from the candidate kept in memory so the skip is not lost.
+        // from the candidate so the skip is not lost.
         do {
-            try memory.setBuzzOutcome(buzzID, .skipped, deepestLevel: 0, at: now)
+            try memory.setBuzzOutcome(buzzID, .skipped, deepestLevel: deepestLevel, at: now)
         } catch {
-            if let candidate = postedCandidates[buzzID] {
+            if let candidate {
                 do { try memory.markSkipped(candidate, at: now) } catch { AppServices.logMemoryFailure("skip failed", error) }
             } else {
                 AppServices.logMemoryFailure("skip failed", error)
             }
         }
-        if let candidate = postedCandidates[buzzID] { engine?.exclude(candidate.id) }
+        if let candidate { engine?.exclude(candidate.id) }
         engine?.noteSkip(at: now)
     }
 
     // MARK: - Fixes
 
     private func handle(_ fix: CLLocation) {
-        guard isOn, var engine, fix.horizontalAccuracy >= 0 else { return }
         let now = Date.now
-        lastFixAt = fix.timestamp
+        // CoreLocation's first fix can be its cached position from minutes ago: not where the walker is.
+        guard isOn, var engine, fix.horizontalAccuracy >= 0, WalkingFix.isFresh(fix.timestamp, now: now) else { return }
+        // The status says "waiting for GPS" until a fix the engine can use arrives.
+        if WalkingFix.isUsable(accuracy: fix.horizontalAccuracy) { lastFixAt = fix.timestamp }
         let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
 
         track.append(TrackSample(at: fix.timestamp, coordinate: position))
@@ -189,39 +219,53 @@ final class WalkingController {
             appliedPerHour = perHour
             engine.setPerHour(perHour, at: now)
         }
+        let course = fix.course >= 0 ? fix.course : nil
         let buzz = engine.evaluate(places: feed.places, position: position, accuracy: fix.horizontalAccuracy,
-                                   course: fix.course >= 0 ? fix.course : nil, now: now)
+                                   course: course, now: now)
         self.engine = engine
-        if let buzz { deliver(buzz, at: now) }
+        if let buzz { deliver(buzz, position: position, course: course, at: now) }
     }
 
-    private func deliver(_ buzz: Buzz, at now: Date) {
+    private func deliver(_ buzz: Buzz, position: Coordinate, course: Double?, at now: Date) {
         postedCandidates[buzz.id] = buzz.place.candidate
         if let tripID {
             do { try memory.recordBuzz(buzz, tripID: tripID, at: now) } catch { AppServices.logMemoryFailure("buzz record failed", error) }
         }
         buzzCount += 1
-        Task {
-            do { try await BuzzNotifier.post(buzz) } catch { AppServices.logMemoryFailure("buzz post failed", error) }
+        let run = runToken
+        Task { [weak self] in
+            guard let self, self.isOn, self.runToken == run else { return }
+            do { try await BuzzNotifier.post(buzz) } catch { AppServices.logMemoryFailure("buzz post failed", error); return }
+            // stop() may have cleared the notifications while this one was being added: take it back.
+            if !self.isOn || self.runToken != run { BuzzNotifier.removeNotifications(for: buzz.id) }
         }
+        // Prepared at once, so a tap plays within a second or two (design 7.5). This makes the engine busy.
+        stories.prepare(buzz, position: position, course: course, nearby: feed.places, language: Self.storyLanguage())
     }
 
     private func fetch(around position: Coordinate, now: Date) {
         guard let source else { return }
         feed.fetchStarted(now: now)
         let language = Self.storyLanguage()
+        let run = runToken
         fetchTask = Task { [weak self] in
+            let result: Result<[WalkingPlace], Error>
             do {
-                let places = try await source.places(around: position, language: language)
-                guard !Task.isCancelled else { self?.feed.fetchCancelled(); return }
-                self?.feed.fetchSucceeded(places, at: position, now: .now)
+                result = .success(try await source.places(around: position, language: language))
             } catch {
-                // The app's own cancellation is silent and sets no retry delay; a real failure waits 60 s.
-                if error is CancellationError || Task.isCancelled {
-                    self?.feed.fetchCancelled()
-                } else {
-                    self?.feed.fetchFailed(now: .now)
-                }
+                result = .failure(error)
+            }
+            // A fetch from an earlier run never touches this run's feed (stop() already settled that one).
+            guard let self, self.runToken == run else { return }
+            switch result {
+            case .success(let places) where !Task.isCancelled:
+                self.feed.fetchSucceeded(places, at: position, now: .now)
+            case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
+                // A real failure waits 60 s before the next try.
+                self.feed.fetchFailed(now: .now)
+            default:
+                // The app's own cancellation is silent and sets no retry delay.
+                self.feed.fetchCancelled()
             }
         }
     }

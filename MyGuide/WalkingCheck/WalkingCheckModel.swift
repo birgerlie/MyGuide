@@ -54,7 +54,7 @@ final class WalkingCheckModel: NSObject {
         authorization = manager.authorizationStatus
         super.init()
         manager.delegate = self
-        player.onFinish = { [weak self] in self?.endBackgroundWork() }
+        player.onFinish = { [weak self] _ in self?.endBackgroundWork() }
     }
 
     // MARK: - Background location

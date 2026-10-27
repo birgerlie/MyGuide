@@ -55,7 +55,7 @@ public struct BuzzEngine: Sendable {
 
     public mutating func evaluate(places: [WalkingPlace], position: Coordinate, accuracy: Double,
                                   course: Double?, now: Date) -> Buzz? {
-        guard accuracy.isFinite, accuracy >= 0, accuracy <= Self.maxFixAccuracy else { return nil }
+        guard WalkingFix.isUsable(accuracy: accuracy) else { return nil }
 
         // Update the due set. A place that is no longer in `places` is forgotten.
         struct Due { var place: WalkingPlace; var distance: Double; var bearing: Double }

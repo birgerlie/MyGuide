@@ -171,4 +171,91 @@ import Testing
         for _ in 0..<WalkingPlayback.memoryLimit { let id = UUID(); _ = q.handle(.buzzSent(id)); _ = q.handle(.storyReady(id)) }
         #expect(q.handle(.tellMe(Self.a)) == [.reportFailure(Self.a)])
     }
+
+    // MARK: - Queries and in-app listening (Task 11)
+
+    @Test func hasStoryOnlyWhileTheStoryCanBeTold() {
+        var p = WalkingPlayback()
+        #expect(!p.hasStory(Self.a))
+        _ = p.handle(.buzzSent(Self.a))
+        #expect(p.hasStory(Self.a))                       // preparing
+        _ = p.handle(.storyReady(Self.a))
+        #expect(p.hasStory(Self.a))                       // ready
+        _ = p.handle(.tellMe(Self.a)); _ = p.handle(.finished(Self.a, level: 1)); _ = p.handle(.more(Self.a))
+        #expect(p.hasStory(Self.a))                       // fetching
+        _ = p.handle(.buzzSent(Self.b)); _ = p.handle(.storyFailed(Self.b))
+        #expect(!p.hasStory(Self.b))                      // failed: the app may rebuild it from memory
+        _ = p.handle(.skip(Self.a))
+        #expect(!p.hasStory(Self.a))                      // skipped: forgotten
+    }
+    @Test func deepestLevelFollowsWhatWasPlayed() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a))
+        #expect(p.deepestLevel(Self.a) == nil)            // ready, never played
+        _ = p.handle(.tellMe(Self.a))
+        #expect(p.deepestLevel(Self.a) == 1)
+        _ = p.handle(.finished(Self.a, level: 1)); _ = p.handle(.more(Self.a)); _ = p.handle(.moreReady(Self.a, level: 2))
+        #expect(p.deepestLevel(Self.a) == 2)
+        _ = p.handle(.tellMe(Self.b))
+        #expect(p.deepestLevel(Self.b) == nil)            // unknown
+    }
+    @Test func moreOnAReadyStoryThatWasNeverPlayed() {
+        // The story screen's "Tell me more" works before anything was heard: the story has level 1, so level 2 is next.
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a))
+        #expect(p.handle(.more(Self.a)) == [.fetchMore(Self.a)] && p.isBusy)
+        #expect(p.handle(.moreReady(Self.a, level: 2)) == [.play(Self.a, level: 2)])
+        #expect(p.deepestLevel(Self.a) == 2)
+    }
+    @Test func moreIsRefusedWhilePreparingOrFetching() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a))
+        #expect(p.handle(.more(Self.a)).isEmpty)
+        _ = p.handle(.storyReady(Self.a)); _ = p.handle(.more(Self.a))
+        #expect(p.handle(.more(Self.a)).isEmpty)          // already fetching
+    }
+    @Test func listenPlaysAnyLevelAndReplacesTheCurrentAudio() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a))
+        #expect(p.handle(.listen(Self.a, level: 2)) == [.play(Self.a, level: 2)])
+        #expect(p.playing?.level == 2 && p.isBusy && p.deepestLevel(Self.a) == 2)
+        // Same story, other level: the app replaces the audio itself, so no stopAudio.
+        #expect(p.handle(.listen(Self.a, level: 1)) == [.play(Self.a, level: 1)])
+        #expect(p.playing?.level == 1 && p.deepestLevel(Self.a) == 2)
+        // The level already playing: nothing to do.
+        #expect(p.handle(.listen(Self.a, level: 1)).isEmpty)
+        // Another story stops this one first.
+        _ = p.handle(.buzzSent(Self.b)); _ = p.handle(.storyReady(Self.b))
+        #expect(p.handle(.listen(Self.b, level: 1)) == [.stopAudio, .play(Self.b, level: 1)])
+    }
+    @Test func listenFinishOffersMoreOnlyWhileLevelsRemain() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a))
+        _ = p.handle(.listen(Self.a, level: 2))
+        #expect(p.handle(.finished(Self.a, level: 2)) == [.offerMore(Self.a)])
+        _ = p.handle(.listen(Self.a, level: 3))
+        #expect(p.handle(.finished(Self.a, level: 3)).isEmpty && !p.isBusy)
+    }
+    @Test func listenBoundariesAndStates() {
+        var p = WalkingPlayback()
+        // Unknown or failed: a failure, as for "tell me".
+        #expect(p.handle(.listen(Self.a, level: 1)) == [.reportFailure(Self.a)])
+        _ = p.handle(.buzzSent(Self.b)); _ = p.handle(.storyFailed(Self.b))
+        #expect(p.handle(.listen(Self.b, level: 1)) == [.reportFailure(Self.b)])
+        // Preparing: there is no text yet, so nothing plays.
+        _ = p.handle(.buzzSent(Self.a))
+        #expect(p.handle(.listen(Self.a, level: 1)).isEmpty && p.playing == nil)
+        _ = p.handle(.storyReady(Self.a))
+        // Levels outside 1...3 are ignored.
+        #expect(p.handle(.listen(Self.a, level: 0)).isEmpty)
+        #expect(p.handle(.listen(Self.a, level: 4)).isEmpty)
+        #expect(p.playing == nil && p.deepestLevel(Self.a) == nil)
+    }
+    @Test func listenWhileFetchingKeepsTheFetch() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a)); _ = p.handle(.tellMe(Self.a))
+        _ = p.handle(.finished(Self.a, level: 1)); _ = p.handle(.more(Self.a))
+        #expect(p.handle(.listen(Self.a, level: 1)) == [.play(Self.a, level: 1)])
+        #expect(p.handle(.moreReady(Self.a, level: 2)) == [.play(Self.a, level: 2)])
+    }
 }

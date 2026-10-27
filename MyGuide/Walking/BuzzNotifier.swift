@@ -1,51 +1,108 @@
 import MyGuideCore
 import UserNotifications
 
-/// Posts and manages buzz notifications: the BUZZ category with its Skip action, time-sensitive delivery.
+/// Posts and manages walking-mode notifications: a buzz (Tell me, Skip), the offer of the next part (More, Skip)
+/// and a story that could not be told. Every one carries its buzz id in `userInfo["buzzID"]`.
 enum BuzzNotifier {
     nonisolated static let category = "BUZZ"
+    nonisolated static let moreCategory = "MORE"
+    nonisolated static let failedCategory = "STORY_FAILED"
+    nonisolated static let tellMeAction = "TELL_ME"
+    nonisolated static let moreAction = "MORE"
     nonisolated static let skipAction = "SKIP"
+    /// The categories `stop()` clears from the notification centre; a failure report stays.
+    private static let walkCategories: Set<String> = [category, moreCategory]
     private static let thread = "walk"
+    private static let buzzIDKey = "buzzID"
 
-    /// Registers category BUZZ, merging with the categories other features registered (never replacing them).
-    static func registerCategory() async {
+    static let failedTitle = "Couldn't get the story"
+    static let moreBody = "Tap More for the next part."
+
+    /// Registers BUZZ, MORE and STORY_FAILED, merging with the categories other features registered (never
+    /// replacing them). The actions run in the background: the story plays without unlocking the phone.
+    static func registerCategories() async {
         let center = UNUserNotificationCenter.current()
+        let tellMe = UNNotificationAction(identifier: tellMeAction, title: "Tell me", options: [])
+        let more = UNNotificationAction(identifier: moreAction, title: "More", options: [])
         let skip = UNNotificationAction(identifier: skipAction, title: "Skip", options: [])
-        let buzz = UNNotificationCategory(identifier: category, actions: [skip], intentIdentifiers: [], options: [])
-        var categories = await center.notificationCategories().filter { $0.identifier != category }
-        categories.insert(buzz)
+        let ours = [
+            UNNotificationCategory(identifier: category, actions: [tellMe, skip], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: moreCategory, actions: [more, skip], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: failedCategory, actions: [], intentIdentifiers: [], options: []),
+        ]
+        let ourIDs = Set(ours.map(\.identifier))
+        var categories = await center.notificationCategories().filter { !ourIDs.contains($0.identifier) }
+        categories.formUnion(ours)
         center.setNotificationCategories(categories)
     }
 
     /// Delivers the buzz at once; the request identifier is the buzz id.
     static func post(_ buzz: Buzz) async throws {
+        let content = content(category: category, title: buzz.title, body: buzz.detail, id: buzz.id)
+        content.userInfo["placeID"] = buzz.place.candidate.id
+        try await add(content, identifier: buzz.id.uuidString)
+    }
+
+    /// Offers the next part of a story that just finished.
+    static func postMore(id: UUID, title: String) async throws {
+        try await add(content(category: moreCategory, title: title, body: moreBody, id: id), identifier: "\(id)-more")
+    }
+
+    /// Says a story could not be told; `body` is the user-facing reason.
+    static func postFailure(id: UUID, body: String) async throws {
+        try await add(content(category: failedCategory, title: failedTitle, body: body, id: id), identifier: "\(id)-failed")
+    }
+
+    /// Removes the BUZZ and MORE notifications, both those in the notification centre and those not yet shown.
+    static func removeWalkNotifications() async {
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+            .filter { walkCategories.contains($0.request.content.categoryIdentifier) }
+            .map(\.request.identifier)
+        let pending = await center.pendingNotificationRequests()
+            .filter { walkCategories.contains($0.content.categoryIdentifier) }
+            .map(\.identifier)
+        center.removeDeliveredNotifications(withIdentifiers: delivered)
+        center.removePendingNotificationRequests(withIdentifiers: pending)
+    }
+
+    /// Removes the buzz and its More offer, shown or not.
+    static func removeNotifications(for id: UUID) {
+        let ids = [id.uuidString, "\(id)-more"]
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: ids)
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+    }
+
+    /// The command a response stands for: Tell me, More and Skip by action, a tap on the notification itself opens
+    /// the story. Nil for a dismissal, an unknown action or a notification without a buzz id.
+    @MainActor
+    static func command(for response: UNNotificationResponse) -> WalkingCommand? {
+        guard let text = response.notification.request.content.userInfo[buzzIDKey] as? String,
+              let id = UUID(uuidString: text) else { return nil }
+        switch response.actionIdentifier {
+        case tellMeAction: return .tellMe(buzzID: id)
+        case moreAction: return .more(buzzID: id)
+        case skipAction: return .skip(buzzID: id)
+        case UNNotificationDefaultActionIdentifier: return .open(buzzID: id)
+        default: return nil
+        }
+    }
+
+    private static func content(category: String, title: String, body: String, id: UUID) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = buzz.title
-        content.body = buzz.detail
+        content.title = title
+        content.body = body
         content.categoryIdentifier = category
         content.interruptionLevel = .timeSensitive
         content.threadIdentifier = thread
         content.sound = .default
-        content.userInfo = ["buzzID": buzz.id.uuidString, "placeID": buzz.place.candidate.id]
-        let request = UNNotificationRequest(identifier: buzz.id.uuidString, content: content, trigger: nil)
+        content.userInfo = [buzzIDKey: id.uuidString]
+        return content
+    }
+
+    private static func add(_ content: UNNotificationContent, identifier: String) async throws {
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         try await UNUserNotificationCenter.current().add(request)
-    }
-
-    /// Removes the BUZZ notifications still in the notification centre.
-    static func removeDelivered() async {
-        let center = UNUserNotificationCenter.current()
-        let ids = await center.deliveredNotifications()
-            .filter { $0.request.content.categoryIdentifier == category }
-            .map(\.request.identifier)
-        center.removeDeliveredNotifications(withIdentifiers: ids)
-    }
-
-    /// The command a response to a BUZZ notification stands for; nil for actions this build does not handle.
-    @MainActor
-    static func command(for response: UNNotificationResponse) -> WalkingCommand? {
-        guard response.actionIdentifier == skipAction,
-              let text = response.notification.request.content.userInfo["buzzID"] as? String,
-              let id = UUID(uuidString: text) else { return nil }
-        return .skip(buzzID: id)
     }
 }
