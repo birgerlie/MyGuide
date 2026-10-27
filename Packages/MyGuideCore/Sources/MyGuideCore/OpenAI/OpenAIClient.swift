@@ -84,14 +84,15 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         struct Payload: Decodable {
             struct Item: Decodable { var b64_json: String? }
             var data: [Item]
-            struct Usage: Decodable { var input_tokens: Int?; var output_tokens: Int? }
-            var usage: Usage?
         }
+        struct Usage: Decodable { var input_tokens: Int?; var output_tokens: Int? }
+        struct UsageEnvelope: Decodable { var usage: Usage? }
         guard let payload = try? JSONDecoder().decode(Payload.self, from: data),
               let b64 = payload.data.first?.b64_json,
               let png = Data(base64Encoded: b64), !png.isEmpty
         else { throw OpenAIError.malformedResponse }
-        let tokens = payload.usage.map { TokenUsage(inputTokens: $0.input_tokens ?? 0, outputTokens: $0.output_tokens ?? 0) }
+        // Decoded on its own: a malformed `usage` must never discard a paid, valid image.
+        let tokens = (try? JSONDecoder().decode(UsageEnvelope.self, from: data))?.usage.map { TokenUsage(inputTokens: $0.input_tokens ?? 0, outputTokens: $0.output_tokens ?? 0) }
         return (png, tokens)
     }
 

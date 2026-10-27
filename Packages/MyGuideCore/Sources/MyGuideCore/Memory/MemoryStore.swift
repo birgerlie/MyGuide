@@ -194,11 +194,12 @@ public enum MemoryError: Error, Equatable {
 
     /// Spend this calendar month (in `calendar`) and over all time.
     public func usageTotals(now: Date = Date(), calendar: Calendar = .current) throws -> UsageTotals {
+        // Half-open [start, end): DateInterval.contains would include the first instant of the next month.
         let month = calendar.dateInterval(of: .month, for: now)
         var totals = UsageTotals(monthUSD: 0, allTimeUSD: 0, monthRequests: 0, unpricedRequests: 0)
         for record in try context.fetch(FetchDescriptor<UsageRecord>()) {
             totals.allTimeUSD += record.estimatedUSD ?? 0
-            if let month, month.contains(record.date) {
+            if let month, record.date >= month.start && record.date < month.end {
                 totals.monthRequests += 1
                 totals.monthUSD += record.estimatedUSD ?? 0
                 if record.estimatedUSD == nil { totals.unpricedRequests += 1 }

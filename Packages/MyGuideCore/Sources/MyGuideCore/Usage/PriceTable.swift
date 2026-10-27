@@ -36,8 +36,9 @@ public struct PriceTable: Sendable {
     public func estimatedUSD(_ entry: UsageEntry) -> Double? {
         guard let price = prices[entry.model] else { return nil }
         switch (entry.kind, price) {
-        case (.image, .tokens) where entry.inputTokens == 0 && entry.outputTokens == 0:
-            // The API sent no usage: unknown, never $0.
+        case (.story, .tokens) where entry.inputTokens == 0 && entry.outputTokens == 0,
+             (.image, .tokens) where entry.inputTokens == 0 && entry.outputTokens == 0:
+            // The API reported no tokens: unknown, never $0.
             return nil
         case let (.story, .tokens(input, output)), let (.image, .tokens(input, output)):
             return Double(entry.inputTokens) * input / 1_000_000 + Double(entry.outputTokens) * output / 1_000_000

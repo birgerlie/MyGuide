@@ -8,6 +8,8 @@ import SwiftData
 @MainActor
 final class AppServices {
     nonisolated static let keychainService = "io.github.birgerlie.MyGuide"
+    /// The `@AppStorage` key of the story language setting, shared by Settings and the capture screen.
+    nonisolated static let storyLanguageKey = "storyLanguage"
     nonisolated static let apiKeyAccount = "openai-api-key"
 
     nonisolated static let memoryLog = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "memory")

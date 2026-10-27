@@ -15,7 +15,7 @@ struct CaptureScreen: View {
     @State private var isBusy = false
     @State private var errorText: String?
     /// Read when the photo is taken or picked, so a change in Settings never affects a photo already in flight.
-    @AppStorage("storyLanguage") private var storyLanguage: StoryLanguage = .english
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {

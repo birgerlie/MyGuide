@@ -217,4 +217,50 @@ import Testing
         let u = try store.usageTotals(now: Date(timeIntervalSince1970: 0), calendar: Calendar(identifier: .gregorian))
         #expect(u == UsageTotals(monthUSD: 0, allTimeUSD: 0, monthRequests: 0, unpricedRequests: 0))
     }
+
+    @Test func usageMonthWindowIsHalfOpen() throws {
+        // UTC: Oct 31 23:59:59 is October; Nov 1 00:00:00 is November, so month = Oct only (1 request, $0.01).
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        func d(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+        let table = PriceTable(asOf: "t", prices: ["img": .perImage(0.01)])
+        func entry(_ s: String) -> UsageEntry {
+            UsageEntry(date: d(s), kind: .image, model: "img", inputTokens: 0, outputTokens: 0, words: 0, images: 1)
+        }
+        try store.recordUsage([entry("2026-10-31T23:59:59Z"), entry("2026-11-01T00:00:00Z")], prices: table)
+        let oct = try store.usageTotals(now: d("2026-10-15T00:00:00Z"), calendar: cal)
+        #expect(oct.monthRequests == 1 && abs(oct.monthUSD - 0.01) < 1e-12 && abs(oct.allTimeUSD - 0.02) < 1e-12)
+        let nov = try store.usageTotals(now: d("2026-11-15T00:00:00Z"), calendar: cal)
+        #expect(nov.monthRequests == 1 && abs(nov.monthUSD - 0.01) < 1e-12)
+        // UTC+2: 2026-10-31T22:30:00Z is Nov 1 00:30 local, so it counts in November, not October.
+        var plus2 = cal; plus2.timeZone = TimeZone(secondsFromGMT: 7200)!
+        let local = try store.usageTotals(now: d("2026-10-15T00:00:00Z"), calendar: plus2)
+        #expect(local.monthRequests == 0)  // neither record (22:30Z is Nov local; 23:59:59Z on Oct 31 is Nov 1 01:59 local)
+        let localNov = try store.usageTotals(now: d("2026-11-15T00:00:00Z"), calendar: plus2)
+        #expect(localNov.monthRequests == 2)
+    }
+
+    @Test func costIsStoredAtRecordTime() throws {
+        // Recorded at $0.01/image; a later table at $0.50 must not change stored cost.
+        let old = PriceTable(asOf: "old", prices: ["img": .perImage(0.01)])
+        let later = PriceTable(asOf: "new", prices: ["img": .perImage(0.50)])
+        let now = Date()
+        let e = UsageEntry(date: now, kind: .image, model: "img", inputTokens: 0, outputTokens: 0, words: 0, images: 1)
+        try store.recordUsage([e], prices: old)
+        try store.recordUsage([], prices: later)
+        let rec = try #require(try store.context.fetch(FetchDescriptor<UsageRecord>()).first)
+        #expect(rec.estimatedUSD == 0.01)
+        #expect(abs(try store.usageTotals(now: now, calendar: .current).allTimeUSD - 0.01) < 1e-12)
+        #expect(later.estimatedUSD(e) == 0.50)
+    }
+
+    @Test func usageMonthUsesTheCallersTimeZone() throws {
+        // UTC+2: 2026-10-31T22:30:00Z is 2026-11-01 00:30 local, so in November (1 request) and not October (0).
+        func d(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(secondsFromGMT: 7200)!
+        let table = PriceTable(asOf: "t", prices: ["img": .perImage(0.01)])
+        try store.recordUsage([UsageEntry(date: d("2026-10-31T22:30:00Z"), kind: .image, model: "img", inputTokens: 0,
+                                          outputTokens: 0, words: 0, images: 1)], prices: table)
+        #expect(try store.usageTotals(now: d("2026-10-15T00:00:00Z"), calendar: cal).monthRequests == 0)
+        #expect(try store.usageTotals(now: d("2026-11-15T00:00:00Z"), calendar: cal).monthRequests == 1)
+    }
 }

@@ -11,7 +11,7 @@ struct SettingsView: View {
     @State private var errorText: String?
     @State private var totals: UsageTotals?
     @State private var totalsFailed = false
-    @AppStorage("storyLanguage") private var storyLanguage: StoryLanguage = .english
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         Form {

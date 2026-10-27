@@ -46,6 +46,14 @@ import Testing
         let (_, usage) = try await PhotoStoryFlowTests.flow(http).thenImage(for: s)
         #expect(usage.inputTokens == 0 && usage.outputTokens == 7)
     }
+    @Test func malformedUsageStillReturnsTheImage() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        for usageJSON in [#""n/a""#, #"{"input_tokens":1.5,"output_tokens":"x"}"#] {
+            let http = StubHTTPClient { _ in (200, Data(#"{"data":[{"b64_json":"\#(png.base64EncodedString())"}],"usage":\#(usageJSON)}"#.utf8)) }
+            let (data, usage) = try await PhotoStoryFlowTests.flow(http).thenImage(for: s)
+            #expect(data == png && usage.inputTokens == 0 && usage.outputTokens == 0 && usage.images == 1)
+        }
+    }
     @Test func missingImageDataIsMalformed() async {
         let http = StubHTTPClient { _ in (200, Data(#"{"data":[]}"#.utf8)) }
         await #expect(throws: OpenAIError.malformedResponse) { try await PhotoStoryFlowTests.flow(http).thenImage(for: s) }

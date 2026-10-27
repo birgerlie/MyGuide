@@ -34,6 +34,9 @@ import Testing
     @Test func tokenPricedImageWithNoTokensIsUnpriced() {
         #expect(t.estimatedUSD(e(.image, "imgtok", n: 1)) == nil)
     }
+    @Test func tokenPricedStoryWithNoTokensIsUnpriced() {
+        #expect(t.estimatedUSD(e(.story, "text")) == nil)
+    }
     @Test func unknownModelIsNil() { #expect(t.estimatedUSD(e(.story, "nope", i: 5)) == nil) }
     @Test func currentTableCoversDefaultModels() {
         let m = OpenAIModels.current
