@@ -42,7 +42,9 @@ public enum CandidateRanker {
         return kept
     }
 
-    /// Orders candidates in-view first (when the heading is usable), then nearest first, and caps the list.
+    /// Orders candidates in-view first (when the heading is usable); within each view group, places with
+    /// Wikipedia backing (wikidata, article title or summary) before those without, so plaques cannot crowd
+    /// out landmarks; then nearest first. Caps the list.
     public static func rank(_ candidates: [Candidate], capture: CaptureContext, limit: Int = maxCandidates) -> [RankedCandidate] {
         guard let origin = capture.coordinate else { return [] }
         let heading = capture.usableHeading
@@ -58,9 +60,16 @@ public enum CandidateRanker {
         }
         let sorted = ranked.sorted { a, b in
             if a.inView != b.inView { return a.inView == true }
+            let aBacked = hasWikiBacking(a.candidate), bBacked = hasWikiBacking(b.candidate)
+            if aBacked != bBacked { return aBacked }
             if a.distance != b.distance { return a.distance < b.distance }
             return a.candidate.id < b.candidate.id
         }
         return Array(sorted.prefix(max(0, limit)))
+    }
+
+    /// True when the candidate has something to tell beyond its name; empty strings do not count.
+    static func hasWikiBacking(_ c: Candidate) -> Bool {
+        [c.wikidata, c.wikipediaTitle, c.summary].contains { !($0?.isEmpty ?? true) }
     }
 }

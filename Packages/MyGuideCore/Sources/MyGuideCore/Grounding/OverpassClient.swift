@@ -27,7 +27,7 @@ public struct OverpassClient: Sendable {
           nwr(\(a))["building"]["name"]["wikidata"];
           nwr(\(a))["wikipedia"]["name"];
         );
-        out center tags 200;
+        out center tags 500;
         """
     }
 

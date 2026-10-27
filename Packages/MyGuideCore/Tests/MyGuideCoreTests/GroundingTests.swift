@@ -36,6 +36,23 @@ import Testing
         #expect(r.map(\.inView) == [true, true, false, false])
         #expect(abs(r[1].bearing - 30) < 0.01 && abs(r[1].distance - 200) < 0.5)
     }
+    @Test func rankPutsWikiBackedPlacesFirstWithinEachViewGroup() {
+        // heading 0, fov 55, acc 10 → half-width 47.5; everything north (bearing 0) is in view, south (180) is out
+        let plaque = Self.cand("plaque", n: 10, e: 0)                          // 10 m, in view, no wiki
+        let landmark = Self.cand("landmark", n: 60, e: 0, q: "Q1")            // 60 m, in view, wikidata
+        let titled = Self.cand("titled", n: 80, e: 0, wiki: "en:Titled")       // 80 m, in view, article title
+        let summarised = Self.cand("summarised", n: 90, e: 0, summary: "S.")  // 90 m, in view, summary
+        let emptySummary = Self.cand("empty", n: 5, e: 0, summary: "")         // 5 m, in view, empty summary counts as none
+        let behindWiki = Self.cand("behindWiki", n: -20, e: 0, q: "Q2")       // 20 m, out of view, wikidata
+        let behindPlain = Self.cand("behindPlain", n: -5, e: 0)               // 5 m, out of view, no wiki
+        let r = CandidateRanker.rank([plaque, landmark, titled, summarised, emptySummary, behindWiki, behindPlain],
+                                     capture: Self.capture(heading: 0, acc: 10))
+        // in view: wiki tier by distance (60, 80, 90), then plain tier by distance (5, 10); then out of view likewise
+        #expect(r.map(\.candidate.id) == ["landmark", "titled", "summarised", "empty", "plaque", "behindWiki", "behindPlain"])
+        // without a usable heading there is one group: wiki tier first, then by distance
+        let noHeading = CandidateRanker.rank([plaque, landmark, behindPlain, behindWiki], capture: Self.capture(heading: 0, acc: 60))
+        #expect(noHeading.map(\.candidate.id) == ["behindWiki", "landmark", "behindPlain", "plaque"])
+    }
     @Test func rankWithoutUsableHeadingIsByDistanceAndInViewNil() {
         let r = CandidateRanker.rank([Self.cand("A", n: 100, e: 0), Self.cand("D", n: -10, e: 0)], capture: Self.capture(heading: 0, acc: 60))
         #expect(r.map(\.candidate.id) == ["D", "A"] && r.allSatisfy { $0.inView == nil })
