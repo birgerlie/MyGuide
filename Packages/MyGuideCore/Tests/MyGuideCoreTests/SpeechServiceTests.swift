@@ -3,6 +3,7 @@ import Testing
 @testable import MyGuideCore
 
 @Suite struct SpeechServiceTests {
+    let mp3 = Data([0x49, 0x44, 0x33, 1])
     func dir() -> URL { FileManager.default.temporaryDirectory.appending(path: "speech-\(UUID().uuidString)") }
 
     @Test func requestShapeAndUsage() async throws {
@@ -20,7 +21,7 @@ import Testing
                                     inputTokens: 0, outputTokens: 0, words: 4, images: 0))
     }
     @Test func secondCallHitsCache() async throws {
-        let http = StubHTTPClient { _ in (200, Data([1])) }
+        let http = StubHTTPClient { _ in (200, mp3) }
         let svc = SpeechService(openAI: OpenAIClient(apiKey: "k", http: http), cacheDirectory: dir())
         _ = try await svc.audioFile(text: "Hi", language: .english, cacheKey: "s-1")
         let (_, usage) = try await svc.audioFile(text: "Hi", language: .english, cacheKey: "s-1")
@@ -34,11 +35,11 @@ import Testing
         let text = Array(repeating: sentence, count: 50).joined(separator: " ")
         let chunks = SpeechService.chunks(text, maxCharacters: 4000)
         #expect(chunks.count == 2 && chunks[0].count == 3999 && chunks[1].count == 999)
-        let http = StubHTTPClient { _ in (200, Data([7])) }
+        let http = StubHTTPClient { _ in (200, Data([0x49, 0x44, 0x33, 7])) }
         let (url, _) = try await SpeechService(openAI: OpenAIClient(apiKey: "k", http: http), cacheDirectory: dir())
             .audioFile(text: text, language: .english, cacheKey: "long")
         let written = try Data(contentsOf: url)
-        #expect(http.requests.count == 2 && written == Data([7, 7]))
+        #expect(http.requests.count == 2 && written == Data([0x49, 0x44, 0x33, 7, 0x49, 0x44, 0x33, 7]))
     }
     @Test func norwegianInstructions() {
         #expect(SpeechService.instructions(language: .norwegian).contains("Norwegian Bokmål"))
@@ -70,11 +71,11 @@ import Testing
     // A short sentence after an overlong one must still be packed.
     @Test func overlongSentenceFollowedByShortOne() {
         let chunks = SpeechService.chunks("aaaa bbbb cccc dddd. Ok.", maxCharacters: 10)
-        #expect(chunks.allSatisfy { $0.count <= 10 })
-        #expect(chunks.joined(separator: " ") == "aaaa bbbb cccc dddd. Ok.")
+        // Pieces: "aaaa bbbb" (9), "cccc dddd." (10), "Ok." (3). 9+1+10 > 10 and 10+1+3 > 10, so three chunks.
+        #expect(chunks == ["aaaa bbbb", "cccc dddd.", "Ok."])
     }
     @Test func emptyTextIsRejectedWithoutRequest() async {
-        let http = StubHTTPClient { _ in (200, Data([1])) }
+        let http = StubHTTPClient { _ in (200, mp3) }
         let svc = SpeechService(openAI: OpenAIClient(apiKey: "k", http: http), cacheDirectory: dir())
         await #expect(throws: OpenAIError.self) {
             _ = try await svc.audioFile(text: "  ", language: .english, cacheKey: "e")
@@ -97,7 +98,7 @@ import Testing
         let calls = LockedBox(0)
         let http = StubHTTPClient { _ in
             let n = calls.withValue { $0 += 1; return $0 }
-            return n == 1 ? (200, Data([1])) : (500, Data())
+            return n == 1 ? (200, mp3) : (500, Data())
         }
         let d = dir()
         let svc = SpeechService(openAI: OpenAIClient(apiKey: "k", http: http), cacheDirectory: d)
@@ -108,7 +109,7 @@ import Testing
         #expect(files.isEmpty)
     }
     @Test func languageIsPartOfCacheFile() async throws {
-        let http = StubHTTPClient { _ in (200, Data([1])) }
+        let http = StubHTTPClient { _ in (200, mp3) }
         let svc = SpeechService(openAI: OpenAIClient(apiKey: "k", http: http), cacheDirectory: dir())
         let (en, _) = try await svc.audioFile(text: "Hi", language: .english, cacheKey: "k")
         let (nb, _) = try await svc.audioFile(text: "Hei", language: .norwegian, cacheKey: "k")
@@ -121,5 +122,24 @@ import Testing
         await #expect(throws: CancellationError.self) {
             _ = try await svc.audioFile(text: "Hi", language: .english, cacheKey: "c")
         }
+    }
+
+    @Test func nonMP3BodyIsRejectedAndNotCached() async throws {
+        let d = dir()
+        let http = StubHTTPClient { _ in (200, Data("<html>proxy</html>".utf8)) }
+        let svc = SpeechService(openAI: OpenAIClient(apiKey: "k", http: http), cacheDirectory: d)
+        await #expect(throws: OpenAIError.malformedResponse) {
+            _ = try await svc.audioFile(text: "Hi", language: .english, cacheKey: "x")
+        }
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: d.path)) ?? []
+        #expect(files.isEmpty)
+    }
+    // ID3 -> ok; 0xFF 0xFB (0xFB & 0xE0 = 0xE0) -> ok; 0xFF 0x1F (top bits 000) -> no; 2 bytes "ID" -> no; empty -> no.
+    @Test func mp3SniffingBoundaries() {
+        #expect(SpeechService.looksLikeMP3(Data([0x49, 0x44, 0x33])))
+        #expect(SpeechService.looksLikeMP3(Data([0xFF, 0xFB])))
+        #expect(!SpeechService.looksLikeMP3(Data([0xFF, 0x1F])))
+        #expect(!SpeechService.looksLikeMP3(Data([0x49, 0x44])))
+        #expect(!SpeechService.looksLikeMP3(Data()))
     }
 }

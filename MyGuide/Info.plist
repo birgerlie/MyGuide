@@ -26,6 +26,10 @@
 	<string>MyGuide uses your exact position and compass heading to work out what you are looking at.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MyGuide reads where a picked photo was taken so it can tell its story.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

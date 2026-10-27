@@ -81,8 +81,8 @@ struct StoryView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             if state == .loading { ProgressView().controlSize(.small) }
-            if state == .failed {
-                Text("Couldn't play audio")
+            if case .failed(let message) = state {
+                Text(message ?? "Couldn't play audio")
                     .font(.footnote)
                     .foregroundStyle(.red)
                 Button("Retry") { model.playSpeech(level: level) }

@@ -56,6 +56,7 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
     }
 
     /// Text-to-speech call. Returns the MP3 bytes. `text` must be within the API's per-request limit.
+    // `store` is deliberately not sent: audio/speech does not accept it (exemption from the global store:false rule).
     public func speech(model: String, voice: String, instructions: String, text: String) async throws -> Data {
         let body: JSONValue = [
             "model": .string(model),

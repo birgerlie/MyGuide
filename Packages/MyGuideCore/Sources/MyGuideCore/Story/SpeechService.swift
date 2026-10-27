@@ -87,6 +87,13 @@ public struct SpeechService: Sendable {
         return parts
     }
 
+    /// True for an ID3 tag ("ID3") or an MPEG audio frame sync (0xFF, then a byte with the top 3 bits set).
+    static func looksLikeMP3(_ data: Data) -> Bool {
+        let b = Array(data.prefix(3))
+        if b.count == 3, b[0] == 0x49, b[1] == 0x44, b[2] == 0x33 { return true }
+        return b.count >= 2 && b[0] == 0xFF && (b[1] & 0xE0) == 0xE0
+    }
+
     /// Returns the MP3 file for `text`. A cache hit makes no request and returns a nil usage entry.
     /// Nothing is written unless every chunk succeeded; the file is written atomically.
     public func audioFile(text: String, language: StoryLanguage, cacheKey: String) async throws -> (URL, UsageEntry?) {
@@ -102,8 +109,11 @@ public struct SpeechService: Sendable {
         var audio = Data()
         for part in parts {
             try Task.checkCancellation()
-            audio.append(try await openAI.speech(model: models.speech, voice: models.voice,
-                                                 instructions: instructions, text: part))
+            let bytes = try await openAI.speech(model: models.speech, voice: models.voice,
+                                                instructions: instructions, text: part)
+            // A proxy page or truncated body must never be cached: it would make every Retry fail.
+            guard Self.looksLikeMP3(bytes) else { throw OpenAIError.malformedResponse }
+            audio.append(bytes)
         }
         try Task.checkCancellation()
         try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)

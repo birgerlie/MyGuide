@@ -24,7 +24,8 @@ final class StoryViewModel {
         case idle
         case loading
         case playing
-        case failed
+        /// `message` is set only for errors where Retry cannot help (bad key, no credit).
+        case failed(message: String?)
     }
 
     static let workingText = "Looking around…"
@@ -138,10 +139,9 @@ final class StoryViewModel {
 
     /// Play/Stop toggle for one level: stops it when loading or playing, otherwise starts it.
     func toggleSpeech(level: Int) {
-        if speechState(for: level) == .idle || speechState(for: level) == .failed {
-            playSpeech(level: level)
-        } else {
-            stopSpeech()
+        switch speechState(for: level) {
+        case .idle, .failed: playSpeech(level: level)
+        case .loading, .playing: stopSpeech()
         }
     }
 
@@ -160,12 +160,22 @@ final class StoryViewModel {
                 // The usage entry is dropped here on purpose: Task 16 records usage.
                 let (url, _) = try await service.audioFile(text: text, language: language, cacheKey: key)
                 guard !Task.isCancelled, let self else { return }
-                try self.audio.play(url)
+                do {
+                    try self.audio.play(url)
+                } catch {
+                    // An unplayable cached file would fail every Retry; drop it so Retry refetches.
+                    try? FileManager.default.removeItem(at: url)
+                    throw error
+                }
                 self.speech[level] = .playing
             } catch {
                 // Our own stop is silence, whatever error type the sources report it with.
                 guard !Task.isCancelled, let self else { return }
-                self.speech[level] = .failed
+                var message: String?
+                if let e = error as? OpenAIError, e == .invalidAPIKey || e == .quotaExceeded || e == .missingAPIKey {
+                    message = UserFacingMessage.message(for: e)
+                }
+                self.speech[level] = .failed(message: message)
             }
         }
     }
