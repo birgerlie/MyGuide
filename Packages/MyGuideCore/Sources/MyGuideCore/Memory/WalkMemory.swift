@@ -38,12 +38,25 @@ public struct BuzzLogEntry: Sendable, Equatable {
 
 /// One fix of the walked track.
 public struct TrackSample: Sendable, Equatable {
+    /// A new sample is stored only this far (metres) from the last stored one, or `maxGap` later.
+    public static let minSpacing = 5.0
+    public static let maxGap: TimeInterval = 60
+
     public var at: Date
     public var coordinate: Coordinate
 
     public init(at: Date, coordinate: Coordinate) {
         self.at = at
         self.coordinate = coordinate
+    }
+
+    /// Keeps the stored track lean while every fix is delivered: true for the first sample, for one at least
+    /// `minSpacing` from `last`, and for one at least `maxGap` after it (so standing still still leaves a trace).
+    /// A sample timed before `last` (clock skew) counts by distance only.
+    public static func isWorthStoring(_ sample: TrackSample, after last: TrackSample?) -> Bool {
+        guard let last else { return true }
+        return GeoMath.distance(last.coordinate, sample.coordinate) >= minSpacing
+            || sample.at.timeIntervalSince(last.at) >= maxGap
     }
 }
 

@@ -52,6 +52,8 @@ final class WalkingController {
     @ObservationIgnored private var startedAt: Date?
     @ObservationIgnored private var tripID: UUID?
     @ObservationIgnored private var track: [TrackSample] = []
+    /// The last sample kept for the track (flushed or not), so `TrackSample.isWorthStoring` thins across flushes.
+    @ObservationIgnored private var lastTrackSample: TrackSample?
     /// The candidate of every buzz posted this run, so a skip still retires the place when its buzz was never logged.
     @ObservationIgnored private var postedCandidates: [UUID: Candidate] = [:]
     /// Identifies the start in progress; `stop()` clears it so a start that is waiting on a prompt gives up.
@@ -154,6 +156,7 @@ final class WalkingController {
         source = makeSource()
         postedCandidates = [:]
         track = []
+        lastTrackSample = nil
         buzzCount = 0
         lastFixAt = nil
         startedAt = now
@@ -205,7 +208,8 @@ final class WalkingController {
         if let command = BuzzNotifier.command(for: response) { handle(command) }
     }
 
-    /// A story about this place was saved: it never buzzes again.
+    /// A level of a story about this place started playing: it never buzzes again this run (memory retires it for
+    /// later runs).
     func noteHeard(placeID: String) {
         engine?.exclude(placeID)
     }
@@ -261,13 +265,18 @@ final class WalkingController {
         let now = Date.now
         checkAutoOff(now: now)
         // CoreLocation's first fix can be its cached position from minutes ago: not where the walker is.
-        guard isOn, var engine, fix.horizontalAccuracy >= 0, WalkingFix.isFresh(fix.timestamp, now: now) else { return }
+        guard isOn, engine != nil, fix.horizontalAccuracy >= 0, WalkingFix.isFresh(fix.timestamp, now: now) else { return }
         // The status says "waiting for GPS" until a fix the engine can use arrives.
         if WalkingFix.isUsable(accuracy: fix.horizontalAccuracy) { lastFixAt = fix.timestamp }
         let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
 
-        track.append(TrackSample(at: fix.timestamp, coordinate: position))
-        if track.count >= Self.trackFlushCount { flushTrack() }
+        // Every fix arrives (no distance filter); the stored track keeps one per 5 m or per minute.
+        let sample = TrackSample(at: fix.timestamp, coordinate: position)
+        if TrackSample.isWorthStoring(sample, after: lastTrackSample) {
+            lastTrackSample = sample
+            track.append(sample)
+            if track.count >= Self.trackFlushCount { flushTrack() }
+        }
 
         if feed.shouldFetch(at: position, now: now) { fetch(around: position, now: now) }
 
@@ -276,15 +285,16 @@ final class WalkingController {
             tellStop(at: spot)
         }
 
+        // The engine is mutated in place, never copied and written back, so a change made by a synchronous callback
+        // meanwhile (busy, exclude) is not overwritten.
         let perHour = Self.configuredPerHour()
         if perHour != appliedPerHour {
             appliedPerHour = perHour
-            engine.setPerHour(perHour, at: now)
+            engine?.setPerHour(perHour, at: now)
         }
         let course = fix.course >= 0 ? fix.course : nil
-        let buzz = engine.evaluate(places: feed.places, position: position, accuracy: fix.horizontalAccuracy,
-                                   course: course, now: now)
-        self.engine = engine
+        let buzz = engine?.evaluate(places: feed.places, position: position, accuracy: fix.horizontalAccuracy,
+                                    course: course, now: now)
         if let buzz { deliver(buzz, position: position, course: course, at: now) }
         refreshActivity(now: now)
     }

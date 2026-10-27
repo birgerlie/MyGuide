@@ -30,10 +30,11 @@ import Testing
     }
 
     @Test func movingAwayResets() {
-        // moves 30 m at t0+40 → new anchor; fires at t0+100
+        // Moves 30 m at t0+40 (held back), confirmed at t0+41 → new anchor at t0+40; fires at t0+40+60 = t0+100.
         var d = StopDetector(previousStops: [])
         _ = d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0)
         _ = d.update(position: .at(north: 30), accuracy: 5, speed: 0, now: Self.t0 + 40)
+        _ = d.update(position: .at(north: 30), accuracy: 5, speed: 0, now: Self.t0 + 41)
         #expect(d.update(position: .at(north: 30), accuracy: 5, speed: 0, now: Self.t0 + 99) == nil)
         #expect(d.update(position: .at(north: 30), accuracy: 5, speed: 0, now: Self.t0 + 100) == .at(north: 30))
     }
@@ -135,15 +136,17 @@ import Testing
 
     @Test func firedStopIsRememberedWithinTheSameTrip() {
         // Hand: fires at the origin at t0+60 and is recorded. Move to 200 m at t0+70 (held back), 200 m again at
-        // t0+130 confirms the move: anchor t0+70, t0+130 − t0+70 = 60 → fires at 200 m: 200 m from the recorded
-        // origin > 100 m, so not suppressed. Then 50 m at t0+140 (held back), 50 m at t0+200 confirms: anchor t0+140,
-        // 60 s, but 50 m from the recorded origin ≤ 100 m → suppressed.
+        // t0+71 confirms the move: anchor t0+70, t0+130 − t0+70 = 60 → fires at 200 m: 200 m from the recorded
+        // origin > 100 m, so not suppressed. Then 50 m at t0+140 (held back), 50 m at t0+141 confirms: anchor t0+140,
+        // t0+200 is 60 s later, but 50 m from the recorded origin ≤ 100 m → suppressed.
         var d = StopDetector(previousStops: [])
         _ = d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0)
         #expect(d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0 + 60) == .at())
         _ = d.update(position: .at(north: 200), accuracy: 5, speed: 0, now: Self.t0 + 70)
+        _ = d.update(position: .at(north: 200), accuracy: 5, speed: 0, now: Self.t0 + 71)
         #expect(d.update(position: .at(north: 200), accuracy: 5, speed: 0, now: Self.t0 + 130) == .at(north: 200))
         _ = d.update(position: .at(north: 50), accuracy: 5, speed: 0, now: Self.t0 + 140)
+        _ = d.update(position: .at(north: 50), accuracy: 5, speed: 0, now: Self.t0 + 141)
         #expect(d.update(position: .at(north: 50), accuracy: 5, speed: 0, now: Self.t0 + 200) == nil)
     }
 
@@ -178,5 +181,58 @@ import Testing
         let result = d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0 + 60)
         let spot = try #require(result)
         #expect(GeoMath.distance(spot, .at(north: 5)) < 0.01)
+    }
+}
+
+@Suite struct StopDetectorPendingTimeoutTests {
+    static let t0 = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test func stalePendingIsNotUsedToReanchor() {
+        // Anchor at the origin at t0; a fix 40 m north at t0+10 is held back. The next fix (40 m north) comes at
+        // t0+50: 50 − 10 = 40 s > 30 s, so the held fix is dropped and the t0+50 fix is held back instead. The fix at
+        // t0+55 confirms the move: the stay starts at t0+50, never at t0+10.
+        // Hand: fires at t0+50+60 = t0+110, not at t0+10+60 = t0+70 (what re-anchoring at the stale fix would give).
+        var d = StopDetector(previousStops: [])
+        #expect(d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 10) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 50) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 55) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 70) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 109) == nil)
+        // Every absorbed fix is exactly at 40 m north, so the mean is bit-for-bit that point.
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 110) == .at(north: 40))
+    }
+
+    @Test func pendingExactlyThirtySecondsOldStillReanchors() {
+        // Boundary: held at t0+10, next far fix at t0+40: 40 − 10 = 30 s, not older than 30 s → the move is confirmed
+        // and the stay starts at the held fix, t0+10. Hand: fires at t0+10+60 = t0+70; t0+69 is 59 s → nil.
+        var d = StopDetector(previousStops: [])
+        _ = d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 10) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 40) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 69) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 70) == .at(north: 40))
+    }
+
+    @Test func stalePendingIsNotAbsorbedAsJitterEither() {
+        // Anchor at the origin at t0; a fix 30 m north at t0+10 is held back (30 > 25). Back at the origin at t0+50:
+        // 40 s > 30 s, so the held fix is dropped, not folded in. Hand: mean of (0, 0, 0) = 0 exactly → fires at
+        // t0+60 at the origin. Had it been absorbed: (0 + 30 + 0 + 0) / 4 = 7.5 m north.
+        var d = StopDetector(previousStops: [])
+        _ = d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0)
+        #expect(d.update(position: .at(north: 30), accuracy: 5, speed: 0, now: Self.t0 + 10) == nil)
+        #expect(d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0 + 50) == nil)
+        #expect(d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0 + 60) == .at())
+    }
+
+    @Test func unusableFixDoesNotDropThePending() {
+        // Held at t0+10; an ignored fix (accuracy 60 > 50) at t0+20 neither confirms nor drops it; the far fix at
+        // t0+40 is 30 s after the held one → re-anchor at t0+10. Hand: fires at t0+10+60 = t0+70.
+        var d = StopDetector(previousStops: [])
+        _ = d.update(position: .at(), accuracy: 5, speed: 0, now: Self.t0)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 10) == nil)
+        #expect(d.update(position: .at(north: 300), accuracy: 60, speed: 0, now: Self.t0 + 20) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 40) == nil)
+        #expect(d.update(position: .at(north: 40), accuracy: 5, speed: 0, now: Self.t0 + 70) == .at(north: 40))
     }
 }

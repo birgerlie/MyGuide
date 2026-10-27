@@ -1,7 +1,8 @@
 import CoreLocation
 
 /// The walking controller's own location manager, so the capture screen's `LocationProvider` and the Walking check
-/// screen keep working untouched. Background updates, a 5 m distance filter, no automatic pausing.
+/// screen keep working untouched. Background updates, every fix (no distance filter: standing still must still deliver
+/// fixes, for the stop detector and the GPS status), no automatic pausing.
 @MainActor
 final class WalkingLocation: NSObject {
     /// Every fix CoreLocation delivers, oldest first within one delivery.
@@ -21,7 +22,7 @@ final class WalkingLocation: NSObject {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.activityType = .fitness
-        manager.distanceFilter = 5
+        manager.distanceFilter = kCLDistanceFilterNone
         manager.pausesLocationUpdatesAutomatically = false
     }
 

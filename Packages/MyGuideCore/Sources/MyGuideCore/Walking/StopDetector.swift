@@ -3,9 +3,13 @@ import Foundation
 /// Notices that the owner has stopped on a walk: they have stayed within 25 m of one spot for 60 s, moving slower
 /// than 0.5 m/s. The spot is the running mean of the fixes since the owner last moved. A single fix more than 25 m
 /// away is held back; only a second consecutive one (or a fix back near the spot) decides whether it was GPS jitter
-/// or a real move. A stop is reported once per anchor, and not again within 100 m of an earlier stop on this trip.
+/// or a real move. A held-back fix older than 30 s is dropped unused, so a gap in the fixes never dates a new stay
+/// back to before the owner got there. A stop is reported once per anchor, and not again within 100 m of an earlier
+/// stop on this trip.
 public struct StopDetector: Sendable {
     public static let radius = 25.0, duration: TimeInterval = 60, maxSpeed = 0.5
+    /// A held-back fix older than this (seconds) when the next fix arrives is dropped: neither jitter nor a move.
+    public static let pendingTimeout: TimeInterval = 30
     public static let repeatRadius = 100.0
     /// Same limit as `WalkingFix.isUsable`, so the two cannot drift apart.
     public static let maxFixAccuracy = BuzzEngine.maxFixAccuracy
@@ -27,6 +31,8 @@ public struct StopDetector: Sendable {
     /// `duration`, and nil otherwise. Fixes that `WalkingFix.isUsable` rejects are ignored entirely.
     public mutating func update(position: Coordinate, accuracy: Double, speed: Double, now: Date) -> Coordinate? {
         guard WalkingFix.isUsable(accuracy: accuracy) else { return nil }
+        // After a gap the held-back fix says nothing about this one; re-anchoring at it would date the stay back.
+        if let held = pending, now.timeIntervalSince(held.at) > Self.pendingTimeout { pending = nil }
 
         // A known speed above the limit means the owner is walking: the stay starts over at this fix.
         // A negative speed means unknown and does not count as moving; NaN fails both comparisons.
