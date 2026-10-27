@@ -39,7 +39,10 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
         defer { if otherWasPlaying { other?.onFinish?(.interrupted) } }
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .spokenAudio)
+            // Mixable (.duckOthers): iOS refuses to activate a non-mixable session from the background, and a story
+            // started from a notification action (e.g. "Tell me" tapped on the Watch while the phone is locked) runs
+            // there. Other audio is ducked, not stopped, and returns to full volume on deactivation below.
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
             try session.setActive(true)
             let next = try AVAudioPlayer(contentsOf: url)
             next.delegate = self
