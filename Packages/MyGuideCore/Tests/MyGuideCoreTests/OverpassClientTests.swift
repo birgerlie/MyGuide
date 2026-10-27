@@ -122,4 +122,10 @@ import Testing
         #expect(r[0].tags == ["historic": "memorial", "memorial": "plaque"])
         #expect(r[0].wikipediaTitle == "de:Y")
     }
+    @Test func heritageBuildingKeepsBothTagsAndTiersGood() async throws {
+        let body = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"Old House","historic":"building","heritage":"2"}}]}"#
+        let r = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
+        #expect(r[0].tags == ["historic": "building", "heritage": "2"])
+        #expect(PlaceTiers.tier(for: r[0]) == .good)
+    }
 }

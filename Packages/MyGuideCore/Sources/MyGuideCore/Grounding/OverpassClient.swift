@@ -12,7 +12,7 @@ public struct OverpassClient: Sendable {
     /// The only OSM tag keys kept on a candidate; `PlaceTiers` classifies from these.
     static let keptTagKeys: Set<String> = [
         "historic", "tourism", "amenity", "building", "memorial", "man_made", "railway", "public_transport",
-        "place", "office", "castle_type", "bridge", "highway",
+        "place", "office", "castle_type", "bridge", "highway", "heritage",
     ]
 
     private let http: HTTPClient
