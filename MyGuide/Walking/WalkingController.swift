@@ -2,6 +2,7 @@ import CoreLocation
 import MyGuideCore
 import Observation
 import os
+import UIKit
 import UserNotifications
 
 /// What the owner can do to a buzz, from its notification, the watch, the panel or the story screen.
@@ -24,6 +25,7 @@ final class WalkingController {
     /// Samples kept while saving keeps failing; the oldest go first.
     private static let trackLimit = 400
     private static let geocodeTimeout: Duration = .seconds(8)
+    private static let autoOffInterval: Duration = .seconds(60)
 
     private(set) var isOn = false
     /// Why walking mode did not start (or stopped); empty when nothing is in the way.
@@ -43,6 +45,9 @@ final class WalkingController {
     @ObservationIgnored private var feed = PlaceFeed()
     @ObservationIgnored private var source: WalkingPlaceSource?
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    /// Checks the auto-off limits every 60 s, for the stretches without a usable fix.
+    @ObservationIgnored private var autoOffTask: Task<Void, Never>?
+    @ObservationIgnored private var startedAt: Date?
     @ObservationIgnored private var tripID: UUID?
     @ObservationIgnored private var track: [TrackSample] = []
     /// The candidate of every buzz posted this run, so a skip still retires the place when its buzz was never logged.
@@ -135,8 +140,11 @@ final class WalkingController {
         track = []
         buzzCount = 0
         lastFixAt = nil
+        startedAt = now
+        UIDevice.current.isBatteryMonitoringEnabled = true
         isOn = true
         location.start()
+        startAutoOffTimer(run: runToken)
     }
 
     func stop() {
@@ -144,6 +152,10 @@ final class WalkingController {
         guard isOn else { return }
         isOn = false
         runToken = nil
+        autoOffTask?.cancel()
+        autoOffTask = nil
+        startedAt = nil
+        UIDevice.current.isBatteryMonitoringEnabled = false
         location.stop()
         flushTrack()
         do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
@@ -199,10 +211,36 @@ final class WalkingController {
         engine?.noteSkip(at: now)
     }
 
+    // MARK: - Auto-off
+
+    private func startAutoOffTimer(run: UUID?) {
+        autoOffTask?.cancel()
+        autoOffTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.autoOffInterval)
+                guard !Task.isCancelled, let self, self.isOn, self.runToken == run else { return }
+                self.checkAutoOff(now: .now)
+            }
+        }
+    }
+
+    /// Turns walking mode off after 4 hours or when the battery runs low, and says why in a notification.
+    private func checkAutoOff(now: Date) {
+        guard isOn, let startedAt,
+              let reason = AutoOff.reason(startedAt: startedAt, now: now, batteryLevel: UIDevice.current.batteryLevel)
+        else { return }
+        stop()
+        let message = AutoOff.message(reason)
+        Task {
+            do { try await BuzzNotifier.postAutoOff(message) } catch { AppServices.logMemoryFailure("auto-off notification failed", error) }
+        }
+    }
+
     // MARK: - Fixes
 
     private func handle(_ fix: CLLocation) {
         let now = Date.now
+        checkAutoOff(now: now)
         // CoreLocation's first fix can be its cached position from minutes ago: not where the walker is.
         guard isOn, var engine, fix.horizontalAccuracy >= 0, WalkingFix.isFresh(fix.timestamp, now: now) else { return }
         // The status says "waiting for GPS" until a fix the engine can use arrives.

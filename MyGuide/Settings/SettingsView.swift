@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var totals: UsageTotals?
     @State private var totalsFailed = false
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    @AppStorage(WalkingController.buzzesPerHourKey) private var buzzesPerHour = BuzzBudget.defaultPerHour
 
     var body: some View {
         Form {
@@ -46,6 +47,16 @@ struct SettingsView: View {
                 Text("Language")
             } footer: {
                 Text("Applies to new photos. Stories already told keep their language.")
+            }
+            Section {
+                Stepper(value: $buzzesPerHour, in: 5...60, step: 5) {
+                    Text("Buzzes per hour: \(buzzesPerHour)")
+                }
+                NavigationLink("Buzz log") { BuzzLogView(services: services) }
+            } header: {
+                Text("Walking")
+            } footer: {
+                Text("At most this many buzzes an hour in walking mode. A change also applies during a walk.")
             }
             Section {
                 if let totals {

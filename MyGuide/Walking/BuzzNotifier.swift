@@ -53,6 +53,15 @@ enum BuzzNotifier {
         try await add(content(category: failedCategory, title: failedTitle, body: body, id: id), identifier: "\(id)-failed")
     }
 
+    /// Says walking mode turned itself off. A plain notification: no category, so `stop()` leaves it in place.
+    static func postAutoOff(_ message: String) async throws {
+        let content = UNMutableNotificationContent()
+        content.title = "MyGuide"
+        content.body = message
+        content.sound = .default
+        try await add(content, identifier: "auto-off-\(UUID().uuidString)")
+    }
+
     /// Removes the BUZZ and MORE notifications, both those in the notification centre and those not yet shown.
     static func removeWalkNotifications() async {
         let center = UNUserNotificationCenter.current()
