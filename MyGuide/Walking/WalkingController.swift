@@ -426,7 +426,11 @@ final class WalkingController {
         case .notDetermined: return .notDetermined
         case .denied: return .denied
         case .authorized, .provisional, .ephemeral:
-            return settings.timeSensitiveSetting == .disabled ? .timeSensitiveOff : .allowed
+            // Never `.timeSensitiveOff` on this build: the free developer account cannot sign the Time Sensitive
+            // Notifications entitlement, so the setting is always off and would block walking mode for good.
+            // Restore `settings.timeSensitiveSetting == .disabled ? .timeSensitiveOff : .allowed` when the paid
+            // account exists.
+            return .allowed
         @unknown default: return .denied
         }
     }
