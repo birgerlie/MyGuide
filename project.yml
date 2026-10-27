@@ -11,8 +11,11 @@ targets:
   MyGuide:
     type: application
     platform: iOS
-    sources: [MyGuide]
-    dependencies: [{ package: MyGuideCore }]
+    sources: [MyGuide, Shared]
+    dependencies:
+      - package: MyGuideCore
+      - target: MyGuideWidgets
+        embed: true
     info:
       path: MyGuide/Info.plist
       properties:
@@ -35,3 +38,21 @@ targets:
         SWIFT_VERSION: "6.0"
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
+  MyGuideWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources: [MyGuideWidgets, Shared]
+    info:
+      path: MyGuideWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: MyGuide
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.birgerlie.MyGuide.Widgets
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES

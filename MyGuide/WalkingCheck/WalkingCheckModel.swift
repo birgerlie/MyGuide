@@ -1,3 +1,4 @@
+import ActivityKit
 import AVFoundation
 import CoreLocation
 import MyGuideCore
@@ -5,7 +6,8 @@ import Observation
 import UIKit
 import UserNotifications
 
-/// State behind the Walking check screen: a background-location run and a notification-action audio test.
+/// State behind the Walking check screen: a background-location run, a notification-action audio test
+/// and a Live Activity updated from the background.
 /// Owned by `AppServices`, so a run continues while the phone is locked and the screen is gone.
 @MainActor
 @Observable
@@ -14,6 +16,8 @@ final class WalkingCheckModel: NSObject {
     nonisolated static let tellAction = "CHECK_TELL"
     nonisolated static let skipAction = "CHECK_SKIP"
     private static let buzzDelay: TimeInterval = 10
+    private static let requiredBackgroundFixes = 10
+    private static let activityUpdateDelay: TimeInterval = 60
 
     // Background location
     private(set) var locationRunning = false
@@ -27,9 +31,17 @@ final class WalkingCheckModel: NSObject {
     private(set) var buzzStatus = "Not started"
     private(set) var buzzResult: CheckResult?
 
+    // Live Activity
+    private(set) var activityRunning = false
+    private(set) var activityStatus = "Not started"
+    private(set) var activityResult: CheckResult?
+
     @ObservationIgnored private let manager = CLLocationManager()
     @ObservationIgnored private var activitySession: CLBackgroundActivitySession?
     @ObservationIgnored private var lastFixAt: Date?
+    @ObservationIgnored private var lastFixWasBackground = false
+    @ObservationIgnored private var activityID: String?
+    @ObservationIgnored private var activityTimer: Task<Void, Never>?
     @ObservationIgnored private let player = AudioPlayer()
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var buzzTimer: Task<Void, Never>?
@@ -52,14 +64,18 @@ final class WalkingCheckModel: NSObject {
 
     /// Nil while a run is still waiting for its first background fix.
     var locationResult: CheckResult? {
-        if backgroundFixes > 0 {
+        if backgroundFixes >= Self.requiredBackgroundFixes {
             return CheckResult(passed: true, detail: "\(backgroundFixes) fixes while in background, longest gap \(Int(longestGap.rounded())) s")
         }
         if locationRunning { return nil }
         if authorization == .denied || authorization == .restricted {
             return CheckResult(passed: false, detail: "Location permission not granted")
         }
-        return totalFixes > 0 ? CheckResult(passed: false, detail: "No fixes arrived while in background") : nil
+        guard totalFixes > 0 else { return nil }
+        let detail = backgroundFixes == 0
+            ? "No fixes arrived while in background"
+            : "Only \(backgroundFixes) fixes while in background (need \(Self.requiredBackgroundFixes))"
+        return CheckResult(passed: false, detail: detail)
     }
 
     func startLocation() {
@@ -69,6 +85,7 @@ final class WalkingCheckModel: NSObject {
         backgroundFixes = 0
         longestGap = 0
         lastFixAt = nil
+        lastFixWasBackground = false
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.activityType = .fitness
         manager.pausesLocationUpdatesAutomatically = false
@@ -109,12 +126,17 @@ final class WalkingCheckModel: NSObject {
         }
     }
 
+    /// Counts one fix. Gaps come from the fix's own timestamp, and only between two consecutive fixes
+    /// that both arrived in the background, so time spent in the foreground never inflates them.
     private func record(_ fix: CLLocation) {
-        let now = Date.now
+        let inBackground = UIApplication.shared.applicationState == .background
         totalFixes += 1
-        if UIApplication.shared.applicationState == .background { backgroundFixes += 1 }
-        if let lastFixAt { longestGap = max(longestGap, now.timeIntervalSince(lastFixAt)) }
-        lastFixAt = now
+        if inBackground { backgroundFixes += 1 }
+        if inBackground, lastFixWasBackground, let lastFixAt {
+            longestGap = max(longestGap, fix.timestamp.timeIntervalSince(lastFixAt))
+        }
+        lastFixAt = fix.timestamp
+        lastFixWasBackground = inBackground
     }
 
     private static func describe(_ status: CLAuthorizationStatus) -> String {
@@ -203,8 +225,9 @@ final class WalkingCheckModel: NSObject {
             do {
                 try player.play(try Self.toneURL())
                 buzzStatus = "Playing the tone"
-                buzzResult = CheckResult(passed: true,
-                                         detail: inBackground ? "Played from background ✓" : "Played, but the app was in the foreground")
+                buzzResult = inBackground
+                    ? CheckResult(passed: true, detail: "Played from background ✓")
+                    : CheckResult(passed: false, detail: "Played, but the app was in the foreground — lock the phone and try again")
             } catch {
                 endBackgroundWork()
                 buzzStatus = "Playback failed"
@@ -212,6 +235,7 @@ final class WalkingCheckModel: NSObject {
             }
         case Self.skipAction:
             buzzStatus = "Skipped"
+            buzzResult = CheckResult(passed: false, detail: "Skipped — tap Tell me to test audio")
         default:
             buzzStatus = "Notification opened without an action"
         }
@@ -224,6 +248,84 @@ final class WalkingCheckModel: NSObject {
             try TestTone.wavData(frequency: 880, duration: 2, sampleRate: 22050).write(to: url, options: .atomic)
         }
         return url
+    }
+
+    // MARK: - Live Activity
+
+    /// Starts an activity in the foreground, then updates it from the background after 60 s.
+    /// The update relies on the background location run (row 1) keeping the app alive until then.
+    func startActivity() {
+        guard !activityRunning else { return }
+        activityResult = nil
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            activityStatus = "Live Activities are turned off"
+            activityResult = CheckResult(passed: false, detail: "Live Activities are turned off in Settings")
+            return
+        }
+        let state = WalkingActivityAttributes.ContentState(headline: "Walking", body: "Live Activity check", updatedAt: .now)
+        do {
+            activityID = try Activity.request(attributes: WalkingActivityAttributes(startedAt: .now),
+                                              content: ActivityContent(state: state, staleDate: nil)).id
+        } catch {
+            activityStatus = "Could not start: \(error.localizedDescription)"
+            activityResult = CheckResult(passed: false, detail: "Live Activity error: \(error.localizedDescription)")
+            return
+        }
+        activityRunning = true
+        let hint = locationRunning ? "" : " Start Background location first, or the app may be suspended."
+        activityStatus = "Started. Lock the phone; it updates in \(Int(Self.activityUpdateDelay)) s.\(hint)"
+        activityTimer = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(Self.activityUpdateDelay)) } catch { return }
+            await self?.updateActivityFromTimer()
+        }
+    }
+
+    func endActivity() {
+        activityTimer?.cancel()
+        activityTimer = nil
+        let id = activityID
+        activityID = nil
+        activityRunning = false
+        activityStatus = "Ended"
+        if let id { Task { await Self.endActivity(id: id) } }
+    }
+
+    // `Activity` is not Sendable, so it is looked up by id inside these nonisolated helpers
+    // instead of being held across an await on the main actor.
+    private nonisolated static func endActivity(id: String) async {
+        await Activity<WalkingActivityAttributes>.activities.first { $0.id == id }?
+            .end(nil, dismissalPolicy: .immediate)
+    }
+
+    /// Returns whether the activity was still active after the update.
+    private nonisolated static func updateActivity(id: String, to state: WalkingActivityAttributes.ContentState) async -> Bool {
+        guard let activity = Activity<WalkingActivityAttributes>.activities.first(where: { $0.id == id }) else { return false }
+        await activity.update(ActivityContent(state: state, staleDate: nil))
+        // `update` does not throw; an activity the system or the user ended is no longer active.
+        return activity.activityState == .active
+    }
+
+    private func updateActivityFromTimer() async {
+        guard let id = activityID else { return }
+        let inBackground = UIApplication.shared.applicationState == .background
+        let state = WalkingActivityAttributes.ContentState(
+            headline: "Updated from background",
+            body: Date.now.formatted(date: .omitted, time: .standard),
+            updatedAt: .now)
+        let succeeded = await Self.updateActivity(id: id, to: state)
+        guard activityID == id else { return }  // ended while the update was in flight
+        activityTimer = nil
+        switch (succeeded, inBackground) {
+        case (true, true):
+            activityStatus = "Updated from background"
+            activityResult = CheckResult(passed: true, detail: "Updated from background ✓")
+        case (true, false):
+            activityStatus = "Updated, in the foreground"
+            activityResult = CheckResult(passed: false, detail: "Updated, but the app was in the foreground — lock the phone and try again")
+        case (false, _):
+            activityStatus = "Update failed"
+            activityResult = CheckResult(passed: false, detail: "The activity was no longer active at the update")
+        }
     }
 
     // MARK: - Background time
@@ -257,8 +359,7 @@ extension WalkingCheckModel: CLLocationManagerDelegate {
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let last = locations.last else { return }
-        MainActor.assumeIsolated { self.record(last) }
+        MainActor.assumeIsolated { for location in locations { self.record(location) } }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

@@ -17,6 +17,11 @@ struct WalkingCheckView: View {
                     if model.buzzPending { model.cancelBuzz() } else { Task { await model.startBuzz() } }
                 }
             }
+            row("Live Activity", status: model.activityStatus, result: model.activityResult) {
+                Button(model.activityRunning ? "End" : "Start") {
+                    if model.activityRunning { model.endActivity() } else { model.startActivity() }
+                }
+            }
         }
         .navigationTitle("Walking check")
     }
