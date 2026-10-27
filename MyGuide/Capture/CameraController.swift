@@ -3,6 +3,12 @@ import MyGuideCore
 import Observation
 import Synchronization
 
+struct CapturedPhoto: Sendable {
+    var data: Data
+    /// Read from the device as the capture was issued, so it is the zoom the photo really has.
+    var zoomFactor: Double
+}
+
 enum CameraError: Error, Equatable {
     case accessDenied
     case noCamera
@@ -17,8 +23,13 @@ enum CameraError: Error, Equatable {
 final class CameraController {
     private(set) var isRunning = false
     private(set) var failure: CameraError?
-    /// Portrait horizontal FOV of the active format, degrees. Nil until the session is configured.
+    /// Portrait horizontal FOV of the active format at 1×, degrees. Nil until the session is configured.
     private(set) var horizontalFOV: Double?
+    /// The zoom last requested; the camera applies it before any photo requested after it.
+    private(set) var zoomFactor = 1.0
+    /// The device's highest zoom. 1 until the session is configured, so zoom stays off until then.
+    private(set) var maxZoom = 1.0
+
 
     @ObservationIgnored let camera = CameraSession()
     /// The latest request from the UI. start() and stop() interleave at their awaits; a stop() that
@@ -43,9 +54,10 @@ final class CameraController {
             return
         }
         switch outcome {
-        case .success(let landscapeFOV):
+        case .success(let configuration):
             failure = nil
-            horizontalFOV = FieldOfView.portraitHorizontalFOV(landscapeFOV: landscapeFOV)
+            horizontalFOV = FieldOfView.portraitHorizontalFOV(landscapeFOV: configuration.landscapeFOV)
+            maxZoom = configuration.maxZoom
             isRunning = true
         case .failure(let error):
             failure = error
@@ -59,8 +71,16 @@ final class CameraController {
         await camera.stop()
     }
 
-    /// The photo as JPEG file data (with EXIF), in portrait orientation.
-    func capture() async throws -> Data {
+    /// Clamps to 1...min(5, device max) and applies it on the session queue, ahead of any later capture.
+    func setZoom(_ factor: Double) {
+        let clamped = CameraZoom.clamped(factor, deviceMax: maxZoom)
+        guard clamped != zoomFactor else { return }
+        zoomFactor = clamped
+        camera.setZoom(clamped)
+    }
+
+    /// The photo as JPEG file data (with EXIF), in portrait orientation, and the zoom it was taken at.
+    func capture() async throws -> CapturedPhoto {
         try await camera.capture()
     }
 }
@@ -71,11 +91,18 @@ final class CameraSession: @unchecked Sendable {
     let session = AVCaptureSession()
     private let output = AVCapturePhotoOutput()
     private let queue = DispatchQueue(label: "io.github.birgerlie.MyGuide.camera")
-    private var configuredFOV: Double?
+    private var configuration: Configuration?
+    private var device: AVCaptureDevice?
     private var inFlight: [Int64: PhotoCaptureDelegate] = [:]
 
-    /// Configures on first use, then starts running. Succeeds with the active format's landscape horizontal FOV.
-    func start() async -> Result<Double, CameraError> {
+    struct Configuration: Sendable {
+        /// The active format's landscape horizontal FOV at 1×, degrees.
+        var landscapeFOV: Double
+        var maxZoom: Double
+    }
+
+    /// Configures on first use, then starts running.
+    func start() async -> Result<Configuration, CameraError> {
         await withCheckedContinuation { continuation in
             queue.async {
                 let result = self.configureIfNeeded()
@@ -96,10 +123,25 @@ final class CameraSession: @unchecked Sendable {
         }
     }
 
-    func capture() async throws -> Data {
+    /// Queued, so a capture requested after this call is taken at this zoom. The caller has clamped it.
+    func setZoom(_ factor: Double) {
+        queue.async {
+            guard let device = self.device else { return }
+            // On failure the zoom stays put; capture() reports the zoom the device really has.
+            do {
+                try device.lockForConfiguration()
+            } catch {
+                return
+            }
+            device.videoZoomFactor = CGFloat(min(factor, Double(device.maxAvailableVideoZoomFactor)))
+            device.unlockForConfiguration()
+        }
+    }
+
+    func capture() async throws -> CapturedPhoto {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                guard self.configuredFOV != nil, self.session.isRunning else {
+                guard self.configuration != nil, self.session.isRunning else {
                     continuation.resume(throwing: CameraError.notRunning)
                     return
                 }
@@ -112,9 +154,10 @@ final class CameraSession: @unchecked Sendable {
                 if let connection = self.output.connection(with: .video), connection.isVideoRotationAngleSupported(90) {
                     connection.videoRotationAngle = 90
                 }
+                let zoom = self.device.map { Double($0.videoZoomFactor) } ?? 1
                 let id = settings.uniqueID
                 // The closure keeps `self` alive only until the capture finishes and the entry is removed.
-                let delegate = PhotoCaptureDelegate(continuation: continuation) {
+                let delegate = PhotoCaptureDelegate(zoomFactor: zoom, continuation: continuation) {
                     self.queue.async { self.inFlight[id] = nil }
                 }
                 // AVCapturePhotoOutput does not keep the delegate alive; hold it until the capture finishes.
@@ -125,8 +168,8 @@ final class CameraSession: @unchecked Sendable {
     }
 
     /// Runs on `queue`.
-    private func configureIfNeeded() -> Result<Double, CameraError> {
-        if let configuredFOV { return .success(configuredFOV) }
+    private func configureIfNeeded() -> Result<Configuration, CameraError> {
+        if let configuration { return .success(configuration) }
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
             return .failure(.noCamera)
         }
@@ -141,18 +184,23 @@ final class CameraSession: @unchecked Sendable {
         session.addOutput(output)
         // The .photo preset picks the device's active format at commit; read the FOV only after it.
         session.commitConfiguration()
-        let fov = Double(device.activeFormat.videoFieldOfView)
-        configuredFOV = fov
-        return .success(fov)
+        let configured = Configuration(landscapeFOV: Double(device.activeFormat.videoFieldOfView),
+                                       maxZoom: Double(device.maxAvailableVideoZoomFactor))
+        self.device = device
+        configuration = configured
+        return .success(configured)
     }
 }
 
 /// One capture's delegate; resumes its continuation exactly once.
 private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate, Sendable {
-    private let continuation: Mutex<CheckedContinuation<Data, Error>?>
+    private let zoomFactor: Double
+    private let continuation: Mutex<CheckedContinuation<CapturedPhoto, Error>?>
     private let onFinish: @Sendable () -> Void
 
-    init(continuation: CheckedContinuation<Data, Error>, onFinish: @escaping @Sendable () -> Void) {
+    init(zoomFactor: Double, continuation: CheckedContinuation<CapturedPhoto, Error>,
+         onFinish: @escaping @Sendable () -> Void) {
+        self.zoomFactor = zoomFactor
         self.continuation = Mutex(continuation)
         self.onFinish = onFinish
     }
@@ -161,7 +209,7 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
         if let error {
             resume(.failure(error))
         } else if let data = photo.fileDataRepresentation() {
-            resume(.success(data))
+            resume(.success(CapturedPhoto(data: data, zoomFactor: zoomFactor)))
         } else {
             resume(.failure(CameraError.noPhotoData))
         }
@@ -174,8 +222,8 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
         onFinish()
     }
 
-    private func resume(_ result: Result<Data, Error>) {
-        let pending = continuation.withLock { value -> CheckedContinuation<Data, Error>? in
+    private func resume(_ result: Result<CapturedPhoto, Error>) {
+        let pending = continuation.withLock { value -> CheckedContinuation<CapturedPhoto, Error>? in
             defer { value = nil }
             return value
         }

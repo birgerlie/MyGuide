@@ -17,6 +17,13 @@ public enum FieldOfView {
         return 2 * atan(tan(half) * 3 / 4) * 180 / .pi
     }
 
+    /// Horizontal FOV after a digital zoom crop: 2·atan(tan(F/2)/z). A zoom below 1 or invalid leaves F unchanged.
+    public static func zoomedHorizontalFOV(_ fov: Double, zoomFactor: Double) -> Double {
+        guard zoomFactor.isFinite, zoomFactor > 1 else { return fov }
+        let half = fov / 2 * .pi / 180
+        return 2 * atan(tan(half) / zoomFactor) * 180 / .pi
+    }
+
     /// Landscape (or square) images use the landscape FOV; portrait images the derived one.
     public static func assumedHorizontalFOV(pixelWidth: Int, pixelHeight: Int) -> Double {
         pixelWidth >= pixelHeight ? landscapeFOV : portraitHorizontalFOV(landscapeFOV: landscapeFOV)

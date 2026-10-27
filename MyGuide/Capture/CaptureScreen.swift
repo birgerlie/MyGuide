@@ -16,6 +16,8 @@ struct CaptureScreen: View {
     @State private var errorText: String?
     /// True while this screen (not History, Settings or a story pushed on top of it) is visible.
     @State private var isOnTop = false
+    /// The zoom when the current pinch began; nil between pinches. GestureState also resets on a cancelled pinch.
+    @GestureState private var pinchBase: Double?
     /// Read when the photo is taken or picked, so a change in Settings never affects a photo already in flight.
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @Environment(\.scenePhase) private var scenePhase
@@ -40,6 +42,8 @@ struct CaptureScreen: View {
             }
             .padding()
         }
+        // Over the whole screen: the overlay's transparent areas pass touches through, its buttons keep their taps.
+        .simultaneousGesture(pinchToZoom, including: camera.isRunning ? .all : .subviews)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -104,6 +108,39 @@ struct CaptureScreen: View {
 
     // MARK: - Subviews
 
+    private var pinchToZoom: some Gesture {
+        MagnifyGesture()
+            .updating($pinchBase) { value, base, _ in
+                let start = base ?? camera.zoomFactor
+                base = start
+                camera.setZoom(CameraZoom.pinched(base: start, magnification: Double(value.magnification),
+                                                  deviceMax: camera.maxZoom))
+            }
+    }
+
+    /// Shows the zoom; a tap goes back to 1×. VoiceOver users swipe up or down to zoom in 0.5× steps.
+    private var zoomButton: some View {
+        Button {
+            camera.setZoom(1)
+        } label: {
+            Text(CameraZoom.label(camera.zoomFactor))
+                .font(.footnote.weight(.semibold).monospacedDigit())
+                .foregroundStyle(camera.zoomFactor > 1 ? .yellow : .white)
+                .frame(minWidth: 44, minHeight: 32)
+                .background(.black.opacity(0.55), in: Capsule())
+        }
+        .accessibilityLabel("Zoom")
+        .accessibilityValue(CameraZoom.label(camera.zoomFactor))
+        .accessibilityHint("Double-tap to go back to 1×.")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: camera.setZoom(camera.zoomFactor + 0.5)
+            case .decrement: camera.setZoom(camera.zoomFactor - 0.5)
+            @unknown default: break
+            }
+        }
+    }
+
     private var hud: some View {
         // Re-evaluated every second so a fix that goes stale shows as "No GPS fix".
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -118,6 +155,13 @@ struct CaptureScreen: View {
     }
 
     private var controls: some View {
+        VStack(spacing: 16) {
+            if camera.isRunning { zoomButton }
+            controlRow
+        }
+    }
+
+    private var controlRow: some View {
         HStack {
             // .current keeps the original bytes (and their GPS EXIF) instead of a transcoded copy.
             PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .current,
@@ -172,8 +216,10 @@ struct CaptureScreen: View {
             defer { isBusy = false }
             do {
                 let photo = try await camera.capture()
-                let capture = Self.cameraContext(fix: fix, compass: compass, horizontalFOV: fov, takenAt: takenAt)
-                openStory(photo: photo, capture: capture, language: language)
+                let capture = Self.cameraContext(fix: fix, compass: compass,
+                                                 horizontalFOV: FieldOfView.zoomedHorizontalFOV(fov, zoomFactor: photo.zoomFactor),
+                                                 takenAt: takenAt)
+                openStory(photo: photo.data, capture: capture, language: language)
             } catch {
                 errorText = "The camera couldn't take the photo. Try again."
             }
