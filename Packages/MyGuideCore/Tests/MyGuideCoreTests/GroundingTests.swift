@@ -127,6 +127,58 @@ import Testing
         task.cancel()
         await #expect(throws: CancellationError.self) { try await task.value }
     }
+    /// Sleeps 60 s but honours cancellation.
+    struct SlowGeo: ReverseGeocoding {
+        func address(for: Coordinate) async throws -> Address {
+            try await Task.sleep(for: .seconds(60))
+            return Address(line: "late", city: nil, country: nil)
+        }
+    }
+    /// Never returns and ignores cancellation, like a MapKit request that does not answer.
+    struct HangingGeo: ReverseGeocoding {
+        func address(for: Coordinate) async throws -> Address {
+            await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
+            return Address(line: "never", city: nil, country: nil)
+        }
+    }
+    func elapsed(_ work: () async throws -> Void) async rethrows -> Duration {
+        let clock = ContinuousClock()
+        let start = clock.now
+        try await work()
+        return clock.now - start
+    }
+    @Test(arguments: [false, true]) func geocoderTimeoutIsAFailureAndKeepsCandidates(ignoresCancellation: Bool) async throws {
+        let http = StubHTTPClient { r in
+            r.url!.host!.contains("overpass") ? (200, Data(Self.osmJSON.utf8)) : (200, Data(Self.wikiJSON.utf8))
+        }
+        let geo: ReverseGeocoding = ignoresCancellation ? HangingGeo() : SlowGeo()
+        let s = GroundingService(overpass: .init(http: http), wikipedia: .init(http: http), geocoder: geo,
+                                 geocoderTimeout: .milliseconds(50))
+        var g: Grounding?
+        let took = try await elapsed { g = try await s.ground(Self.capture(heading: 0, acc: 10), language: .english) }
+        #expect(took < .seconds(1))
+        #expect(g?.address == nil && g?.failedSources == [.geocoder])
+        #expect(g?.candidates.map(\.candidate.name) == ["Palace", "Gate"])
+    }
+    @Test func defaultGeocoderTimeoutIsEightSeconds() {
+        #expect(GroundingService.defaultGeocoderTimeout == .seconds(8))
+    }
+    @Test func outerCancellationPropagatesWhileGeocoderHangs() async {
+        let http = StubHTTPClient { r in
+            r.url!.host!.contains("overpass") ? (200, Data(Self.osmJSON.utf8)) : (200, Data(Self.wikiJSON.utf8))
+        }
+        // A 60 s timeout proves the return comes from cancellation, not from the timeout.
+        let s = GroundingService(overpass: .init(http: http), wikipedia: .init(http: http), geocoder: HangingGeo(),
+                                 geocoderTimeout: .seconds(60))
+        let capture = Self.capture(heading: 0, acc: 10)
+        let task = Task { try await s.ground(capture, language: .english) }
+        try? await Task.sleep(for: .milliseconds(50))
+        task.cancel()
+        let took = await elapsed {
+            await #expect(throws: CancellationError.self) { try await task.value }
+        }
+        #expect(took < .seconds(1))
+    }
     @Test func limitIsAppliedAfterSorting() {
         let near = (1...20).map { Self.cand("out\($0)", n: -Double($0), e: 0) }          // behind, out of view
         let far = (1...3).map { Self.cand("in\($0)", n: 100 + Double($0), e: 0) }         // ahead, in view

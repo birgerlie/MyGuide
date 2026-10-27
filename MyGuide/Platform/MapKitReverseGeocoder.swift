@@ -22,8 +22,8 @@ struct MapKitReverseGeocoder: ReverseGeocoding {
         guard let request = MKReverseGeocodingRequest(location: location) else {
             throw ReverseGeocodingFailure.invalidLocation
         }
-        // Not cancelled on task cancellation: the request is not Sendable and answers quickly;
-        // GroundingService checks for cancellation after all sources return.
+        // Not cancelled on task cancellation: the request is not Sendable. GroundingService stops waiting
+        // for it on cancellation or after its geocoder timeout, and checks for cancellation afterwards.
         let items = try await request.mapItems
         guard let item = items.first else { throw ReverseGeocodingFailure.noResult }
         return Address(line: nonEmpty(item.address?.shortAddress),
