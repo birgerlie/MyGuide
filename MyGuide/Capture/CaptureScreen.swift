@@ -14,6 +14,8 @@ struct CaptureScreen: View {
     @State private var story: StoryViewModel?
     @State private var isBusy = false
     @State private var errorText: String?
+    /// True while this screen (not History, Settings or a story pushed on top of it) is visible.
+    @State private var isOnTop = false
     /// Read when the photo is taken or picked, so a change in Settings never affects a photo already in flight.
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @Environment(\.scenePhase) private var scenePhase
@@ -67,27 +69,37 @@ struct CaptureScreen: View {
             Text(errorText ?? "")
         }
         .onAppear {
-            location.start()
+            isOnTop = true
             Task { await camera.start() }
         }
         .onDisappear {
+            isOnTop = false
             Task { await camera.stop() }
         }
         .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .active:
-                location.start()
-                // Picks up camera access granted in the Settings app while we were away.
-                if story == nil { Task { await camera.start() } }
-            case .background: location.stop()
-            default: break
-            }
+            // Picks up camera access granted in the Settings app while we were away,
+            // but never restarts the camera behind History, Settings or a story.
+            if phase == .active, isOnTop, story == nil { Task { await camera.start() } }
+        }
+        // Location runs while this screen is on top, or while a story offers "Use where I am now".
+        .onChange(of: locationWanted, initial: true) { _, wanted in
+            if wanted { location.start() } else { location.stop() }
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
             pickerItem = nil
             Task { await usePicked(item) }
         }
+    }
+
+    /// Whether location updates should run now (re-evaluated as the scene, the top screen or the story changes).
+    private var locationWanted: Bool {
+        scenePhase != .background && (isOnTop || storyOffersCurrentPosition)
+    }
+
+    private var storyOffersCurrentPosition: Bool {
+        if case .failed(_, canUseCurrentPosition: true) = story?.state { return true }
+        return false
     }
 
     // MARK: - Subviews
