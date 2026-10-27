@@ -112,8 +112,22 @@ import SwiftData
 }
 
 public enum MemorySchema {
-    /// Every persistent model; the app passes this to `.modelContainer(for:)`.
+    /// Every persistent model. The app opens the store through `MemorySchemaV1` and `MemoryMigrationPlan`;
+    /// tests may use this list directly.
     public static let models: [any PersistentModel.Type] = [
         CaptureRecord.self, StoryRecord.self, PlaceRecord.self, UsageRecord.self
     ]
+}
+
+/// Version 1 of the store: the four phase 1 models, unchanged. A later model change adds `MemorySchemaV2`
+/// (with its own copies of the changed models) and a stage to `MemoryMigrationPlan`.
+public enum MemorySchemaV1: VersionedSchema {
+    public static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
+    public static var models: [any PersistentModel.Type] { MemorySchema.models }
+}
+
+/// Migration plan for the memory store. Version 1 is the only version, so there are no stages yet.
+public enum MemoryMigrationPlan: SchemaMigrationPlan {
+    public static var schemas: [any VersionedSchema.Type] { [MemorySchemaV1.self] }
+    public static var stages: [MigrationStage] { [] }
 }
