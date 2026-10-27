@@ -252,6 +252,94 @@ import Testing
         #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 5)
     }
 
+    @Test func markHeardStoresAnUnknownPlaceAndRetiresIt() throws {
+        try store.markHeard(Self.candidate("osm:node/9", north: 30), level: 1, at: Self.t0 + 5)
+        let place = try #require(try store.place(id: "osm:node/9"))
+        #expect(place.deepestLevelHeard == 1 && place.lastHeardAt == Self.t0 + 5 && place.firstSeenAt == Self.t0 + 5)
+        #expect(place.skippedAt == nil && place.lastBuzzedAt == nil)
+        #expect(try store.retiredPlaceIDs() == ["osm:node/9"])
+    }
+    @Test func markHeardNeverLowersTheDeepestLevel() throws {
+        try store.markHeard(Self.candidate("osm:node/1"), level: 2, at: Self.t0)
+        try store.markHeard(Self.candidate("osm:node/1"), level: 1, at: Self.t0 + 10)
+        let place = try #require(try store.place(id: "osm:node/1"))
+        #expect(place.deepestLevelHeard == 2 && place.lastHeardAt == Self.t0 + 10 && place.firstSeenAt == Self.t0)
+        try store.markHeard(Self.candidate("osm:node/1"), level: 3, at: Self.t0 + 20)
+        #expect(place.deepestLevelHeard == 3)
+    }
+
+    // MARK: - Deleting a capture
+
+    private func saveCapture(placeID: String?) throws -> CaptureRecord {
+        let session = MemoryStoreTests.session(placeID: placeID, levels: ["one"])
+        try store.save(session)
+        let id = session.id
+        return try #require(try store.context.fetch(FetchDescriptor<CaptureRecord>(predicate: #Predicate { $0.id == id })).first)
+    }
+
+    @Test func deletingThePhotoOnlyPlacesLastCaptureRemovesThePlace() throws {
+        let first = try saveCapture(placeID: "osm:node/1")
+        let second = try saveCapture(placeID: "osm:node/1")
+        try store.deleteCapture(first)
+        #expect(try store.place(id: "osm:node/1") != nil)   // another capture still refers to it
+        try store.deleteCapture(second)
+        #expect(try store.place(id: "osm:node/1") == nil)
+        #expect(try store.context.fetchCount(FetchDescriptor<CaptureRecord>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<StoryRecord>()) == 0)
+    }
+    @Test func deletingAnUnidentifiedCaptureLeavesPlacesAlone() throws {
+        let other = try saveCapture(placeID: "osm:node/1")
+        let unidentified = try saveCapture(placeID: nil)
+        try store.deleteCapture(unidentified)
+        #expect(try store.place(id: "osm:node/1") != nil)
+        #expect(try store.context.fetch(FetchDescriptor<CaptureRecord>()).map(\.id) == [other.id])
+    }
+    @Test func aSkippedPlaceIsKept() throws {
+        let capture = try saveCapture(placeID: "osm:node/1")
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0)
+        try store.deleteCapture(capture)
+        #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0)
+        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+    }
+    @Test func aBuzzedPlaceIsKept() throws {
+        let capture = try saveCapture(placeID: "osm:node/1")
+        try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.trip, at: Self.t0)
+        try store.deleteCapture(capture)
+        #expect(try store.place(id: "osm:node/1")?.lastBuzzedAt == Self.t0)
+    }
+    @Test func aPlaceHeardOrSkippedThroughAWalkBuzzIsKeptEvenWithoutLastBuzzedAt() throws {
+        for outcome in [BuzzOutcome.heard, .skipped] {
+            let id = "osm:node/\(outcome.rawValue)"
+            let capture = try saveCapture(placeID: id)
+            let b = Self.buzz(id)
+            try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+            try store.setBuzzOutcome(b.id, outcome, deepestLevel: 1, at: Self.t0 + 5)
+            // Only the buzz log says the walk touched it.
+            let place = try #require(try store.place(id: id))
+            place.lastBuzzedAt = nil
+            place.skippedAt = nil
+            try store.context.save()
+            try store.deleteCapture(capture)
+            #expect(try store.place(id: id) != nil)
+        }
+    }
+    @Test func anIgnoredBuzzAloneDoesNotKeepThePlace() throws {
+        // Boundary of the outcome rule: ignored (never answered) is not walk history worth keeping.
+        let capture = try saveCapture(placeID: "osm:node/1")
+        try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.trip, at: Self.t0)
+        try store.closePendingBuzzes()
+        try #require(try store.place(id: "osm:node/1")).lastBuzzedAt = nil
+        try store.context.save()
+        try store.deleteCapture(capture)
+        #expect(try store.place(id: "osm:node/1") == nil)
+    }
+    @Test func aPlaceWithAWalkStoryIsKept() throws {
+        let capture = try saveCapture(placeID: "osm:node/1")
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one"]), tripID: Self.trip)
+        try store.deleteCapture(capture)
+        #expect(try store.place(id: "osm:node/1") != nil)
+    }
+
     // MARK: - setBuzzOutcome and closePendingBuzzes
 
     @Test func heardDeepensButNeverShallows() throws {
@@ -397,7 +485,10 @@ import Testing
     // MARK: - Priors
 
     @Test func buzzStoryLevelsArePriorsForItsPlace() throws {
-        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one", "two"]), tripID: Self.trip)
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one", "two"], id: b.id), tripID: Self.trip)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
         // The place is 5 km away from `near`: found by place ID, not by distance.
         let p = try store.priorStories(placeIDs: ["osm:node/1"], near: .at(north: 5_000), excludingSession: nil)
         // createdAt: two = t0 + 1, one = t0 + 0, newest first.
@@ -424,9 +515,57 @@ import Testing
         #expect(try store.priorStories(placeIDs: [], near: .at(), excludingSession: nil).isEmpty)
     }
     @Test func excludingAWalkStoryByIDAlsoWorksForBuzzStories() throws {
-        let s = Self.buzzStory("osm:node/1", levels: ["one"])
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        let s = Self.buzzStory("osm:node/1", levels: ["one"], id: b.id)
         try store.saveWalkStory(s, tripID: Self.trip)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).map(\.text) == ["one"])
         #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: s.id).isEmpty)
+    }
+    @Test func preparedButUnheardBuzzStoryIsNotAPrior() throws {
+        // Ruling 26: the story is saved when the buzz goes out; nobody has heard it yet.
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one"], id: b.id), tripID: Self.trip)
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).isEmpty)
+        // Ignored (walking mode ended without an answer) is still unheard.
+        try store.closePendingBuzzes()
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).isEmpty)
+    }
+    @Test func onlyTheHeardLevelsOfABuzzStoryArePriors() throws {
+        // Two levels stored, level 1 heard: deepestLevel 1, so level 1 ≤ 1 counts and level 2 > 1 does not.
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one", "two"], id: b.id), tripID: Self.trip)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).map(\.text) == ["one"])
+        // Hearing level 2 later makes it count too, newest first.
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 20)
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).map(\.text) == ["two", "one"])
+    }
+    @Test func buzzStoryWithoutABuzzLogEntryIsNotAPrior() throws {
+        // recordBuzz failed: there is no log to say anything was heard.
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one"]), tripID: Self.trip)
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).isEmpty)
+    }
+    @Test func unheardBuzzStoriesDoNotCrowdOutPhotoPriors() throws {
+        // 12 unheard buzz levels newer than one photo story: filtered before the limit of 12, so the photo remains.
+        try store.save(MemoryStoreTests.session(placeID: "osm:node/1", levels: ["photo"], at: 0))
+        for i in 0..<12 {
+            let b = Self.buzz("osm:node/1")
+            try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+            try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["buzz \(i)"], id: b.id, at: Double(i)), tripID: Self.trip)
+        }
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).map(\.text) == ["photo"])
+    }
+    @Test func stopStoryIsStillAPriorWithBuzzStoriesAround() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["buzz"], id: b.id, at: 5), tripID: Self.trip)
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["stop"]), tripID: Self.trip)
+        // The stop story has no buzz log entry and counts anyway; the unheard buzz story does not.
+        #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).map(\.text) == ["stop"])
     }
     @Test func photoAndWalkPriorsMixNewestFirst() throws {
         // Photo capture at t = 100 s, 10 m away and unidentified; stop story at t0 (1 000 000 s), 20 m away.

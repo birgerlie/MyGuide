@@ -141,24 +141,14 @@ final class AppServices {
         }
     }
 
-    /// Deletes a history entry (its stories cascade) and, in the same save, its `PlaceRecord` when no other
-    /// capture refers to that place (a deleted visit must not linger). Then removes its cached speech files.
-    /// On a failed save the context is rolled back and the error rethrown; the cache is left alone.
+    /// Deletes a history entry (its stories cascade) and, in the same save, its `PlaceRecord` when nothing else needs
+    /// it (`MemoryStore.deleteCapture`: walking mode's skip and heard flags live on the place). Then removes its cached
+    /// speech files. On a failed save the context is rolled back and the error rethrown; the cache is left alone.
     func deleteHistoryEntry(_ record: CaptureRecord) throws {
         let id = record.id
-        let placeID = record.placeID
-        let context = memory.context
         do {
-            context.delete(record)
-            if let placeID {
-                let others = FetchDescriptor<CaptureRecord>(predicate: #Predicate { $0.placeID == placeID && $0.id != id })
-                if try context.fetchCount(others) == 0, let place = try memory.place(id: placeID) {
-                    context.delete(place)
-                }
-            }
-            try context.save()
+            try memory.deleteCapture(record)
         } catch {
-            context.rollback()
             Self.logMemoryFailure("delete failed", error)
             throw error
         }

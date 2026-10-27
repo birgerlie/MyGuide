@@ -411,11 +411,19 @@ final class WalkingStories {
         return url
     }
 
-    /// The buzz is heard from the moment a level starts playing; this retires its place.
+    /// The buzz is heard from the moment a level starts playing; this retires its place. When the buzz was never
+    /// logged (`recordBuzz` failed), the place is marked heard from the story, so the listen is not lost.
     private func markHeard(_ id: UUID, level: Int) {
         guard let story = prepared.story(id), story.kind == .buzz else { return }
+        let now = Date.now
         do {
-            try memory.setBuzzOutcome(id, .heard, deepestLevel: level, at: .now)
+            try memory.setBuzzOutcome(id, .heard, deepestLevel: level, at: now)
+        } catch MemoryError.corruptRecord {
+            if let candidate = story.place {
+                do { try memory.markHeard(candidate, level: level, at: now) } catch { AppServices.logMemoryFailure("heard failed", error) }
+            } else {
+                AppServices.logMemoryFailure("heard outcome failed", MemoryError.corruptRecord)
+            }
         } catch {
             AppServices.logMemoryFailure("heard outcome failed", error)
         }

@@ -163,6 +163,17 @@ extension MemoryStore {
         }
     }
 
+    /// Marks the place heard to `level` at `at`, storing it first if it is unknown (for example when `recordBuzz`
+    /// failed and `setBuzzOutcome` has no log entry to update), so a played story still retires its place. The deepest
+    /// level never decreases.
+    public func markHeard(_ candidate: Candidate, level: Int, at: Date) throws {
+        try saving {
+            let place = try upsertWalkPlace(candidate, seenAt: at)
+            place.deepestLevelHeard = max(place.deepestLevelHeard, level)
+            place.lastHeardAt = at
+        }
+    }
+
     /// Every pending buzz becomes ignored (walking mode ended without an answer).
     public func closePendingBuzzes() throws {
         let pending = BuzzOutcome.pending.rawValue

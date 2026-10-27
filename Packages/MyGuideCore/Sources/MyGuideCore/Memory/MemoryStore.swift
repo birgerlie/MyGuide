@@ -142,7 +142,9 @@ public enum MemoryError: Error, Equatable {
 
     /// Stories already told about any of `placeIDs` (anywhere, photo or buzz), plus stories from unidentified captures
     /// and stop stories within `priorRadius` of `near`, excluding the capture or walk story `excludingSession`;
-    /// newest first, at most `priorLimit`.
+    /// newest first, at most `priorLimit`. A buzz story is saved when its buzz goes out, before anyone listens, so a
+    /// buzz story level counts only once its buzz log entry has heard that deep (`BuzzRecord.deepestLevel`, the buzz
+    /// sharing the story's id); without a log entry none of its levels count. Photo and stop story levels always count.
     public func priorStories(placeIDs: [String], near: Coordinate, excludingSession: UUID?) throws -> [PriorStory] {
         var stories: [StoryRecord] = []
 
@@ -163,7 +165,19 @@ public enum MemoryError: Error, Equatable {
             stories += walkStory.stories
         }
 
+        let buzzKind = WalkStory.Kind.buzz.rawValue
+        let buzzStoryIDs = Array(Set(stories.compactMap { $0.walkStory }.filter { $0.kind == buzzKind }.map(\.id)))
+        var heardDepth: [UUID: Int] = [:]
+        if !buzzStoryIDs.isEmpty {
+            let buzzes = FetchDescriptor<BuzzRecord>(predicate: #Predicate { buzzStoryIDs.contains($0.id) })
+            for buzz in try context.fetch(buzzes) { heardDepth[buzz.id] = buzz.deepestLevel }
+        }
+
         return stories
+            .filter { story in
+                guard let walkStory = story.walkStory, walkStory.kind == buzzKind else { return true }
+                return story.level <= heardDepth[walkStory.id, default: 0]
+            }
             .filter { excludingSession == nil || ($0.capture?.id != excludingSession && $0.walkStory?.id != excludingSession) }
             .sorted { ($0.createdAt, $0.level) > ($1.createdAt, $1.level) }
             .prefix(Self.priorLimit)
@@ -172,6 +186,41 @@ public enum MemoryError: Error, Equatable {
                     PriorStory(placeID: story.placeID, level: $0, text: story.text, toldAt: story.createdAt)
                 }
             }
+    }
+
+    /// Deletes a capture (its stories cascade) and, in the same save, its `PlaceRecord` when nothing else needs it: no
+    /// other capture refers to the place and walking mode has no history with it (`hasWalkHistory`), because the place
+    /// is what keeps a skipped or heard place from buzzing again. A failed save rolls back and rethrows.
+    public func deleteCapture(_ record: CaptureRecord) throws {
+        let id = record.id
+        let placeID = record.placeID
+        do {
+            context.delete(record)
+            if let placeID, let place = try place(id: placeID) {
+                let others = FetchDescriptor<CaptureRecord>(predicate: #Predicate { $0.placeID == placeID && $0.id != id })
+                if try context.fetchCount(others) == 0, try !hasWalkHistory(place) {
+                    context.delete(place)
+                }
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    /// True when walking mode has touched the place: it was skipped or buzzed, a buzz about it was heard or skipped,
+    /// or a walk story about it was saved.
+    func hasWalkHistory(_ place: PlaceRecord) throws -> Bool {
+        if place.skippedAt != nil || place.lastBuzzedAt != nil { return true }
+        let id = place.id
+        let heard = BuzzOutcome.heard.rawValue, skipped = BuzzOutcome.skipped.rawValue
+        let answered = FetchDescriptor<BuzzRecord>(predicate: #Predicate { buzz in
+            buzz.placeID == id && (buzz.outcome == heard || buzz.outcome == skipped)
+        })
+        if try context.fetchCount(answered) > 0 { return true }
+        let walkStories = FetchDescriptor<WalkStoryRecord>(predicate: #Predicate { $0.placeID == id })
+        return try context.fetchCount(walkStories) > 0
     }
 
     public func place(id: String) throws -> PlaceRecord? {
