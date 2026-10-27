@@ -117,7 +117,6 @@
 		8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyGuideWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		90746D6CA8E40DE76B97D622 /* WalkingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingController.swift; sourceTree = "<group>"; };
 		9399C561071230F13BDD5526 /* WalkingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingPanel.swift; sourceTree = "<group>"; };
-		96B316F6601D1952CFEF86BE /* MyGuide.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuide.entitlements; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
@@ -171,7 +170,6 @@
 				8AB976060B732B94CFFDBA0D /* AppDelegate.swift */,
 				7601A9D4143D662A6232BA41 /* AppServices.swift */,
 				D4F54BE4CD7C5098E4E6DACF /* Info.plist */,
-				96B316F6601D1952CFEF86BE /* MyGuide.entitlements */,
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
 				A7D7E3A20BB6FBE11F69FE33 /* Capture */,
 				EABF7E6D3FEFD2F8655C128B /* History */,
@@ -622,7 +620,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = MyGuide/MyGuide.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				INFOPLIST_FILE = MyGuide/Info.plist;
@@ -692,7 +689,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = MyGuide/MyGuide.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				INFOPLIST_FILE = MyGuide/Info.plist;
