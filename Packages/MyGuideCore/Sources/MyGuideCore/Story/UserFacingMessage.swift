@@ -16,6 +16,9 @@ public enum UserFacingMessage {
             case .server(let code): return "OpenAI had a problem (error \(code)). Try again."
             case .network: return "No connection. Check mobile data and try again."
             case .refused, .malformedResponse: return "Couldn't tell a story about this photo."
+            case .modelRetired: return "This app's AI model has been retired — update the app."
+            // Worded for images, but it reads correctly for a blocked story too.
+            case .contentBlocked: return "OpenAI wouldn't make this image."
             }
         case let e as PhotoStoryError:
             switch e {

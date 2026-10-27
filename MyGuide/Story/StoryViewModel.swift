@@ -33,7 +33,7 @@ final class StoryViewModel {
         case idle
         case loading
         case playing
-        /// `message` is set only for errors where Retry cannot help (bad key, no credit).
+        /// `message` is set only for errors where Retry cannot help (bad key, no credit, retired model).
         case failed(message: String?)
     }
 
@@ -272,7 +272,8 @@ final class StoryViewModel {
                 // Our own stop is silence, whatever error type the sources report it with.
                 guard !Task.isCancelled, let self else { return }
                 var message: String?
-                if let e = error as? OpenAIError, e == .invalidAPIKey || e == .quotaExceeded || e == .missingAPIKey {
+                if let e = error as? OpenAIError,
+                   e == .invalidAPIKey || e == .quotaExceeded || e == .missingAPIKey || e == .modelRetired {
                     message = UserFacingMessage.message(for: e)
                 }
                 self.speech[level] = .failed(message: message)

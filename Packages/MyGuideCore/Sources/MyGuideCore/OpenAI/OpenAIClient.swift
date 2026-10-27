@@ -135,6 +135,11 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
 
     static func mapError(status: Int, body: Data) -> OpenAIError {
         let detail = (try? JSONDecoder().decode(ErrorEnvelope.self, from: body))?.error
+        // These codes mean Retry cannot help, whatever the HTTP status.
+        if let code = detail?.code {
+            if code == "model_not_found" { return .modelRetired }
+            if code == "moderation_blocked" || code.contains("content_policy") { return .contentBlocked }
+        }
         switch status {
         case 401:
             return .invalidAPIKey

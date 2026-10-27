@@ -13,6 +13,8 @@ import Testing
         (OpenAIError.network("offline"), "No connection. Check mobile data and try again."),
         (OpenAIError.refused("no"), "Couldn't tell a story about this photo."),
         (OpenAIError.malformedResponse, "Couldn't tell a story about this photo."),
+        (OpenAIError.modelRetired, "This app's AI model has been retired — update the app."),
+        (OpenAIError.contentBlocked, "OpenAI wouldn't make this image."),
         (PhotoStoryError.noPosition, "This photo has no location. Use where you are now?"),
         (ImageProcessingError.unreadableImage, "Couldn't read this photo."),
         (PhotoStoryError.noFurtherLevel, "That's the whole story for this place."),

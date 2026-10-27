@@ -70,6 +70,12 @@ import Testing
         (500, "oops", OpenAIError.server(500)),
         (403, "forbidden", OpenAIError.server(403)),
         (200, "not json", OpenAIError.malformedResponse),
+        (404, #"{"error":{"message":"The model does not exist","code":"model_not_found"}}"#, OpenAIError.modelRetired),
+        (400, #"{"error":{"message":"gone","code":"model_not_found"}}"#, OpenAIError.modelRetired),
+        (401, #"{"error":{"message":"gone","code":"model_not_found"}}"#, OpenAIError.modelRetired),
+        (400, #"{"error":{"message":"blocked","code":"moderation_blocked"}}"#, OpenAIError.contentBlocked),
+        (400, #"{"error":{"message":"policy","code":"content_policy_violation"}}"#, OpenAIError.contentBlocked),
+        (400, #"{"error":{"message":"bad request","code":"invalid_value"}}"#, OpenAIError.server(400)),
     ])
     func mapsHTTPErrors(status: Int, body: String, expected: OpenAIError) async {
         await #expect(throws: expected) { try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (status, Data(body.utf8)) })) }
