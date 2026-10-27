@@ -161,6 +161,128 @@ public enum PromptBuilder {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: Walking mode
+
+    static let walkStorySchema: JSONValue = .object([
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "story"],
+        "properties": .object([
+            "title": .object(["type": "string", "description": "3–8 word title"]),
+            "story": .object(["type": "string"]),
+        ]),
+    ])
+
+    /// Most places listed as "Other places nearby" in a buzz prompt.
+    static let walkBuzzNeighbourLimit = 4
+
+    static func walkBuzzInput(buzz: Buzz, course: Double?, facts: [WalkingPlace], position: Coordinate,
+                              priors: [PriorStory]) -> String {
+        let place = buzz.place.candidate
+        var lines = ["The listener is walking, not looking at a photo. Tell the story of the place they are passing.",
+                     "Place: \(place.name) (\(place.kind)), \(buzz.detail)."]
+        if let course, course.isFinite, course >= 0 {
+            lines.append("Walking direction: \(wholeDegrees(course))° (\(FieldOfView.compassPoint(course)))")
+        }
+        if let summary = place.summary, !summary.isEmpty {
+            lines.append("Summary: \(summary)")
+        }
+        let others = buzzFacts(facts, excluding: place.id, position: position)
+        if !others.isEmpty {
+            lines.append("Other places nearby:")
+            lines.append(contentsOf: others.map { factLine($0, from: position) })
+        }
+        lines.append(contentsOf: priorsBlock(priors))
+        lines.append(firstStoryLengthLine)
+        return lines.joined(separator: "\n")
+    }
+
+    static func walkStopInput(address: Address?, facts: [WalkingPlace], position: Coordinate, priors: [PriorStory]) -> String {
+        var lines = ["The listener has stopped walking and is standing here for a while. Tell a short story about this spot.",
+                     whereLine(address)]
+        let near = stopFacts(facts, position: position)
+        if !near.isEmpty {
+            lines.append("Places within \(Int(WalkingStoryFlow.stopFactRadius)) m:")
+            lines.append(contentsOf: near.map { factLine($0, from: position) })
+        }
+        lines.append(contentsOf: priorsBlock(priors))
+        lines.append(firstStoryLengthLine)
+        return lines.joined(separator: "\n")
+    }
+
+    static func walkContinuationInput(story: WalkStory, level: StoryLevel, priors: [PriorStory]) -> String {
+        var lines = ["Story length: \(level.lengthPhrase)."]
+        if let place = story.place {
+            lines.append("Place: \(place.name) (\(place.kind))" + (story.detail.map { ", \($0)" } ?? "") + ".")
+            if let summary = place.summary, !summary.isEmpty { lines.append("Summary: \(summary)") }
+        } else {
+            lines.append(whereLine(story.address))
+        }
+        lines.append("Told so far:")
+        for (index, text) in story.levels.enumerated() {
+            lines.append("Level \(index + 1): \(text)")
+        }
+        lines.append(contentsOf: priorsBlock(priors, heading: "Already told on earlier visits:", none: "Already told on earlier visits: nothing"))
+        lines.append("Task: Continue the story from where it left off. Do not restart or repeat. Take a new angle: another person, another moment in time, or something the listener can still see today that connects to it. If the facts are thin, say less.")
+        return lines.joined(separator: "\n")
+    }
+
+    /// "Write the first story in about 50 words."
+    private static var firstStoryLengthLine: String { "Write the first story in about \(StoryLevel.first.targetWords) words." }
+
+    /// The places a buzz prompt lists besides the buzzed one: best tier first, then nearest.
+    static func buzzFacts(_ facts: [WalkingPlace], excluding placeID: String, position: Coordinate) -> [WalkingPlace] {
+        nearest(facts.filter { $0.candidate.id != placeID }, to: position, limit: walkBuzzNeighbourLimit)
+    }
+
+    /// The places a stop prompt lists: within `stopFactRadius`, best tier first, then nearest, at most `factLimit`.
+    static func stopFacts(_ facts: [WalkingPlace], position: Coordinate) -> [WalkingPlace] {
+        nearest(facts.filter { GeoMath.distance(position, $0.candidate.coordinate) <= WalkingStoryFlow.stopFactRadius },
+                to: position, limit: WalkingStoryFlow.factLimit)
+    }
+
+    private struct WalkStoryText: Decodable { var title: String; var story: String }
+
+    /// Decodes the walking story JSON. An empty or whitespace-only story is malformed.
+    static func decodeWalkStory(_ json: Data) throws -> (title: String, story: String) {
+        let decoded: WalkStoryText
+        do {
+            decoded = try JSONDecoder().decode(WalkStoryText.self, from: json)
+        } catch is DecodingError {
+            throw OpenAIError.malformedResponse
+        }
+        guard !decoded.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OpenAIError.malformedResponse
+        }
+        return (decoded.title, decoded.story)
+    }
+
+    private static func whereLine(_ address: Address?) -> String {
+        let display = address?.display ?? ""
+        return display.isEmpty ? "Where: unknown street" : "Where: \(display)"
+    }
+
+    /// Tier first, then distance from `position`; ties keep the input order.
+    private static func nearest(_ places: [WalkingPlace], to position: Coordinate, limit: Int) -> [WalkingPlace] {
+        let sorted = places.enumerated().sorted { a, b in
+            if a.element.tier != b.element.tier { return a.element.tier < b.element.tier }
+            let da = GeoMath.distance(position, a.element.candidate.coordinate)
+            let db = GeoMath.distance(position, b.element.candidate.coordinate)
+            return da != db ? da < db : a.offset < b.offset
+        }
+        return Array(sorted.prefix(limit).map(\.element))
+    }
+
+    private static func factLine(_ place: WalkingPlace, from position: Coordinate) -> String {
+        let metres = BuzzText.roundedDistance(GeoMath.distance(position, place.candidate.coordinate))
+        return "- \(place.candidate.name) (\(place.candidate.kind)), \(metres) m"
+    }
+
+    private static func priorsBlock(_ priors: [PriorStory], heading: String = "Already told:",
+                                    none: String = "Already told: nothing yet") -> [String] {
+        priors.isEmpty ? [none] : [heading] + priors.map(priorLine)
+    }
+
     private struct Continuation: Decodable { var story: String }
 
     /// Prompt for the labelled "then" reconstruction image (spec 8.1.7). No theme in phase 1.
