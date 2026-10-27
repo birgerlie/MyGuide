@@ -449,4 +449,18 @@ import Testing
     @Test func emptyBuzzLog() throws {
         #expect(try store.buzzLog().isEmpty)
     }
+
+    // MARK: - deepestLevelHeard(buzzID:)
+
+    @Test func deepestLevelHeardFollowsTheBuzzRecord() throws {
+        let b = Self.buzz("p1")
+        #expect(try store.deepestLevelHeard(buzzID: b.id) == nil)          // never logged (stop story, failed record)
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        #expect(try store.deepestLevelHeard(buzzID: b.id) == 0)            // pending, nothing heard
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
+        #expect(try store.deepestLevelHeard(buzzID: b.id) == 2)
+        // A shallower replay never lowers it: max(2, 1) = 2.
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 20)
+        #expect(try store.deepestLevelHeard(buzzID: b.id) == 2)
+    }
 }

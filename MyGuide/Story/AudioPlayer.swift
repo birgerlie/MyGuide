@@ -1,8 +1,13 @@
 import AVFoundation
 
-/// Plays one audio file at a time through the speaker or connected AirPods.
+/// Plays one audio file at a time through the speaker or connected AirPods. Across the app only one player plays:
+/// starting one stops the other (walking story, photo story, walking check), which hears `.interrupted`, and the
+/// shared audio session is deactivated only when the player that is playing stops.
 @MainActor
 final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
+    /// The player that is playing, if any.
+    private static weak var active: AudioPlayer?
+
     private var player: AVAudioPlayer?
     private var observers: [any NSObjectProtocol] = []
 
@@ -27,6 +32,11 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     /// on every failure path the audio session is left inactive.
     func play(_ url: URL) throws {
         stop()
+        // Another player stops through its normal path, told after this one has started (or failed to), but keeps
+        // the session active for this one.
+        let other = Self.active.flatMap { $0 === self ? nil : $0 }
+        let otherWasPlaying = other?.yield() ?? false
+        defer { if otherWasPlaying { other?.onFinish?(.interrupted) } }
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .spokenAudio)
@@ -36,9 +46,11 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
             guard next.play() else { throw CocoaError(.fileReadCorruptFile) }
             player = next
         } catch {
+            // Nothing plays now: the other player was stopped above.
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
             throw error
         }
+        Self.active = self
         observe()
     }
 
@@ -48,7 +60,20 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
         player = nil
         current.delegate = nil
         current.stop()
+        guard Self.active === self else { return }
+        Self.active = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Stops for another player without touching the session; true when something was playing.
+    private func yield() -> Bool {
+        removeObservers()
+        guard let current = player else { return false }
+        player = nil
+        current.delegate = nil
+        current.stop()
+        if Self.active === self { Self.active = nil }
+        return true
     }
 
     /// Interruptions (calls, Siri) end playback without auto-resume; AirPods removal must not continue on the loudspeaker.

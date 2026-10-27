@@ -57,9 +57,12 @@ final class WalkingStories {
     @ObservationIgnored private var moreTasks: [UUID: Task<Void, Never>] = [:]
     /// Fetches the speech of a level that has no audio file yet, then plays it.
     @ObservationIgnored private var playTask: Task<Void, Never>?
-    /// The level the story screen's "Tell me more" asked for; the notification's "More" plays the level after the
-    /// deepest one heard.
-    @ObservationIgnored private var moreTargets: [UUID: Int] = [:]
+    /// Identifies the current `play`; `stopAudio()` clears it, so a fetch whose play was stopped or replaced
+    /// (even by a play of the same level) knows it is no longer wanted.
+    @ObservationIgnored private var playToken: UUID?
+    /// Stories whose prepare or more task the app cancelled itself (skip, walking mode off): their failure is
+    /// silent. Any other cancellation (background time ran out) is reported.
+    @ObservationIgnored private var ownCancels: Set<UUID> = []
     @ObservationIgnored private var errors: [(id: UUID, error: Error)] = []
 
     init(memory: MemoryStore, makeFlow: @escaping @MainActor () throws -> WalkingStoryFlow,
@@ -126,7 +129,7 @@ final class WalkingStories {
                 prepared.setAudio(url, id: id, level: 1)
                 endPreparing(id, with: .storyReady(id))
             } catch {
-                remember(Task.isCancelled ? CancellationError() : error, for: id)
+                remember(failure(error, for: id), for: id)
                 endPreparing(id, with: .storyFailed(id))
             }
         }
@@ -136,13 +139,9 @@ final class WalkingStories {
         dispatch(.tellMe(id), for: id)
     }
 
-    /// The next part. From the story screen, `afterLevels` is the number of levels it shows, so the level after
-    /// them is fetched; otherwise (notification, panel) the level after the deepest one heard.
-    func more(_ id: UUID, afterLevels: Int? = nil) {
-        if let afterLevels { moreTargets[id] = afterLevels + 1 }
+    /// The next part: the level after the deepest one heard, played from storage when its text exists.
+    func more(_ id: UUID) {
         dispatch(.more(id), for: id)
-        // Used by `fetchMore` when the machine accepted; dropped when it refused.
-        moreTargets[id] = nil
     }
 
     /// Plays one level from the story screen.
@@ -168,8 +167,8 @@ final class WalkingStories {
     /// Walking mode is off: cancel what is being prepared or fetched (each still ends with its failure event, which
     /// stays silent) and stop the audio.
     func stopAll() {
-        prepareTasks.values.forEach { $0.cancel() }
-        moreTasks.values.forEach { $0.cancel() }
+        for (id, task) in prepareTasks { cancelOwn(id, task) }
+        for (id, task) in moreTasks { cancelOwn(id, task) }
         stopListening()
         featuredID = nil
     }
@@ -177,8 +176,10 @@ final class WalkingStories {
     // MARK: - Playback machine
 
     /// Feeds an event for a story the machine may have forgotten (relaunch, or more than 20 stories ago). When it
-    /// does not know the id but the story is still prepared or in memory, the entry is rebuilt first; only when
-    /// neither has it does the machine report the failure.
+    /// does not know the id but the story is still prepared or in memory, the entry is restored first with its
+    /// stored levels and the deepest level heard (from the buzz log), so "More" continues where the owner left off;
+    /// only when neither has it does the machine report the failure. A level without an audio file has its speech
+    /// fetched when it plays (from the disk cache when still there).
     private func dispatch(_ event: WalkingPlayback.Event, for id: UUID) {
         if lastFailure?.id == id { lastFailure = nil }
         guard !playback.hasStory(id), let story = prepared.story(id) ?? storedStory(id) else {
@@ -187,28 +188,8 @@ final class WalkingStories {
         }
         errors.removeAll { $0.id == id }
         prepared.store(story)
-        feed(.buzzSent(id))
-        guard case .tellMe = event else {
-            // The text is there; levels are spoken when played.
-            feed(.storyReady(id))
-            feed(event)
-            return
-        }
-        // "Tell me" waits in the machine while level 1's speech is fetched (from the disk cache when still there).
-        feed(.tellMe(id))
-        preparing.insert(id)
-        prepareTasks[id] = runInBackground("MyGuide walk story") { [weak self] in
-            guard let self else { return }
-            do {
-                let url = try await speechFile(for: story, level: 1)
-                try Task.checkCancellation()
-                prepared.setAudio(url, id: id, level: 1)
-                endPreparing(id, with: .storyReady(id))
-            } catch {
-                remember(Task.isCancelled ? CancellationError() : error, for: id)
-                endPreparing(id, with: .storyFailed(id))
-            }
-        }
+        feed(.restored(id, storedLevels: story.levels.count, deepestHeard: deepestHeard(id)))
+        feed(event)
     }
 
     private func feed(_ event: WalkingPlayback.Event) {
@@ -253,8 +234,9 @@ final class WalkingStories {
             startAudio(url, id: id, level: level)
             return
         }
-        let wanted = Listening(id: id, level: level, isLoading: true)
-        listening = wanted
+        let token = UUID()
+        playToken = token
+        listening = Listening(id: id, level: level, isLoading: true)
         playTask = runInBackground("MyGuide walk audio") { [weak self] in
             guard let self else { return }
             do {
@@ -264,14 +246,16 @@ final class WalkingStories {
                 try Task.checkCancellation()
                 if prepared.story(id) == nil { prepared.store(story) }
                 prepared.setAudio(url, id: id, level: level)
-                guard listening == wanted else { return }
+                guard playToken == token else { return }
                 startAudio(url, id: id, level: level)
             } catch {
-                // Our own stop (another level, a skip) is silence.
-                guard !Task.isCancelled, listening == wanted else { return }
+                // Our own stop (another level, a skip, Stop) has already cleared the token: silence. Anything else,
+                // an expired background task included, must free the machine and be reported.
+                guard playToken == token else { return }
+                playToken = nil
                 listening = nil
                 feed(.stoppedExternally)
-                report(id, error: error)
+                report(id, error: unrequested(error))
             }
         }
     }
@@ -292,6 +276,7 @@ final class WalkingStories {
     }
 
     private func stopAudio() {
+        playToken = nil
         playTask?.cancel()
         playTask = nil
         audio.stop()
@@ -310,7 +295,7 @@ final class WalkingStories {
     /// Fetches the next level (or reuses one already in the story, after a relaunch) and its speech.
     /// Always ends with `moreReady` or `moreFailed`, also when cancelled.
     private func fetchMore(_ id: UUID) {
-        let target = moreTargets.removeValue(forKey: id) ?? (playback.deepestLevel(id) ?? 1) + 1
+        let target = playback.fetchingLevel(id) ?? (playback.deepestLevel(id) ?? 1) + 1
         let tripID = currentTripID?()
         fetchingMore.insert(id)
         moreTasks[id] = runInBackground("MyGuide walk story more") { [weak self] in
@@ -332,7 +317,7 @@ final class WalkingStories {
                 prepared.setAudio(url, id: id, level: target)
                 endFetchingMore(id, with: .moreReady(id, level: target))
             } catch {
-                remember(Task.isCancelled ? CancellationError() : error, for: id)
+                remember(failure(error, for: id), for: id)
                 endFetchingMore(id, with: .moreFailed(id))
             }
         }
@@ -348,17 +333,23 @@ final class WalkingStories {
     private func retire(_ id: UUID, deepestLevel: Int) {
         let candidate = (prepared.story(id) ?? storedStory(id))?.place
         // Nothing more for this place: stop its work and take its notifications away.
-        prepareTasks[id]?.cancel()
-        moreTasks[id]?.cancel()
+        if let task = prepareTasks[id] { cancelOwn(id, task) }
+        if let task = moreTasks[id] { cancelOwn(id, task) }
         prepared.remove(id)
         if featuredID == id { featuredID = nil }
         BuzzNotifier.removeNotifications(for: id)
         onRetire?(id, candidate, deepestLevel)
     }
 
-    /// Posts STORY_FAILED. Our own cancellation is silent; no error means the story is gone.
+    /// Posts STORY_FAILED. Our own cancellation (a `CancellationError`) is silent; no error means the story is gone.
     private func report(_ id: UUID, error: Error?) {
-        let body = error.map { $0 is StoryGone ? Self.goneText : UserFacingMessage.message(for: $0) } ?? Self.goneText
+        let body: String
+        if let error, !(error is StoryGone) {
+            body = error is UnrequestedCancellation
+                ? StoryViewModel.unexpectedCancellationText : UserFacingMessage.message(for: error)
+        } else {
+            body = Self.goneText
+        }
         guard !body.isEmpty else { return }
         lastFailure = Failure(id: id, message: body)
         Task {
@@ -400,6 +391,33 @@ final class WalkingStories {
         }
     }
 
+    /// The deepest level heard for a buzz, from the buzz log; 0 for none, a stop story or an unreadable log.
+    private func deepestHeard(_ id: UUID) -> Int {
+        do {
+            return try memory.deepestLevelHeard(buzzID: id) ?? 0
+        } catch {
+            AppServices.logMemoryFailure("deepest level lookup failed", error)
+            return 0
+        }
+    }
+
+    private func cancelOwn(_ id: UUID, _ task: Task<Void, Never>) {
+        ownCancels.insert(id)
+        task.cancel()
+    }
+
+    /// The error a prepare or more task ends with: silent `CancellationError` when the app cancelled it itself,
+    /// otherwise a cancellation counts as an unrequested failure.
+    private func failure(_ error: Error, for id: UUID) -> Error {
+        if ownCancels.remove(id) != nil { return CancellationError() }
+        return unrequested(error)
+    }
+
+    /// A cancellation the app did not ask for (background time ran out, the system) is a visible failure.
+    private func unrequested(_ error: Error) -> Error {
+        Task.isCancelled || error is CancellationError ? UnrequestedCancellation() : error
+    }
+
     private func remember(_ error: Error, for id: UUID) {
         errors.removeAll { $0.id == id }
         errors.append((id, error))
@@ -422,6 +440,9 @@ final class WalkingStories {
 
 /// The story is neither prepared nor in memory.
 private struct StoryGone: Error {}
+
+/// Work for a story the owner asked for was cancelled, but not by the app.
+private struct UnrequestedCancellation: Error {}
 
 /// One UIApplication background task, ended exactly once: by the work or by expiry, whichever comes first.
 @MainActor

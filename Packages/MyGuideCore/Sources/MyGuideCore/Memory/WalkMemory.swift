@@ -129,6 +129,11 @@ extension MemoryStore {
         }
     }
 
+    /// The deepest story level heard for the buzz (0 when none); nil when the buzz was never logged.
+    public func deepestLevelHeard(buzzID: UUID) throws -> Int? {
+        try buzzRecord(id: buzzID)?.deepestLevel
+    }
+
     /// Retires the place for good, storing it first if it is unknown (for example when `recordBuzz` failed), so a
     /// skip is never lost. The first skip time is kept.
     public func markSkipped(_ candidate: Candidate, at: Date) throws {

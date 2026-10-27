@@ -67,7 +67,7 @@ struct WalkStoryView: View {
                 if story.nextLevel != nil {
                     let working = stories.fetchingMore.contains(id)
                     Button {
-                        stories.more(id, afterLevels: story.levels.count)
+                        stories.more(id)
                     } label: {
                         HStack(spacing: 8) {
                             if working { ProgressView() }
