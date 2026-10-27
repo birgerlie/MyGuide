@@ -198,6 +198,8 @@ final class StoryViewModel {
             AppServices.logMemoryFailure("save failed", error)
             saveFailed = true
         }
+        // A story about a matched place retires it from walking mode, saved or not.
+        if let placeID = session.matchedCandidate?.candidate.id { services.walking.noteHeard(placeID: placeID) }
     }
 
     // MARK: - "Then" image

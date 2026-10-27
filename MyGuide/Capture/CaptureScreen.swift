@@ -37,6 +37,7 @@ struct CaptureScreen: View {
             VStack {
                 if !services.memoryIsPersistent { MemoryUnavailableNotice().clipShape(Capsule()) }
                 hud
+                WalkingStatusPill(controller: services.walking)
                 Spacer()
                 controls
             }
@@ -184,8 +185,28 @@ struct CaptureScreen: View {
             .accessibilityLabel("Take photo")
             .disabled(!camera.isRunning || isBusy)
             Spacer()
-            Color.clear.frame(width: 56, height: 56)
+            walkButton
         }
+    }
+
+    /// Turns walking mode on or off; yellow while it runs.
+    private var walkButton: some View {
+        let isOn = services.walking.isOn
+        return Button {
+            if isOn {
+                services.walking.stop()
+            } else {
+                Task { await services.walking.start() }
+            }
+        } label: {
+            Image(systemName: isOn ? "figure.walk.motion" : "figure.walk")
+                .font(.title2)
+                .foregroundStyle(isOn ? .yellow : .white)
+                .frame(width: 56, height: 56)
+                .background(.black.opacity(0.4), in: Circle())
+        }
+        .accessibilityLabel("Walking mode")
+        .accessibilityValue(isOn ? "On" : "Off")
     }
 
     private var storyPresented: Binding<Bool> {

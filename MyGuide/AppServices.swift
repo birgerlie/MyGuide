@@ -24,12 +24,22 @@ final class AppServices {
     let watchLink = WatchLink()
     private let http: HTTPClient = URLSessionHTTPClient()
 
+    /// The one walking-mode controller. It lives here so walking continues with the phone locked and
+    /// notification actions still find it.
+    let walking: WalkingController
+
     /// False when the persistent store could not be opened and memory is held in RAM only.
     let memoryIsPersistent: Bool
 
     init(memory: MemoryStore, memoryIsPersistent: Bool = true) {
         self.memory = memory
         self.memoryIsPersistent = memoryIsPersistent
+        let http = http
+        let keychain = keychain
+        walking = WalkingController(
+            memory: memory,
+            makeSource: { Self.walkingSource(http: http) },
+            hasAPIKey: { ((try? keychain.read(Self.apiKeyAccount)) ?? nil)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false })
         let walkingCheck = walkingCheck
         watchLink.onMessage = { message in
             if message["type"] as? String == "check.tell" { walkingCheck.handleWatchTell() }
@@ -49,6 +59,15 @@ final class AppServices {
         let key = try keychain.read(Self.apiKeyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !key.isEmpty else { throw OpenAIError.missingAPIKey }
         return OpenAIClient(apiKey: key, http: http)
+    }
+
+    /// The place source for walking mode: the same shared OSM and Wikipedia clients as phase 1.
+    func makeWalkingSource() -> WalkingPlaceSource {
+        Self.walkingSource(http: http)
+    }
+
+    private static func walkingSource(http: HTTPClient) -> WalkingPlaceSource {
+        WalkingPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http))
     }
 
     /// Generated speech lives in Caches: it can be regenerated, so the system may purge it.
