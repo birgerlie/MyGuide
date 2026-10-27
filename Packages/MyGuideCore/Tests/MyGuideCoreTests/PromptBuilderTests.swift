@@ -25,6 +25,11 @@ import Foundation
         #expect(en.contains("legend has it") && en.contains("Write in English."))
         #expect(PromptBuilder.systemInstructions(language: .norwegian).contains("Write in Norwegian Bokmål."))
     }
+    @Test func instructionsPreferTruthOverLength() {
+        let en = PromptBuilder.systemInstructions(language: .english)
+        #expect(en.contains("7. Write in English. Aim for the requested length, but if the facts run out, stop shorter rather than invent. It will be read aloud at about 150 words per minute."))
+        #expect(!en.contains("Hit the requested length closely"))
+    }
     @Test func firstInputWithHeading() {
         let s = PromptBuilder.firstStoryInput(capture: Self.capture(heading: 312, acc: 10), grounding: Self.grounding, priors: [])
         #expect(s.contains("Story length: about 50 words (20 seconds spoken)."))
@@ -57,6 +62,21 @@ import Foundation
         #expect(try PromptBuilder.decodeFirstStory(ok, grounding: Self.grounding).matchedCandidateID == "osm:way/1")
         let bogus = Data(#"{"subject":"X","confidence":"unsure","matchedCandidateID":"osm:way/999","title":"T","era":"E","story":"S"}"#.utf8)
         #expect(try PromptBuilder.decodeFirstStory(bogus, grounding: Self.grounding).matchedCandidateID == nil)
+    }
+    @Test func decodeUnknownCandidateDowngradesCertain() throws {
+        let certainBogus = Data(#"{"subject":"X","confidence":"certain","matchedCandidateID":"osm:way/999","title":"T","era":"E","story":"S"}"#.utf8)
+        let decoded = try PromptBuilder.decodeFirstStory(certainBogus, grounding: Self.grounding)
+        #expect(decoded.matchedCandidateID == nil && decoded.confidence == .likely)
+        // likely and unsure stay as they are when the id is dropped
+        let likelyBogus = Data(#"{"subject":"X","confidence":"likely","matchedCandidateID":"osm:way/999","title":"T","era":"E","story":"S"}"#.utf8)
+        #expect(try PromptBuilder.decodeFirstStory(likelyBogus, grounding: Self.grounding).confidence == .likely)
+        let unsureBogus = Data(#"{"subject":"X","confidence":"unsure","matchedCandidateID":"osm:way/999","title":"T","era":"E","story":"S"}"#.utf8)
+        #expect(try PromptBuilder.decodeFirstStory(unsureBogus, grounding: Self.grounding).confidence == .unsure)
+        // a known id keeps "certain"; a null id with "certain" is untouched
+        let certainKnown = Data(#"{"subject":"X","confidence":"certain","matchedCandidateID":"osm:way/1","title":"T","era":"E","story":"S"}"#.utf8)
+        #expect(try PromptBuilder.decodeFirstStory(certainKnown, grounding: Self.grounding).confidence == .certain)
+        let certainNull = Data(#"{"subject":"X","confidence":"certain","matchedCandidateID":null,"title":"T","era":"E","story":"S"}"#.utf8)
+        #expect(try PromptBuilder.decodeFirstStory(certainNull, grounding: Self.grounding).confidence == .certain)
     }
     @Test func decodeGarbageIsMalformed() {
         #expect(throws: OpenAIError.malformedResponse) { try PromptBuilder.decodeFirstStory(Data("{}".utf8), grounding: Self.grounding) }
@@ -126,6 +146,7 @@ import Foundation
         #expect(s.contains("Told so far:\nLevel 1: L1 text."))
         #expect(s.contains("Already told on earlier visits:\n- [osm:way/1] level 1: Earlier visit."))
         #expect(s.contains("Continue the story from where it left off. Do not restart or repeat."))
+        #expect(s.hasSuffix("connects to it. If the facts below are thin, say less."))
     }
     @Test func continuationFactsWithoutMatchUseTopThreeInView() {
         func rc(_ name: String, _ d: Double, inView: Bool?) -> RankedCandidate {

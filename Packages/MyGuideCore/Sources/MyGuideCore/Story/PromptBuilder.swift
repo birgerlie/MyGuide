@@ -15,7 +15,7 @@ public enum PromptBuilder {
         4. Do not repeat anything listed under "Already told". Take a new angle.
         5. Speak directly to the listener in a warm, conversational voice. No lists, no headings, no "Welcome to".
         6. Never mention shops, restaurants or cafés unless the subject is one with real history.
-        7. Write in \(language.promptName). Hit the requested length closely; it will be read aloud at about 150 words per minute.
+        7. Write in \(language.promptName). Aim for the requested length, but if the facts run out, stop shorter rather than invent. It will be read aloud at about 150 words per minute.
         """
     }
 
@@ -96,7 +96,8 @@ public enum PromptBuilder {
         "properties": .object(["story": .object(["type": "string"])]),
     ])
 
-    /// Decodes the model's JSON. A matchedCandidateID that is not among the grounding candidates is dropped.
+    /// Decodes the model's JSON. A matchedCandidateID that is not among the grounding candidates is dropped,
+    /// and a "certain" identification resting on that invented id is downgraded to "likely".
     static func decodeFirstStory(_ json: Data, grounding: Grounding) throws -> IdentifiedStory {
         var story: IdentifiedStory
         do {
@@ -106,6 +107,7 @@ public enum PromptBuilder {
         }
         if let id = story.matchedCandidateID, !grounding.candidates.contains(where: { $0.candidate.id == id }) {
             story.matchedCandidateID = nil
+            if story.confidence == .certain { story.confidence = .likely }
         }
         return story
     }
@@ -152,13 +154,12 @@ public enum PromptBuilder {
             lines.append(contentsOf: priors.map(priorLine))
         }
 
-        lines.append("Task: Continue the story from where it left off. Do not restart or repeat. Take a new angle: another person, another moment in time, or something the listener can still see today that connects to it.")
+        lines.append("Task: Continue the story from where it left off. Do not restart or repeat. Take a new angle: another person, another moment in time, or something the listener can still see today that connects to it. If the facts below are thin, say less.")
         return lines.joined(separator: "\n")
     }
 
     private struct Continuation: Decodable { var story: String }
 
-    /// Decodes the continuation JSON. An empty or whitespace-only story is malformed.
     /// Prompt for the labelled "then" reconstruction image (spec 8.1.7). No theme in phase 1.
     static func thenImagePrompt(session: StorySession) -> String {
         var place = ""
@@ -170,6 +171,7 @@ public enum PromptBuilder {
             + "No text, no captions, no modern objects."
     }
 
+    /// Decodes the continuation JSON. An empty or whitespace-only story is malformed.
     static func decodeContinuation(_ json: Data) throws -> String {
         let story: String
         do {
