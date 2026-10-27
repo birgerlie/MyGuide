@@ -25,14 +25,26 @@ import Testing
         let http = StubHTTPClient { _ in (200, Data(#"{"data":[{"b64_json":"\#(png.base64EncodedString())"}]}"#.utf8)) }
         let (data, usage) = try await PhotoStoryFlowTests.flow(http).thenImage(for: s)
         #expect(data == png)
-        #expect(usage == UsageEntry(date: Date(timeIntervalSince1970: 5), kind: .image, model: "gpt-image-1",
+        #expect(usage == UsageEntry(date: Date(timeIntervalSince1970: 5), kind: .image, model: "gpt-image-2.5-flare",
                                     inputTokens: 0, outputTokens: 0, words: 0, images: 1))
         let r = http.requests[0]
         #expect(r.url!.absoluteString == "https://api.openai.com/v1/images/generations" && r.timeoutInterval == 120)
         let b = r.jsonBody
         #expect(b["size"] as? String == "1024x1536" && b["quality"] as? String == "medium" && b["n"] as? Int == 1)
-        #expect(b["model"] as? String == "gpt-image-1")
+        #expect(b["model"] as? String == "gpt-image-2.5-flare")
         #expect(b["prompt"] as? String == PromptBuilder.thenImagePrompt(session: s))
+    }
+    @Test func imageUsageTokensReachTheEntry() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        let http = StubHTTPClient { _ in (200, Data(#"{"data":[{"b64_json":"\#(png.base64EncodedString())"}],"usage":{"input_tokens":1000,"output_tokens":1575}}"#.utf8)) }
+        let (_, usage) = try await PhotoStoryFlowTests.flow(http).thenImage(for: s)
+        #expect(usage.inputTokens == 1000 && usage.outputTokens == 1575 && usage.images == 1)
+    }
+    @Test func partialImageUsageCountsMissingAsZero() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        let http = StubHTTPClient { _ in (200, Data(#"{"data":[{"b64_json":"\#(png.base64EncodedString())"}],"usage":{"output_tokens":7}}"#.utf8)) }
+        let (_, usage) = try await PhotoStoryFlowTests.flow(http).thenImage(for: s)
+        #expect(usage.inputTokens == 0 && usage.outputTokens == 7)
     }
     @Test func missingImageDataIsMalformed() async {
         let http = StubHTTPClient { _ in (200, Data(#"{"data":[]}"#.utf8)) }

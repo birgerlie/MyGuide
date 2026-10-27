@@ -197,4 +197,24 @@ import Testing
         #expect(try store.context.fetchCount(FetchDescriptor<CaptureRecord>()) == 0)
         #expect(try store.context.fetchCount(FetchDescriptor<PlaceRecord>()) == 0)
     }
+
+    @Test func usageTotalsByMonth() throws {
+        // Oct 3 $0.01 + Oct 20 $0.02 = month $0.03; + Sep 30 $0.05 = all-time $0.08; one unpriced in Oct
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        func d(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+        let table = PriceTable(asOf: "t", prices: ["img": .perImage(0.01)])
+        try store.recordUsage([UsageEntry(date: d("2026-10-03T12:00:00Z"), kind: .image, model: "img", inputTokens: 0, outputTokens: 0, words: 0, images: 1),
+                               UsageEntry(date: d("2026-10-20T12:00:00Z"), kind: .image, model: "img", inputTokens: 0, outputTokens: 0, words: 0, images: 2),
+                               UsageEntry(date: d("2026-09-30T23:59:59Z"), kind: .image, model: "img", inputTokens: 0, outputTokens: 0, words: 0, images: 5),
+                               UsageEntry(date: d("2026-10-21T12:00:00Z"), kind: .story, model: "unknown", inputTokens: 9, outputTokens: 9, words: 0, images: 0)],
+                              prices: table)
+        let u = try store.usageTotals(now: d("2026-10-27T10:00:00Z"), calendar: cal)
+        #expect(abs(u.monthUSD - 0.03) < 1e-12 && abs(u.allTimeUSD - 0.08) < 1e-12)
+        #expect(u.monthRequests == 3 && u.unpricedRequests == 1)
+    }
+
+    @Test func usageTotalsEmptyIsZero() throws {
+        let u = try store.usageTotals(now: Date(timeIntervalSince1970: 0), calendar: Calendar(identifier: .gregorian))
+        #expect(u == UsageTotals(monthUSD: 0, allTimeUSD: 0, monthRequests: 0, unpricedRequests: 0))
+    }
 }

@@ -69,6 +69,16 @@ final class AppServices {
         return PhotoStoryFlow(grounding: grounding, openAI: openAI, priors: priors)
     }
 
+    /// Records usage entries with today's prices. A failure is logged and swallowed: counting must never
+    /// block or hide a story, and it does not use the save banner.
+    func recordUsage(_ entries: [UsageEntry]) {
+        do {
+            try memory.recordUsage(entries, prices: .current)
+        } catch {
+            Self.logMemoryFailure("usage record failed", error)
+        }
+    }
+
     /// Deletes a history entry (its stories cascade) and, in the same save, its `PlaceRecord` when no other
     /// capture refers to that place (a deleted visit must not linger). Then removes its cached speech files.
     /// On a failed save the context is rolled back and the error rethrown; the cache is left alone.

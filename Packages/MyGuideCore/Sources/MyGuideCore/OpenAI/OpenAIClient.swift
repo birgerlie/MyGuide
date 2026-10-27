@@ -68,10 +68,11 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         return try await post(path: "audio/speech", body: body, timeout: 60)
     }
 
-    /// Image generation. Returns the decoded PNG bytes of `data[0].b64_json`.
+    /// Image generation. Returns the decoded PNG bytes of `data[0].b64_json` and the optional top-level `usage`
+    /// (a missing or partial `usage` is not an error; absent counts are 0, and no `usage` at all is nil).
     // `store` is deliberately not sent: images/generations does not accept it (same exemption as speech).
     // `response_format` is not sent either: gpt-image models always answer with base64.
-    public func image(model: String, prompt: String, size: String, quality: String) async throws -> Data {
+    public func image(model: String, prompt: String, size: String, quality: String) async throws -> (png: Data, usage: TokenUsage?) {
         let body: JSONValue = [
             "model": .string(model),
             "prompt": .string(prompt),
@@ -83,12 +84,15 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         struct Payload: Decodable {
             struct Item: Decodable { var b64_json: String? }
             var data: [Item]
+            struct Usage: Decodable { var input_tokens: Int?; var output_tokens: Int? }
+            var usage: Usage?
         }
         guard let payload = try? JSONDecoder().decode(Payload.self, from: data),
               let b64 = payload.data.first?.b64_json,
               let png = Data(base64Encoded: b64), !png.isEmpty
         else { throw OpenAIError.malformedResponse }
-        return png
+        let tokens = payload.usage.map { TokenUsage(inputTokens: $0.input_tokens ?? 0, outputTokens: $0.output_tokens ?? 0) }
+        return (png, tokens)
     }
 
     // MARK: - Shared plumbing (reused by speech and image calls)

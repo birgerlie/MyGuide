@@ -57,10 +57,13 @@ final class StoryViewModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var thenTask: Task<Void, Never>?
     @ObservationIgnored private var speechTask: Task<Void, Never>?
+    /// Language for a first story; read when the photo is taken or picked. Stored sessions keep their own.
+    @ObservationIgnored private var newSessionLanguage: StoryLanguage = .english
     @ObservationIgnored private let audio = AudioPlayer()
 
-    init(services: AppServices) {
+    init(services: AppServices, language: StoryLanguage = .english) {
         self.services = services
+        self.newSessionLanguage = language
         audio.onFinish = { [weak self] in self?.speech = [:] }
     }
 
@@ -109,7 +112,8 @@ final class StoryViewModel {
         task = Task { [weak self, services] in
             do {
                 let flow = try services.makeFlow()
-                let (next, _) = try await flow.continueStory(current)
+                let (next, usage) = try await flow.continueStory(current)
+                services.recordUsage(usage)
                 guard !Task.isCancelled, let self else { return }
                 self.session = next
                 self.moreState = .idle
@@ -147,11 +151,14 @@ final class StoryViewModel {
         moreState = .idle
         saveFailed = false
         state = .working(Self.workingText)
+        let language = newSessionLanguage
         task = Task { [weak self, services] in
             do {
                 let flow = try services.makeFlow()
-                let (session, _) = try await flow.tellFirstStory(photoJPEG: photoJPEG, capture: capture,
-                                                                 language: .english)
+                let (session, usage) = try await flow.tellFirstStory(photoJPEG: photoJPEG, capture: capture,
+                                                                     language: language)
+                // Paid calls are counted even if the screen was dropped meanwhile.
+                services.recordUsage(usage)
                 guard !Task.isCancelled, let self else { return }
                 self.session = session
                 self.state = .showing
@@ -192,8 +199,8 @@ final class StoryViewModel {
         thenTask = Task { [weak self, services] in
             do {
                 let flow = try services.makeFlow()
-                // The image UsageEntry is dropped here on purpose: Task 16 records usage.
-                let (png, _) = try await flow.thenImage(for: current)
+                let (png, usage) = try await flow.thenImage(for: current)
+                services.recordUsage([usage])
                 guard !Task.isCancelled, let self else { return }
                 guard let image = UIImage(data: png) else { throw OpenAIError.malformedResponse }
                 self.thenImage = image
@@ -249,8 +256,9 @@ final class StoryViewModel {
         speechTask = Task { [weak self, services] in
             do {
                 let service = try services.makeSpeech()
-                // The usage entry is dropped here on purpose: Task 16 records usage.
-                let (url, _) = try await service.audioFile(text: text, language: language, cacheKey: key)
+                let (url, usage) = try await service.audioFile(text: text, language: language, cacheKey: key)
+                // nil is a cache hit: nothing was paid for.
+                if let usage { services.recordUsage([usage]) }
                 guard !Task.isCancelled, let self else { return }
                 do {
                     try self.audio.play(url)

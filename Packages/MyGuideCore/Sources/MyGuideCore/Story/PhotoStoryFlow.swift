@@ -94,10 +94,11 @@ public struct PhotoStoryFlow: Sendable {
 
     /// Generates the labelled "then" reconstruction as PNG bytes (spec 8.1.7). The label is drawn by the view.
     public func thenImage(for session: StorySession) async throws -> (Data, UsageEntry) {
-        let png = try await openAI.image(model: models.image, prompt: PromptBuilder.thenImagePrompt(session: session),
+        let (png, tokens) = try await openAI.image(model: models.image, prompt: PromptBuilder.thenImagePrompt(session: session),
                                          size: ThenImage.size, quality: ThenImage.quality)
         let entry = UsageEntry(date: now(), kind: .image, model: models.image,
-                               inputTokens: 0, outputTokens: 0, words: 0, images: 1)
+                               inputTokens: tokens?.inputTokens ?? 0, outputTokens: tokens?.outputTokens ?? 0,
+                               words: 0, images: 1)
         return (png, entry)
     }
 }

@@ -16,7 +16,7 @@ public struct OpenAIModels: Sendable {
     public var storyReasoningEffort: String? = "low"
     public var speech = "gpt-4o-mini-tts"
     public var voice = "coral"
-    public var image = "gpt-image-1"
+    public var image = "gpt-image-2.5-flare"
 
     public init() {}
 

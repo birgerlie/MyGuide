@@ -9,6 +9,9 @@ struct SettingsView: View {
     @State private var savedKeySuffix: String?
     @State private var hasSavedKey = false
     @State private var errorText: String?
+    @State private var totals: UsageTotals?
+    @State private var totalsFailed = false
+    @AppStorage("storyLanguage") private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         Form {
@@ -33,6 +36,31 @@ struct SettingsView: View {
                 Text("OpenAI API key")
             } footer: {
                 Text("Stored only in this iPhone's Keychain.")
+            }
+            Section {
+                Picker("Story language", selection: $storyLanguage) {
+                    Text("English").tag(StoryLanguage.english)
+                    Text("Norsk").tag(StoryLanguage.norwegian)
+                }
+            } header: {
+                Text("Language")
+            } footer: {
+                Text("Applies to new photos. Stories already told keep their language.")
+            }
+            Section {
+                if let totals {
+                    Text("This month: \(UsageFormat.dollars(totals.monthUSD)) (\(totals.monthRequests) \(totals.monthRequests == 1 ? "request" : "requests"))")
+                    Text("All time: \(UsageFormat.dollars(totals.allTimeUSD))")
+                    if totals.unpricedRequests > 0 {
+                        Text("some usage not priced").foregroundStyle(.secondary)
+                    }
+                } else if totalsFailed {
+                    Text("Usage unavailable").foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Usage")
+            } footer: {
+                Text("Failed requests are not counted. Prices as of \(PriceTable.current.asOf).")
             }
             Section {
                 NavigationLink("Device check") { SelfCheckView() }
@@ -71,6 +99,14 @@ struct SettingsView: View {
 
     private func refresh() {
         do {
+            totals = try services.memory.usageTotals(now: .now, calendar: .current)
+            totalsFailed = false
+        } catch {
+            AppServices.logMemoryFailure("usage totals failed", error)
+            totals = nil
+            totalsFailed = true
+        }
+        do {
             let key = try services.keychain.read(AppServices.apiKeyAccount)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             hasSavedKey = !key.isEmpty
@@ -80,5 +116,14 @@ struct SettingsView: View {
             savedKeySuffix = nil
             errorText = "Couldn't read the Keychain: \(error)"
         }
+    }
+}
+
+/// Dollar amounts as "$0.42", always in the POSIX locale so a Norwegian device never shows "$0,42".
+enum UsageFormat {
+    static func dollars(_ value: Double) -> String {
+        // Below one cent show "<$0.01" so small usage is not shown as $0.00.
+        if value > 0 && value < 0.01 { return "<$0.01" }
+        return "$" + value.formatted(.number.precision(.fractionLength(2)).locale(Locale(identifier: "en_US_POSIX")))
     }
 }

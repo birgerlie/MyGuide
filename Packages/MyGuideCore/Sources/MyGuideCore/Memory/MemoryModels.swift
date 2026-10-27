@@ -87,7 +87,7 @@ import SwiftData
     }
 }
 
-/// One metered API call. Filled in Task 16.
+/// One metered API call, written by `MemoryStore.recordUsage`.
 @Model public final class UsageRecord {
     public var date: Date
     public var kind: String

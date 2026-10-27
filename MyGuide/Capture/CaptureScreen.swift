@@ -14,6 +14,8 @@ struct CaptureScreen: View {
     @State private var story: StoryViewModel?
     @State private var isBusy = false
     @State private var errorText: String?
+    /// Read when the photo is taken or picked, so a change in Settings never affects a photo already in flight.
+    @AppStorage("storyLanguage") private var storyLanguage: StoryLanguage = .english
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -151,6 +153,7 @@ struct CaptureScreen: View {
         let fix = location.fix()
         let compass = location.compass
         let takenAt = Date.now
+        let language = storyLanguage
         let fov = camera.horizontalFOV ?? FieldOfView.portraitHorizontalFOV(landscapeFOV: FieldOfView.landscapeFOV)
         isBusy = true
         Task {
@@ -158,7 +161,7 @@ struct CaptureScreen: View {
             do {
                 let photo = try await camera.capture()
                 let capture = Self.cameraContext(fix: fix, compass: compass, horizontalFOV: fov, takenAt: takenAt)
-                openStory(photo: photo, capture: capture)
+                openStory(photo: photo, capture: capture, language: language)
             } catch {
                 errorText = "The camera couldn't take the photo. Try again."
             }
@@ -166,6 +169,7 @@ struct CaptureScreen: View {
     }
 
     private func usePicked(_ item: PhotosPickerItem) async {
+        let language = storyLanguage
         isBusy = true
         defer { isBusy = false }
         let data: Data?
@@ -187,11 +191,11 @@ struct CaptureScreen: View {
             capture.coordinate = fix.coordinate
             capture.horizontalAccuracy = fix.accuracy
         }
-        openStory(photo: data, capture: capture)
+        openStory(photo: data, capture: capture, language: language)
     }
 
-    private func openStory(photo: Data, capture: CaptureContext) {
-        let model = StoryViewModel(services: services)
+    private func openStory(photo: Data, capture: CaptureContext, language: StoryLanguage) {
+        let model = StoryViewModel(services: services, language: language)
         model.start(photoJPEG: photo, capture: capture)
         story = model
     }

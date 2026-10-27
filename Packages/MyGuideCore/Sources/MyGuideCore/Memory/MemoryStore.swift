@@ -1,6 +1,23 @@
 import Foundation
 import SwiftData
 
+/// Estimated spend, from the stored `UsageRecord`s.
+public struct UsageTotals: Equatable, Sendable {
+    public var monthUSD: Double
+    public var allTimeUSD: Double
+    /// Requests recorded in the current calendar month.
+    public var monthRequests: Int
+    /// Requests this month whose cost could not be estimated (unknown model).
+    public var unpricedRequests: Int
+
+    public init(monthUSD: Double, allTimeUSD: Double, monthRequests: Int, unpricedRequests: Int) {
+        self.monthUSD = monthUSD
+        self.allTimeUSD = allTimeUSD
+        self.monthRequests = monthRequests
+        self.unpricedRequests = unpricedRequests
+    }
+}
+
 public enum MemoryError: Error, Equatable {
     /// The session has no coordinate; the store never writes a record at 0,0.
     case noPosition
@@ -157,6 +174,37 @@ public enum MemoryError: Error, Equatable {
         var descriptor = FetchDescriptor<PlaceRecord>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
+    }
+
+    /// Stores one `UsageRecord` per entry, with its cost estimated now, and saves at once. Saves itself rather
+    /// than relying on autosave; a failed save rolls back and rethrows.
+    public func recordUsage(_ entries: [UsageEntry], prices: PriceTable) throws {
+        guard !entries.isEmpty else { return }
+        for entry in entries {
+            context.insert(UsageRecord(date: entry.date, kind: entry.kind.rawValue, model: entry.model,
+                                       inputTokens: entry.inputTokens, outputTokens: entry.outputTokens,
+                                       words: entry.words, images: entry.images,
+                                       estimatedUSD: prices.estimatedUSD(entry)))
+        }
+        do { try context.save() } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    /// Spend this calendar month (in `calendar`) and over all time.
+    public func usageTotals(now: Date = Date(), calendar: Calendar = .current) throws -> UsageTotals {
+        let month = calendar.dateInterval(of: .month, for: now)
+        var totals = UsageTotals(monthUSD: 0, allTimeUSD: 0, monthRequests: 0, unpricedRequests: 0)
+        for record in try context.fetch(FetchDescriptor<UsageRecord>()) {
+            totals.allTimeUSD += record.estimatedUSD ?? 0
+            if let month, month.contains(record.date) {
+                totals.monthRequests += 1
+                totals.monthUSD += record.estimatedUSD ?? 0
+                if record.estimatedUSD == nil { totals.unpricedRequests += 1 }
+            }
+        }
+        return totals
     }
 
     // MARK: - Private
