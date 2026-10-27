@@ -3,25 +3,25 @@ import PhotosUI
 import SwiftUI
 
 /// Camera preview, shutter, library picker and a HUD showing what position and heading will be sent. Pushed from
-/// Home; the camera runs only while this screen is on top. A finished photo (taken or picked) is handed to Home
-/// through `onPhoto`; Home starts the story and replaces this screen with it.
+/// Home, which starts the shared camera while this screen is on top and stops it otherwise; this screen only shows
+/// and drives it. A finished photo (taken or picked) is handed to Home through `onPhoto`; Home starts the story and
+/// replaces this screen with it.
 struct CaptureScreen: View {
+    /// `services.camera` is the one camera; never a per-screen one (SwiftUI may build this screen more than once).
     let services: AppServices
     /// Home owns the location provider: it runs while this screen is on top or a story offers "Use where I am now".
     let location: LocationProvider
     let onPhoto: (_ photo: Data, _ capture: CaptureContext, _ language: StoryLanguage) -> Void
 
-    @State private var camera = CameraController()
     @State private var pickerItem: PhotosPickerItem?
     @State private var isBusy = false
     @State private var errorText: String?
-    /// True while this screen (not a walk story pushed on top of it) is visible.
-    @State private var isOnTop = false
     /// The zoom when the current pinch began; nil between pinches. GestureState also resets on a cancelled pinch.
     @GestureState private var pinchBase: Double?
     /// Read when the photo is taken or picked, so a change in Settings never affects a photo already in flight.
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
-    @Environment(\.scenePhase) private var scenePhase
+
+    private var camera: CameraController { services.camera }
 
     var body: some View {
         ZStack {
@@ -48,19 +48,6 @@ struct CaptureScreen: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorText ?? "")
-        }
-        .onAppear {
-            isOnTop = true
-            Task { await camera.start() }
-        }
-        .onDisappear {
-            isOnTop = false
-            Task { await camera.stop() }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            // Picks up camera access granted in the Settings app while we were away,
-            // but never restarts the camera behind another screen.
-            if phase == .active, isOnTop { Task { await camera.start() } }
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }

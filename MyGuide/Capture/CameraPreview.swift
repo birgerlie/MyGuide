@@ -16,6 +16,8 @@ struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PreviewView, context: Context) {
+        // The layer must always show the session it is given, not the one it was made with.
+        if view.previewLayer.session !== session { view.previewLayer.session = session }
         view.applyPortraitRotation()
     }
 

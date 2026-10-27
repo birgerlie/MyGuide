@@ -96,7 +96,9 @@ struct HomeScreen: View {
             services.walking.stories.openID = nil
             openWalkStory(id)
         }
-        .onChange(of: path) { _, path in
+        .onChange(of: path) { old, path in
+            // Each opening of the camera starts at 1×, as a fresh camera screen always did.
+            if path.contains(.camera), !old.contains(.camera) { services.camera.setZoom(1) }
             // The story screen is being dropped (navigated back): stop its work silently.
             if !path.contains(.photoStory) { setPushedModel(nil) }
             if path.isEmpty {
@@ -108,6 +110,16 @@ struct HomeScreen: View {
         // Location runs while the camera is on top, or while a story offers "Use where I am now".
         .onChange(of: locationWanted, initial: true) { _, wanted in
             if wanted { location.start() } else { location.stop() }
+        }
+        // The camera runs only while its screen is on top and the app is not in the background. Driven from here,
+        // not by the camera screen's appear/disappear, so a rebuilt or duplicated screen can never start a second
+        // session or stop the visible one. Coming back from the background restarts it (and re-checks access).
+        .onChange(of: cameraWanted, initial: true) { _, wanted in
+            if wanted {
+                Task { await services.camera.start() }
+            } else {
+                Task { await services.camera.stop() }
+            }
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
@@ -395,6 +407,11 @@ struct HomeScreen: View {
     /// Whether location updates should run now (re-evaluated as the scene, the top screen or the story changes).
     private var locationWanted: Bool {
         scenePhase != .background && (path.last == .camera || storyOffersCurrentPosition)
+    }
+
+    /// Whether the camera should run now: its screen is on top (not under a walk story) and the app is visible.
+    private var cameraWanted: Bool {
+        scenePhase != .background && path.last == .camera
     }
 
     private var storyOffersCurrentPosition: Bool {

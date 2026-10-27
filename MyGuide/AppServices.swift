@@ -23,6 +23,10 @@ final class AppServices {
     /// The one WatchConnectivity link. Messages from the watch reach the Walking check through it.
     let watchLink = WatchLink()
     private let http: HTTPClient = URLSessionHTTPClient()
+    /// The one camera. It lives here, not in the camera screen, so exactly one capture session exists however
+    /// often SwiftUI rebuilds the pushed screen, and the preview always shows the session that runs. Home starts
+    /// and stops it by what is on top of its stack.
+    let camera = CameraController()
 
     /// The one walking-mode controller. It lives here so walking continues with the phone locked and
     /// notification actions still find it.
