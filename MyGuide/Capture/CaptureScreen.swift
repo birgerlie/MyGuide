@@ -29,6 +29,13 @@ struct CaptureScreen: View {
             if camera.failure == nil {
                 CameraPreview(session: camera.session, isRunning: camera.isRunning)
                     .ignoresSafeArea()
+                // The preview stays (and resumes by itself when the interruption ends); the reason shows over it.
+                if let reason = camera.interruptionReason {
+                    Text(reason)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
             } else {
                 Text(Self.cameraMessage(camera.failure))
                     .foregroundStyle(.white)
@@ -191,6 +198,7 @@ struct CaptureScreen: View {
         switch failure {
         case .accessDenied: "Camera access is off. Allow it in the Settings app, or pick a photo from your library."
         case .noCamera: "No back camera found. Pick a photo from your library."
+        case .runtime(let text): "The camera stopped: \(text) Pick a photo from your library."
         default: "The camera couldn't start. Pick a photo from your library."
         }
     }
