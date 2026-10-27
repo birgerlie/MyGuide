@@ -44,7 +44,8 @@ import Testing
         let en = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
         #expect(en.map(\.id) == ["osm:node/1", "osm:way/2"])
         #expect(en[0] == Candidate(id: "osm:node/1", name: "Michaelertor", coordinate: .init(latitude: 48.2086, longitude: 16.3671),
-                                   kind: "historic=building", summary: nil, wikipediaTitle: "de:Michaelertor", wikidata: "Q1"))
+                                   kind: "historic=building", summary: nil, wikipediaTitle: "de:Michaelertor", wikidata: "Q1",
+                                   tags: ["historic": "building"]))
         #expect(en[1].kind == "tourism=attraction" && en[1].name == "Hofburg")
         let nb = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .norwegian)
         #expect(nb[1].name == "Hofburg slott")
@@ -114,5 +115,11 @@ import Testing
         let body = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"A","wikipedia":"en:A"}}]}"#
         let r = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
         #expect(r.map(\.kind) == ["wikipedia"])
+    }
+    @Test func keepsOnlyWhitelistedTags() async throws {
+        let body = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"Plaque","historic":"memorial","memorial":"plaque","addr:street":"X","wikipedia":"de:Y"}}]}"#
+        let r = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
+        #expect(r[0].tags == ["historic": "memorial", "memorial": "plaque"])
+        #expect(r[0].wikipediaTitle == "de:Y")
     }
 }

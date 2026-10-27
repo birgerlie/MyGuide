@@ -9,6 +9,12 @@ public struct OverpassClient: Sendable {
         "restaurant", "cafe", "bar", "pub", "fast_food", "ice_cream", "biergarten",
     ]
 
+    /// The only OSM tag keys kept on a candidate; `PlaceTiers` classifies from these.
+    static let keptTagKeys: Set<String> = [
+        "historic", "tourism", "amenity", "building", "memorial", "man_made", "railway", "public_transport",
+        "place", "office", "castle_type", "bridge", "highway",
+    ]
+
     private let http: HTTPClient
 
     public init(http: HTTPClient) {
@@ -70,7 +76,8 @@ public struct OverpassClient: Sendable {
             kind: kind(tags),
             summary: nil,
             wikipediaTitle: tags["wikipedia"],
-            wikidata: tags["wikidata"]
+            wikidata: tags["wikidata"],
+            tags: tags.filter { keptTagKeys.contains($0.key) }
         )
     }
 

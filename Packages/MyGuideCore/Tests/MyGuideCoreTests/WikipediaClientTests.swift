@@ -17,6 +17,17 @@ import Foundation
           + "&ggscoord=48.208200%7C16.373800&ggsradius=400&ggslimit=20&prop=coordinates%7Cextracts%7Cpageprops"
           + "&exintro=1&explaintext=1&exsentences=4&exlimit=20&ppprop=wikibase_item&colimit=20")
     }
+    @Test func urlUsesLimit() {
+        let url = WikipediaClient.url(lang: "en", around: .init(latitude: 0, longitude: 0), radius: 500, limit: 50).absoluteString
+        #expect(url.contains("ggslimit=50") && url.contains("colimit=50") && url.contains("exlimit=20"))
+        let def = WikipediaClient.url(lang: "en", around: .init(latitude: 0, longitude: 0), radius: 500).absoluteString
+        #expect(def.contains("ggslimit=20") && def.contains("colimit=20"))
+    }
+    @Test func articlesPassesLimitToRequest() async throws {
+        let http = StubHTTPClient { _ in (200, Self.body([])) }
+        _ = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .english, limit: 50)
+        #expect(http.requests[0].url!.absoluteString.contains("ggslimit=50"))
+    }
     @Test func parsesPagesSkipsUncoordinated() async throws {
         let http = StubHTTPClient { _ in (200, Self.body([Self.page(1, "Hofburg", q: "Q2"), Self.page(2, "Nowhere", q: nil, coord: false),
                                                           Self.page(3, "Michaelerkirche", q: nil), Self.page(4, "Stephansdom", q: "Q4")])) }

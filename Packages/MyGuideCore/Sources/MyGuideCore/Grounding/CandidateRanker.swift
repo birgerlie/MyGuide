@@ -23,6 +23,7 @@ public enum CandidateRanker {
             if kept[twin].summary == nil { kept[twin].summary = c.summary }
             if kept[twin].wikidata == nil { kept[twin].wikidata = c.wikidata }
             if kept[twin].wikipediaTitle == nil { kept[twin].wikipediaTitle = c.wikipediaTitle }
+            if kept[twin].tags == nil { kept[twin].tags = c.tags }
         }
 
         // Every OSM candidate may match (differently named parts of one site share an article);

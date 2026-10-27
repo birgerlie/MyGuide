@@ -12,9 +12,13 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
     /// Language-prefixed article title, e.g. "de:Michaelertor".
     public var wikipediaTitle: String?
     public var wikidata: String?
+    /// The whitelisted OSM tags (`OverpassClient.keptTagKeys`); nil for Wikipedia-only candidates and for
+    /// groundings stored before tags existed.
+    public var tags: [String: String]?
 
     public init(id: String, name: String, coordinate: Coordinate, kind: String,
-                summary: String? = nil, wikipediaTitle: String? = nil, wikidata: String? = nil) {
+                summary: String? = nil, wikipediaTitle: String? = nil, wikidata: String? = nil,
+                tags: [String: String]? = nil) {
         self.id = id
         self.name = name
         self.coordinate = coordinate
@@ -22,6 +26,7 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
         self.summary = summary
         self.wikipediaTitle = wikipediaTitle
         self.wikidata = wikidata
+        self.tags = tags
     }
 }
 

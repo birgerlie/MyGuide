@@ -118,6 +118,21 @@ import Testing
         #expect(g.candidates.isEmpty && g.address == nil && g.failedSources == [.openStreetMap, .wikipedia, .geocoder])
     }
 
+    @Test func mergeKeepsOSMTags() {
+        var o = Self.cand("osm:node/1", n: 0, e: 0, name: "Gate", q: "Q1")
+        o.tags = ["historic": "city_gate"]
+        let wiki = [Self.cand("wiki:en/9", n: 0, e: 1, name: "The Gate", q: "Q1", summary: "Gate story.")]
+        let merged = CandidateRanker.merge(osm: [o], wiki: wiki)
+        #expect(merged.count == 1)
+        #expect(merged[0].tags == ["historic": "city_gate"] && merged[0].summary == "Gate story.")
+    }
+    @Test func candidateDecodesWithoutTags() throws {
+        let json = #"{"id":"osm:node/1","name":"A","coordinate":{"latitude":1,"longitude":2},"kind":"historic=yes"}"#
+        let c = try JSONDecoder().decode(Candidate.self, from: Data(json.utf8))
+        #expect(c.tags == nil && c.name == "A")
+        let round = try JSONDecoder().decode(Candidate.self, from: JSONEncoder().encode(c))
+        #expect(round == c)
+    }
     @Test func droppedDuplicateDonatesSummaryAndWikiTagsToKeptTwin() {
         let osm = [Self.cand("osm:way/1", n: 0, e: 0, name: "Hofburg"),
                    Self.cand("osm:way/2", n: 20, e: 0, name: "Hofburg", q: "Q9")]

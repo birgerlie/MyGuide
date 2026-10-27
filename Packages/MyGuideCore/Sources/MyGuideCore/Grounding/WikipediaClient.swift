@@ -12,7 +12,8 @@ public struct WikipediaClient: Sendable {
         self.http = http
     }
 
-    static func url(lang: String, around: Coordinate, radius: Int) -> URL {
+    /// `exlimit` stays 20: the API maximum for intro extracts (pages beyond it come back without a summary).
+    static func url(lang: String, around: Coordinate, radius: Int, limit: Int = 20) -> URL {
         // String(format:) with %f uses the POSIX decimal point regardless of the user's locale.
         let coord = "\(String(format: "%.6f", around.latitude))%7C\(String(format: "%.6f", around.longitude))"
         var components = URLComponents()
@@ -21,23 +22,23 @@ public struct WikipediaClient: Sendable {
         components.path = "/w/api.php"
         components.percentEncodedQuery = [
             "action=query", "format=json", "formatversion=2", "generator=geosearch",
-            "ggscoord=\(coord)", "ggsradius=\(radius)", "ggslimit=20",
+            "ggscoord=\(coord)", "ggsradius=\(radius)", "ggslimit=\(limit)",
             "prop=coordinates%7Cextracts%7Cpageprops",
             "exintro=1", "explaintext=1", "exsentences=4", "exlimit=20",
-            "ppprop=wikibase_item", "colimit=20",
+            "ppprop=wikibase_item", "colimit=\(limit)",
         ].joined(separator: "&")
         return components.url!
     }
 
-    public func articles(around: Coordinate, radius: Int, language: StoryLanguage) async throws -> [Candidate] {
+    public func articles(around: Coordinate, radius: Int, language: StoryLanguage, limit: Int = 20) async throws -> [Candidate] {
         guard language != .english else {
-            return try await fetch(code: language.wikipediaCode, around: around, radius: radius)
+            return try await fetch(code: language.wikipediaCode, around: around, radius: radius, limit: limit)
         }
         // The English fallback starts alongside the primary so a thin story-language result costs no extra
         // round trip. Its outcome is captured, not thrown: a failed fallback must not discard the primary results.
         // If the primary throws, or has enough results, the fallback is cancelled when this scope exits.
-        async let fallback = Self.outcome { try await fetch(code: StoryLanguage.english.wikipediaCode, around: around, radius: radius) }
-        let primary = try await fetch(code: language.wikipediaCode, around: around, radius: radius)
+        async let fallback = Self.outcome { try await fetch(code: StoryLanguage.english.wikipediaCode, around: around, radius: radius, limit: limit) }
+        let primary = try await fetch(code: language.wikipediaCode, around: around, radius: radius, limit: limit)
         guard primary.count < Self.fallbackThreshold else { return primary }
 
         let english: [Candidate]
@@ -60,8 +61,8 @@ public struct WikipediaClient: Sendable {
         do { return .success(try await work()) } catch { return .failure(error) }
     }
 
-    private func fetch(code: String, around: Coordinate, radius: Int) async throws -> [Candidate] {
-        var request = URLRequest(url: Self.url(lang: code, around: around, radius: radius))
+    private func fetch(code: String, around: Coordinate, radius: Int, limit: Int) async throws -> [Candidate] {
+        var request = URLRequest(url: Self.url(lang: code, around: around, radius: radius, limit: limit))
         request.timeoutInterval = 10
         request.setValue(OverpassClient.userAgent, forHTTPHeaderField: "User-Agent")
 
