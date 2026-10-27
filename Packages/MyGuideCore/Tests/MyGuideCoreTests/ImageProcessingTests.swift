@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import ImageIO
 @testable import MyGuideCore
 
 @Suite struct ImageProcessingTests {
@@ -23,6 +24,24 @@ import Foundation
         let out = try ImageProcessing.downscaledJPEG(TestImages.jpeg(width: 4032, height: 3024, orientation: 6), maxLongSide: 1536, quality: 0.7)
         let size = try #require(ImageProcessing.pixelSize(of: out))
         #expect(size.width == 1152 && size.height == 1536)
+    }
+    @Test func downscaleStripsGPSAndOrientation() throws {
+        func properties(_ data: Data) throws -> [CFString: Any] {
+            let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+            return try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        }
+        let gps: [CFString: Any] = [kCGImagePropertyGPSLatitude: 59.91, kCGImagePropertyGPSLatitudeRef: "N",
+                                    kCGImagePropertyGPSLongitude: 10.75, kCGImagePropertyGPSLongitudeRef: "E"]
+        let input = TestImages.jpeg(width: 400, height: 300, orientation: 6, gps: gps)
+        // The input really carries both, so the absence below is the function's doing.
+        let before = try properties(input)
+        #expect(before[kCGImagePropertyGPSDictionary] != nil && (before[kCGImagePropertyOrientation] as? NSNumber)?.intValue == 6)
+
+        let after = try properties(try ImageProcessing.downscaledJPEG(input, maxLongSide: 200, quality: 0.7))
+        #expect(after[kCGImagePropertyGPSDictionary] == nil)
+        #expect(after[kCGImagePropertyOrientation] == nil)
+        let tiff = after[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
+        #expect(tiff?[kCGImagePropertyTIFFOrientation] == nil)
     }
     @Test func garbageThrows() {
         #expect(throws: ImageProcessingError.unreadableImage) { try ImageProcessing.downscaledJPEG(Data([1, 2, 3]), maxLongSide: 100, quality: 0.7) }
