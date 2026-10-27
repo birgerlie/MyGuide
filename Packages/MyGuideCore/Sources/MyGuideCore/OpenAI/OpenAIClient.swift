@@ -55,6 +55,18 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         return try Self.parseResponse(data)
     }
 
+    /// Text-to-speech call. Returns the MP3 bytes. `text` must be within the API's per-request limit.
+    public func speech(model: String, voice: String, instructions: String, text: String) async throws -> Data {
+        let body: JSONValue = [
+            "model": .string(model),
+            "voice": .string(voice),
+            "instructions": .string(instructions),
+            "input": .string(text),
+            "response_format": "mp3",
+        ]
+        return try await post(path: "audio/speech", body: body, timeout: 60)
+    }
+
     // MARK: - Shared plumbing (reused by speech and image calls)
 
     /// POSTs a JSON body to `baseURL/path` and returns the body of a 2xx response.

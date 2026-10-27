@@ -18,6 +18,16 @@ final class AppServices {
         return OpenAIClient(apiKey: key, http: http)
     }
 
+    /// Generated speech lives in Caches: it can be regenerated, so the system may purge it.
+    static var speechCacheDirectory: URL {
+        URL.cachesDirectory.appending(path: "Speech", directoryHint: .isDirectory)
+    }
+
+    /// Throws `OpenAIError.missingAPIKey` when no non-blank key is stored.
+    func makeSpeech() throws -> SpeechService {
+        SpeechService(openAI: try makeOpenAI(), cacheDirectory: Self.speechCacheDirectory)
+    }
+
     /// Throws `OpenAIError.missingAPIKey` when no key is stored.
     func makeFlow() throws -> PhotoStoryFlow {
         let openAI = try makeOpenAI()

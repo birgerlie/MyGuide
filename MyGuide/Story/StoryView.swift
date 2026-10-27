@@ -48,14 +48,46 @@ struct StoryView: View {
                         .font(.footnote)
                         .foregroundStyle(.orange)
                 }
-                ForEach(Array(session.levels.enumerated()), id: \.offset) { _, text in
-                    Text(text)
-                        .font(.body)
-                        .textSelection(.enabled)
+                ForEach(Array(session.levels.enumerated()), id: \.offset) { index, text in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(text)
+                            .font(.body)
+                            .textSelection(.enabled)
+                        speechControls(level: index)
+                    }
                 }
                 moreControls(session)
             }
             .padding()
+        }
+    }
+
+    @ViewBuilder
+    private func speechControls(level: Int) -> some View {
+        let state = model.speechState(for: level)
+        HStack(spacing: 12) {
+            Button {
+                model.toggleSpeech(level: level)
+            } label: {
+                switch state {
+                case .loading:
+                    Label("Stop", systemImage: "stop.fill")
+                case .playing:
+                    Label("Stop", systemImage: "stop.fill")
+                case .idle, .failed:
+                    Label("Play", systemImage: "play.fill")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            if state == .loading { ProgressView().controlSize(.small) }
+            if state == .failed {
+                Text("Couldn't play audio")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                Button("Retry") { model.playSpeech(level: level) }
+                    .font(.footnote)
+            }
         }
     }
 

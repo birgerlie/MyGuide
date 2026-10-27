@@ -18,11 +18,13 @@
 		7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AC3F6758B70A451EA067EB /* SelfCheckView.swift */; };
 		905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */; };
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
+		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
 		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0127669306FC88F71BBCDBF8 /* StoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryView.swift; sourceTree = "<group>"; };
+		0D420089BC27852F1213A205 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		11AC3F6758B70A451EA067EB /* SelfCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCheckView.swift; sourceTree = "<group>"; };
 		18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
@@ -54,6 +56,7 @@
 		00FA2DDF8C4E1866C2BA625A /* Story */ = {
 			isa = PBXGroup;
 			children = (
+				0D420089BC27852F1213A205 /* AudioPlayer.swift */,
 				0127669306FC88F71BBCDBF8 /* StoryView.swift */,
 				5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */,
 			);
@@ -208,6 +211,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */,
+				B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */,
 				4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */,
 				08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */,
 				FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */,
