@@ -36,6 +36,17 @@ import Foundation
                 == "GPS ±8 m · Compass unavailable")
     }
 
+    @Test func headingAccuracyAboveUsableLimitIsUnreliable() {
+        // 45 is the limit itself (FieldOfView.maxUsableHeadingAccuracy) and is still usable
+        #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: 312, accuracy: 45))
+                == "GPS ±8 m · 312° NW ±45°")
+        // 45.1 > 45 → the core ignores the heading, so the HUD must not show degrees
+        #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: 312, accuracy: 45.1))
+                == "GPS ±8 m · Compass unreliable")
+        #expect(CaptureHUD.text(fix: nil, compass: CompassReading(heading: 312, accuracy: 60))
+                == "No GPS fix · Compass unreliable")
+    }
+
     @Test func allEightAbbreviations() {
         // centres of each 45° sector: 0, 45, …, 315
         let expected = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
