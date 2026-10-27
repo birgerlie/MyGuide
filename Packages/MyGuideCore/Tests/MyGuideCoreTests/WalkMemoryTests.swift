@@ -105,7 +105,7 @@ import Testing
     @Test func recordingTheSameBuzzTwiceKeepsOneEntry() throws {
         let b = Self.buzz("osm:node/1")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
-        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0 + 5)
         #expect(try store.context.fetchCount(FetchDescriptor<BuzzRecord>()) == 1)
         #expect(try store.buzzLog().first?.outcome == .heard)
@@ -117,15 +117,67 @@ import Testing
     @Test func buzzedOnlyIsNotRetiredSkippedIs() throws {
         try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.trip, at: Self.t0)
         #expect(try store.retiredPlaceIDs().isEmpty)
-        try store.markSkipped(placeID: "osm:node/1", at: Self.t0 + 5)
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 5)
         #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
         #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 5)
     }
-    @Test func heardViaBuzzStoryIsRetired() throws {
+    @Test func savedButUnplayedBuzzStoryDoesNotRetire() throws {
+        // Ruling 9: a buzz story is saved when it is prepared, before the owner taps.
         try store.saveWalkStory(Self.buzzStory("osm:node/2", levels: ["one"]), tripID: Self.trip)
+        #expect(try store.retiredPlaceIDs().isEmpty)
+        let place = try #require(try store.place(id: "osm:node/2"))
+        #expect(place.deepestLevelHeard == 0 && place.lastHeardAt == nil && place.firstSeenAt == Self.t0)
+    }
+    @Test func heardViaBuzzOutcomeRetiresWithTheGivenTime() throws {
+        let b = Self.buzz("osm:node/2")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 30)
         #expect(try store.retiredPlaceIDs() == ["osm:node/2"])
         let place = try #require(try store.place(id: "osm:node/2"))
-        #expect(place.deepestLevelHeard == 1 && place.lastHeardAt != nil && place.firstSeenAt == Self.t0)
+        #expect(place.deepestLevelHeard == 1 && place.lastHeardAt == Self.t0 + 30 && place.skippedAt == nil)
+        // Deeper: level 2 at t0 + 90.
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 90)
+        #expect(place.deepestLevelHeard == 2 && place.lastHeardAt == Self.t0 + 90)
+        // Not deeper (2 again, then 1): refused, the place keeps level 2 heard at t0 + 90.
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 120)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 150)
+        #expect(place.deepestLevelHeard == 2 && place.lastHeardAt == Self.t0 + 90)
+    }
+    @Test func heardBuzzNeverLowersAPhotographedPlace() throws {
+        try store.save(MemoryStoreTests.session(placeID: "osm:node/1", levels: ["one", "two", "three"]))
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 30)
+        let place = try #require(try store.place(id: "osm:node/1"))
+        #expect(place.deepestLevelHeard == 3 && place.lastHeardAt == Self.t0 + 30)
+    }
+    @Test func skippedViaBuzzOutcomeRetires() throws {
+        let b = Self.buzz("osm:node/2")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 20)
+        #expect(try store.retiredPlaceIDs() == ["osm:node/2"])
+        let place = try #require(try store.place(id: "osm:node/2"))
+        #expect(place.skippedAt == Self.t0 + 20 && place.deepestLevelHeard == 0 && place.lastHeardAt == nil)
+    }
+    @Test func refusedOutcomeLeavesThePlaceAlone() throws {
+        let skipped = Self.buzz("osm:node/1"), ignored = Self.buzz("osm:node/2")
+        try store.recordBuzz(skipped, tripID: Self.trip, at: Self.t0)
+        try store.recordBuzz(ignored, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(skipped.id, .skipped, deepestLevel: 0, at: Self.t0 + 20)
+        try store.closePendingBuzzes()
+        try store.setBuzzOutcome(skipped.id, .heard, deepestLevel: 2, at: Self.t0 + 40)
+        try store.setBuzzOutcome(ignored.id, .heard, deepestLevel: 1, at: Self.t0 + 40)
+        try store.setBuzzOutcome(ignored.id, .skipped, deepestLevel: 0, at: Self.t0 + 40)
+        let s = try #require(try store.place(id: "osm:node/1")), i = try #require(try store.place(id: "osm:node/2"))
+        #expect(s.skippedAt == Self.t0 + 20 && s.deepestLevelHeard == 0 && s.lastHeardAt == nil)
+        #expect(i.skippedAt == nil && i.deepestLevelHeard == 0 && i.lastHeardAt == nil)
+        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+    }
+    @Test func ignoredBuzzDoesNotRetire() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(b.id, .ignored, deepestLevel: 0, at: Self.t0 + 20)
+        #expect(try store.retiredPlaceIDs().isEmpty)
     }
     @Test func photographedPlaceCountsAsHeard() throws {
         try store.save(MemoryStoreTests.session(placeID: "osm:node/3", levels: ["one"]))
@@ -138,13 +190,24 @@ import Testing
     }
     @Test func secondSkipKeepsTheFirstTime() throws {
         try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.trip, at: Self.t0)
-        try store.markSkipped(placeID: "osm:node/1", at: Self.t0 + 5)
-        try store.markSkipped(placeID: "osm:node/1", at: Self.t0 + 50)
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 5)
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 50)
         #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 5)
     }
-    @Test func skippingAnUnknownPlaceThrowsAndWritesNothing() throws {
-        #expect(throws: MemoryError.corruptRecord) { try store.markSkipped(placeID: "osm:node/9", at: Self.t0) }
-        #expect(try store.context.fetchCount(FetchDescriptor<PlaceRecord>()) == 0)
+    @Test func skippingAnUnknownPlaceCreatesAndRetiresIt() throws {
+        try store.markSkipped(Self.candidate("osm:node/9", north: 30), at: Self.t0)
+        let place = try #require(try store.place(id: "osm:node/9"))
+        #expect(place.name == "Name osm:node/9" && place.firstSeenAt == Self.t0 && place.skippedAt == Self.t0)
+        #expect(place.deepestLevelHeard == 0 && place.lastHeardAt == nil && place.lastBuzzedAt == nil)
+        #expect(Coordinate(latitude: place.latitude, longitude: place.longitude) == .at(north: 30))
+        #expect(try store.retiredPlaceIDs() == ["osm:node/9"])
+    }
+    @Test func skipAndHeardViaOutcomeKeepTheFirstSkip() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 5)
+        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 9)
+        #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 5)
     }
 
     // MARK: - setBuzzOutcome and closePendingBuzzes
@@ -152,11 +215,11 @@ import Testing
     @Test func heardDeepensButNeverShallows() throws {
         let b = Self.buzz("osm:node/1")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
-        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
         #expect(try store.buzzLog().map(\.outcome) == [.heard] && store.buzzLog().map(\.deepestLevel) == [1])
-        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
         #expect(try store.buzzLog().map(\.outcome) == [.heard] && store.buzzLog().map(\.deepestLevel) == [2])
-        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
         #expect(try store.buzzLog().map(\.deepestLevel) == [2])
     }
     @Test func finalOutcomesDoNotChange() throws {
@@ -164,13 +227,13 @@ import Testing
         try store.recordBuzz(skipped, tripID: Self.trip, at: Self.t0)
         try store.recordBuzz(ignored, tripID: Self.trip, at: Self.t0 + 1)
         try store.recordBuzz(heard, tripID: Self.trip, at: Self.t0 + 2)
-        try store.setBuzzOutcome(skipped.id, .skipped, deepestLevel: 0)
-        try store.setBuzzOutcome(skipped.id, .heard, deepestLevel: 2)
-        try store.setBuzzOutcome(ignored.id, .ignored, deepestLevel: 0)
-        try store.setBuzzOutcome(ignored.id, .heard, deepestLevel: 1)
-        try store.setBuzzOutcome(heard.id, .heard, deepestLevel: 1)
-        try store.setBuzzOutcome(heard.id, .skipped, deepestLevel: 3)
-        try store.setBuzzOutcome(heard.id, .pending, deepestLevel: 3)
+        try store.setBuzzOutcome(skipped.id, .skipped, deepestLevel: 0, at: Self.t0 + 10)
+        try store.setBuzzOutcome(skipped.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
+        try store.setBuzzOutcome(ignored.id, .ignored, deepestLevel: 0, at: Self.t0 + 10)
+        try store.setBuzzOutcome(ignored.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
+        try store.setBuzzOutcome(heard.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
+        try store.setBuzzOutcome(heard.id, .skipped, deepestLevel: 3, at: Self.t0 + 10)
+        try store.setBuzzOutcome(heard.id, .pending, deepestLevel: 3, at: Self.t0 + 10)
         let log = try store.buzzLog()
         #expect(log.map(\.placeID) == ["osm:node/3", "osm:node/2", "osm:node/1"])
         #expect(log.map(\.outcome) == [.heard, .ignored, .skipped])
@@ -179,20 +242,20 @@ import Testing
     @Test func pendingCanBecomeSkippedWithTheLevelReached() throws {
         let b = Self.buzz("osm:node/1")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
-        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 1)
+        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 1, at: Self.t0 + 10)
         let entry = try #require(try store.buzzLog().first)
         #expect(entry.outcome == .skipped && entry.deepestLevel == 1)
     }
     @Test func unknownBuzzOutcomeThrows() {
-        #expect(throws: MemoryError.corruptRecord) { try store.setBuzzOutcome(UUID(), .heard, deepestLevel: 1) }
+        #expect(throws: MemoryError.corruptRecord) { try store.setBuzzOutcome(UUID(), .heard, deepestLevel: 1, at: Self.t0) }
     }
     @Test func closePendingTurnsOnlyPendingIntoIgnored() throws {
         let a = Self.buzz("osm:node/1"), b = Self.buzz("osm:node/2"), c = Self.buzz("osm:node/3")
         try store.recordBuzz(a, tripID: Self.trip, at: Self.t0)
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0 + 1)
         try store.recordBuzz(c, tripID: Self.trip, at: Self.t0 + 2)
-        try store.setBuzzOutcome(a.id, .heard, deepestLevel: 2)
-        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0)
+        try store.setBuzzOutcome(a.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
+        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 10)
         try store.closePendingBuzzes()
         let log = try store.buzzLog()
         #expect(log.map(\.outcome) == [.ignored, .skipped, .heard])
@@ -216,7 +279,7 @@ import Testing
         // createdAt = story createdAt + level index: t0 + 0 and t0 + 1.
         #expect(stories.map(\.createdAt) == [Self.t0, Self.t0 + 1])
         #expect(try store.context.fetchCount(FetchDescriptor<WalkStoryRecord>()) == 1)
-        #expect(try store.place(id: "osm:node/1")?.deepestLevelHeard == 2)
+        #expect(try store.place(id: "osm:node/1")?.deepestLevelHeard == 0)
     }
     @Test func storedLevelsAreNeverRewritten() throws {
         var s = Self.buzzStory("osm:node/1", levels: ["L1"])
@@ -349,7 +412,7 @@ import Testing
         let early = Self.buzz("osm:node/1", tier: .top, distance: 30), late = Self.buzz("osm:node/2", tier: .wikiOnly, distance: 95)
         try store.recordBuzz(early, tripID: Self.trip, at: Self.t0)
         try store.recordBuzz(late, tripID: Self.otherTrip, at: Self.t0 + 60)
-        try store.setBuzzOutcome(early.id, .heard, deepestLevel: 3)
+        try store.setBuzzOutcome(early.id, .heard, deepestLevel: 3, at: Self.t0 + 10)
         let log = try store.buzzLog()
         #expect(log == [
             BuzzLogEntry(id: late.id, at: Self.t0 + 60, placeID: "osm:node/2", placeName: "Name osm:node/2",

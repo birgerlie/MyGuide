@@ -66,7 +66,8 @@ import Testing
         #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: Coordinate(latitude: 0, longitude: 0),
                                        excludingSession: nil).map(\.text) == ["one"])
         let trip = try store.touchTrip(now: Date(timeIntervalSince1970: 1_000), city: "Wien")
-        try store.markSkipped(placeID: "osm:node/1", at: Date(timeIntervalSince1970: 1_000))
+        try store.markSkipped(Candidate(id: "osm:node/1", name: "Gate", coordinate: Coordinate(latitude: 48.2, longitude: 16.36),
+                                        kind: "historic=city_gate"), at: Date(timeIntervalSince1970: 1_000))
         #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
         #expect(try context.fetchCount(FetchDescriptor<TripRecord>()) == 1 && trip.city == "Wien")
     }

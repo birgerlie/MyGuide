@@ -99,25 +99,42 @@ extension MemoryStore {
         }
     }
 
-    /// Moves a buzz on from `pending`. Afterwards only `heard` → `heard` changes anything, to record a deeper
-    /// level; the deepest level never decreases. Throws `corruptRecord` for an unknown buzz id.
-    public func setBuzzOutcome(_ id: UUID, _ outcome: BuzzOutcome, deepestLevel: Int) throws {
+    /// Moves a buzz on from `pending`. Afterwards only `heard` → `heard` with a deeper level changes anything;
+    /// the deepest level never decreases. When the change applies, the buzz's place is updated in the same save:
+    /// `heard` raises its `deepestLevelHeard` and sets `lastHeardAt = at`, `skipped` sets `skippedAt` (the first
+    /// skip time is kept). Both retire the place. A refused change touches nothing.
+    /// Throws `corruptRecord` for an unknown buzz id.
+    public func setBuzzOutcome(_ id: UUID, _ outcome: BuzzOutcome, deepestLevel: Int, at: Date) throws {
         guard let record = try buzzRecord(id: id), let current = BuzzOutcome(rawValue: record.outcome) else {
             throw MemoryError.corruptRecord
         }
-        guard current == .pending || (current == .heard && outcome == .heard) else { return }
+        let applies = current == .pending
+            || (current == .heard && outcome == .heard && deepestLevel > record.deepestLevel)
+        guard applies else { return }
+        // recordBuzz stores the place in the same save as the buzz, so it is only missing if deleted since.
+        let place = try place(id: record.placeID)
         try saving {
             record.outcome = outcome.rawValue
             record.deepestLevel = max(record.deepestLevel, deepestLevel)
+            switch outcome {
+            case .heard:
+                place?.deepestLevelHeard = max(place?.deepestLevelHeard ?? 0, deepestLevel)
+                place?.lastHeardAt = at
+            case .skipped:
+                if let place, place.skippedAt == nil { place.skippedAt = at }
+            case .pending, .ignored:
+                break
+            }
         }
     }
 
-    /// Retires the place for good. The first skip time is kept. Throws `corruptRecord` for an unknown place:
-    /// a place is always stored when it is buzzed.
-    public func markSkipped(placeID: String, at: Date) throws {
-        guard let place = try place(id: placeID) else { throw MemoryError.corruptRecord }
-        guard place.skippedAt == nil else { return }
-        try saving { place.skippedAt = at }
+    /// Retires the place for good, storing it first if it is unknown (for example when `recordBuzz` failed), so a
+    /// skip is never lost. The first skip time is kept.
+    public func markSkipped(_ candidate: Candidate, at: Date) throws {
+        try saving {
+            let place = try upsertWalkPlace(candidate, seenAt: at)
+            if place.skippedAt == nil { place.skippedAt = at }
+        }
     }
 
     /// Every pending buzz becomes ignored (walking mode ended without an answer).
@@ -131,8 +148,8 @@ extension MemoryStore {
     }
 
     /// Upserts the story keyed by `story.id`; its fields are refreshed, except the trip it was first saved in.
-    /// Story levels not yet stored are appended, and stored levels are never rewritten. A buzz story marks its
-    /// place as heard to `levels.count`; a stop story marks no place (design 7.6).
+    /// Story levels not yet stored are appended, and stored levels are never rewritten. A buzz story stores its
+    /// place but does not mark it heard; a stop story stores no place (design 7.6).
     public func saveWalkStory(_ story: WalkStory, tripID: UUID) throws {
         let encoder = JSONEncoder()
         let placeJSON = try story.place.map { try encoder.encode($0) }
@@ -168,19 +185,17 @@ extension MemoryStore {
             // are never rewritten.
             let storedLevels = Set(record.stories.map(\.level))
             for stored in record.stories where stored.placeID != placeID { stored.placeID = placeID }
-            var appended = false
             for (index, text) in story.levels.enumerated() where !storedLevels.contains(index + 1) {
                 let level = StoryRecord(level: index + 1, text: text, placeID: placeID,
                                         createdAt: story.createdAt.addingTimeInterval(TimeInterval(index)))
                 context.insert(level)
                 level.walkStory = record
-                appended = true
             }
 
+            // A saved buzz story may never have been played (it is prepared when the buzz goes out), so it does
+            // not mark its place heard; `setBuzzOutcome(.heard, ...)` does that once it plays.
             if story.kind == .buzz, let candidate = story.place {
-                let place = try upsertWalkPlace(candidate, seenAt: story.createdAt)
-                place.deepestLevelHeard = max(place.deepestLevelHeard, story.levels.count)
-                if appended { place.lastHeardAt = Date() }
+                _ = try upsertWalkPlace(candidate, seenAt: story.createdAt)
             }
         }
     }

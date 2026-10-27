@@ -242,6 +242,7 @@ public enum MemorySchema {
 
 /// Version 2 of the store: phase 2's trips, buzz log, track, walk stories and place flags. Every attribute it adds
 /// to a version 1 entity is optional or defaulted, so the step from version 1 is lightweight.
+/// Before a version 3 changes the live models, freeze this version into nested copies like `MemorySchemaV1`.
 public enum MemorySchemaV2: VersionedSchema {
     public static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
     public static var models: [any PersistentModel.Type] { MemorySchema.models }
