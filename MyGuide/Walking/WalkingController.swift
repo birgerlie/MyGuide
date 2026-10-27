@@ -118,14 +118,14 @@ final class WalkingController {
         let now = Date.now
         let activityID = await activity.start(at: now, status: WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 0, now: now) ?? "Walking")
         guard startToken == token else {
-            activity.end(activityID)
+            if let activityID { activity.end(id: activityID) }
             return
         }
         await BuzzNotifier.registerCategories()
         do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
         let city = await Self.city(near: location.lastKnown)
         guard startToken == token else {
-            activity.end(activityID)
+            if let activityID { activity.end(id: activityID) }
             return
         }
         let trip: UUID
@@ -182,7 +182,7 @@ final class WalkingController {
         stopDetector = nil
         source = nil
         problems = []
-        activity.end()
+        activity.endCurrent()
         // Preparations and fetches still end with their (silent) failure events, so the machine never stays busy.
         stories.stopAll()
         Task { await BuzzNotifier.removeWalkNotifications() }

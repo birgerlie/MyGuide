@@ -72,18 +72,23 @@ final class WalkingActivityController {
         await push(headline: story.title, body: text, storyID: story.id, alert: alert).value
     }
 
-    /// Ends an activity at once: the one with `id` (a start that was given up), else the current one (walking mode
-    /// is off). Only that instance; a start soon after must not lose the one it requests.
-    func end(_ id: String? = nil) {
-        guard let target = id ?? activity?.id else { return }
-        if activity?.id == target {
+    /// Ends the current run's activity at once (walking mode is off).
+    func endCurrent() {
+        guard let id = activity?.id else { return }
+        end(id: id)
+    }
+
+    /// Ends the activity with `id` and only that one; run state is reset only if it is the current activity, so a
+    /// start that was given up never touches a newer run's.
+    func end(id: String) {
+        if activity?.id == id {
             activity = nil
             status = nil
             showingStop = false
             lastPush = nil
         }
         Task {
-            for activity in Activity<WalkingActivityAttributes>.activities where activity.id == target {
+            for activity in Activity<WalkingActivityAttributes>.activities where activity.id == id {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
         }
