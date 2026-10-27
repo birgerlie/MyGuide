@@ -34,6 +34,8 @@ final class StoryViewModel {
     var state: State = .working(StoryViewModel.workingText)
     var session: StorySession?
     var moreState: MoreState = .idle
+    /// True when the last save to memory failed. The story stays visible; the view shows a small banner.
+    var saveFailed = false
     /// Speech state per level index; a missing entry means idle. At most one level is not idle at a time.
     private(set) var speech: [Int: SpeechState] = [:]
 
@@ -46,6 +48,15 @@ final class StoryViewModel {
 
     init(services: AppServices) {
         self.services = services
+        audio.onFinish = { [weak self] in self?.speech = [:] }
+    }
+
+    /// Opens a stored session from History: shows its levels at once, with no auto-play. Speech cache keys use
+    /// the stored session id, so cached audio is reused, and "Tell me more" continues from the stored levels.
+    init(session: StorySession, services: AppServices) {
+        self.services = services
+        self.session = session
+        self.state = .showing
         audio.onFinish = { [weak self] in self?.speech = [:] }
     }
 
@@ -87,6 +98,7 @@ final class StoryViewModel {
                 guard !Task.isCancelled, let self else { return }
                 self.session = next
                 self.moreState = .idle
+                self.persist(next)
                 self.playSpeech(level: next.levels.count - 1)
             } catch {
                 // Our own cancel is silence, whatever error type the sources report it with.
@@ -111,6 +123,7 @@ final class StoryViewModel {
         stopSpeech()
         session = nil
         moreState = .idle
+        saveFailed = false
         state = .working(Self.workingText)
         task = Task { [weak self, services] in
             do {
@@ -120,6 +133,7 @@ final class StoryViewModel {
                 guard !Task.isCancelled, let self else { return }
                 self.session = session
                 self.state = .showing
+                self.persist(session)
                 // The text is already on screen; audio follows and never delays it.
                 self.playSpeech(level: 0)
             } catch {
@@ -130,6 +144,18 @@ final class StoryViewModel {
                 self.state = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message,
                                      canUseCurrentPosition: (error as? PhotoStoryError) == .noPosition)
             }
+        }
+    }
+
+    /// Saves after every successful level. A failure is logged (no story text) and flagged for the banner;
+    /// it never touches the story on screen.
+    private func persist(_ session: StorySession) {
+        do {
+            try services.memory.save(session)
+            saveFailed = false
+        } catch {
+            AppServices.logMemoryFailure("save failed", error)
+            saveFailed = true
         }
     }
 

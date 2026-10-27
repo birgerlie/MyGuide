@@ -38,6 +38,14 @@ struct CaptureScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
+                    HistoryView(services: services, location: location)
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("History")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
                     SettingsView(services: services)
                 } label: {
                     Image(systemName: "gearshape")

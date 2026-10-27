@@ -1,8 +1,27 @@
+import MyGuideCore
+import os
+import SwiftData
 import SwiftUI
 
 @main
 struct MyGuideApp: App {
-    @State private var services = AppServices()
+    private let container: ModelContainer
+    @State private var services: AppServices
+
+    init() {
+        let container: ModelContainer
+        do {
+            container = try ModelContainer(for: Schema(MemorySchema.models))
+        } catch {
+            // Stories still work without a store; they just won't be remembered this run.
+            AppServices.logMemoryFailure("persistent store unavailable, using in-memory", error)
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            // An in-memory store failing means the schema itself is broken: a programmer error.
+            container = try! ModelContainer(for: Schema(MemorySchema.models), configurations: config)
+        }
+        self.container = container
+        _services = State(initialValue: AppServices(memory: MemoryStore(context: container.mainContext)))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -10,5 +29,6 @@ struct MyGuideApp: App {
                 CaptureScreen(services: services)
             }
         }
+        .modelContainer(container)
     }
 }

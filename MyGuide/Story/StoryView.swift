@@ -11,6 +11,17 @@ struct StoryView: View {
         content
             .navigationTitle("Story")
             .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                if model.saveFailed {
+                    Text("Couldn't save to memory")
+                        .font(.footnote)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.red.opacity(0.85), in: Capsule())
+                        .padding(.bottom, 8)
+                }
+            }
     }
 
     @ViewBuilder

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */; };
 		0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */; };
+		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
 		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
 		6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7601A9D4143D662A6232BA41 /* AppServices.swift */; };
@@ -35,6 +36,7 @@
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8CFD5C325D6D5A568828170F /* MyGuideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideApp.swift; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
+		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
 		D4F54BE4CD7C5098E4E6DACF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				D4F54BE4CD7C5098E4E6DACF /* Info.plist */,
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
 				A7D7E3A20BB6FBE11F69FE33 /* Capture */,
+				EABF7E6D3FEFD2F8655C128B /* History */,
 				65FCED6406B373ED5C73E009 /* Platform */,
 				9F2E0ADB1DC00FC77A2ED540 /* SelfCheck */,
 				4F29DA919A204B6D5A248304 /* Settings */,
@@ -137,6 +140,14 @@
 				E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */,
 			);
 			path = Config;
+			sourceTree = "<group>";
+		};
+		EABF7E6D3FEFD2F8655C128B /* History */ = {
+			isa = PBXGroup;
+			children = (
+				B3FDE1443A09F9C472F02CDD /* HistoryView.swift */,
+			);
+			path = History;
 			sourceTree = "<group>";
 		};
 		EB0AA2B2269F037C6EF080BA /* Products */ = {
@@ -215,6 +226,7 @@
 				4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */,
 				08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */,
 				FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */,
+				1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */,
 				6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */,
 				0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */,
 				6AF2350B859D194A378A3A70 /* MyGuideApp.swift in Sources */,
