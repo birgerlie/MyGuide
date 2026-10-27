@@ -91,4 +91,21 @@ public struct PhotoStoryFlow: Sendable {
                                inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
         return (next, [entry])
     }
+
+    /// Generates the labelled "then" reconstruction as PNG bytes (spec 8.1.7). The label is drawn by the view.
+    public func thenImage(for session: StorySession) async throws -> (Data, UsageEntry) {
+        let png = try await openAI.image(model: models.image, prompt: PromptBuilder.thenImagePrompt(session: session),
+                                         size: ThenImage.size, quality: ThenImage.quality)
+        let entry = UsageEntry(date: now(), kind: .image, model: models.image,
+                               inputTokens: 0, outputTokens: 0, words: 0, images: 1)
+        return (png, entry)
+    }
+}
+
+/// Constants of the "then" image (spec 5: every generated image is clearly labelled as an AI reconstruction).
+public enum ThenImage {
+    /// Drawn on top of the image wherever it is shown; never optional.
+    public static let label = "AI reconstruction — not a real photo"
+    public static let size = "1024x1536"
+    public static let quality = "medium"
 }

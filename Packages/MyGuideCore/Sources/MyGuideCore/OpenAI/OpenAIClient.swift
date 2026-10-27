@@ -68,6 +68,29 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         return try await post(path: "audio/speech", body: body, timeout: 60)
     }
 
+    /// Image generation. Returns the decoded PNG bytes of `data[0].b64_json`.
+    // `store` is deliberately not sent: images/generations does not accept it (same exemption as speech).
+    // `response_format` is not sent either: gpt-image models always answer with base64.
+    public func image(model: String, prompt: String, size: String, quality: String) async throws -> Data {
+        let body: JSONValue = [
+            "model": .string(model),
+            "prompt": .string(prompt),
+            "size": .string(size),
+            "quality": .string(quality),
+            "n": 1,
+        ]
+        let data = try await post(path: "images/generations", body: body, timeout: 120)
+        struct Payload: Decodable {
+            struct Item: Decodable { var b64_json: String? }
+            var data: [Item]
+        }
+        guard let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              let b64 = payload.data.first?.b64_json,
+              let png = Data(base64Encoded: b64), !png.isEmpty
+        else { throw OpenAIError.malformedResponse }
+        return png
+    }
+
     // MARK: - Shared plumbing (reused by speech and image calls)
 
     /// POSTs a JSON body to `baseURL/path` and returns the body of a 2xx response.

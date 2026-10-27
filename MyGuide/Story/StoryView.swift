@@ -68,6 +68,7 @@ struct StoryView: View {
                     }
                 }
                 moreControls(session)
+                thenControls
             }
             .padding()
         }
@@ -120,6 +121,50 @@ struct StoryView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .disabled(working)
+        }
+    }
+
+    @ViewBuilder
+    private var thenControls: some View {
+        switch model.thenState {
+        case .showing:
+            if let image = model.thenImage {
+                // The label is part of the image view itself, so the image can never appear without it.
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .overlay(alignment: .top) {
+                        Text(ThenImage.label)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .background(.black.opacity(0.7))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(ThenImage.label)
+            }
+        case .idle, .working, .failed:
+            let working = model.thenState == .working
+            if case .failed(let message) = model.thenState {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+            Button {
+                model.showThen()
+            } label: {
+                HStack(spacing: 8) {
+                    if working { ProgressView() }
+                    Text(model.thenState == .idle || working ? "Show me how it looked" : "Retry")
+                }
+            }
+            .buttonStyle(.bordered)
             .disabled(working)
         }
     }

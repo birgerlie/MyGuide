@@ -159,6 +159,17 @@ public enum PromptBuilder {
     private struct Continuation: Decodable { var story: String }
 
     /// Decodes the continuation JSON. An empty or whitespace-only story is malformed.
+    /// Prompt for the labelled "then" reconstruction image (spec 8.1.7). No theme in phase 1.
+    static func thenImagePrompt(session: StorySession) -> String {
+        var place = ""
+        if let address = session.grounding.address?.display, !address.isEmpty { place = " at \(address)" }
+        return "Historical reconstruction illustration of \(session.identified.subject)\(place), as it looked \(session.identified.era). "
+            + "Street-level view from roughly where the photographer stood, people of that time going about their day in period clothing, "
+            + "with the carts, trades and sounds of the era suggested in the scene. "
+            + "Painterly illustration style with visible brushwork, clearly not a photograph. "
+            + "No text, no captions, no modern objects."
+    }
+
     static func decodeContinuation(_ json: Data) throws -> String {
         let story: String
         do {

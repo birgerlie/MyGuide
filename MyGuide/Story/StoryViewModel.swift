@@ -1,6 +1,7 @@
 import Foundation
 import MyGuideCore
 import Observation
+import UIKit
 
 /// State machine for one photo's story. The photo and capture are kept so Retry never loses them.
 @MainActor
@@ -19,6 +20,14 @@ final class StoryViewModel {
         case failed(message: String)
     }
 
+    /// Progress of the "Show me how it looked" image; the story text stays visible in every case.
+    enum ThenState: Equatable {
+        case idle
+        case working
+        case showing
+        case failed(message: String)
+    }
+
     /// Progress of the spoken version of one level.
     enum SpeechState: Equatable {
         case idle
@@ -34,6 +43,9 @@ final class StoryViewModel {
     var state: State = .working(StoryViewModel.workingText)
     var session: StorySession?
     var moreState: MoreState = .idle
+    var thenState: ThenState = .idle
+    /// The decoded "then" image, kept so the view never decodes PNG data during body evaluation.
+    private(set) var thenImage: UIImage?
     /// True when the last save to memory failed. The story stays visible; the view shows a small banner.
     var saveFailed = false
     /// Speech state per level index; a missing entry means idle. At most one level is not idle at a time.
@@ -43,6 +55,7 @@ final class StoryViewModel {
     @ObservationIgnored private var photoJPEG: Data?
     @ObservationIgnored private var capture: CaptureContext?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var thenTask: Task<Void, Never>?
     @ObservationIgnored private var speechTask: Task<Void, Never>?
     @ObservationIgnored private let audio = AudioPlayer()
 
@@ -57,12 +70,14 @@ final class StoryViewModel {
         self.services = services
         self.session = session
         self.state = .showing
+        loadStoredThenImage(sessionID: session.id)
         audio.onFinish = { [weak self] in self?.speech = [:] }
     }
 
     // Backstop: work for a dropped screen must not keep running (the owner normally calls cancel()).
     isolated deinit {
         task?.cancel()
+        thenTask?.cancel()
         speechTask?.cancel()
         audio.stop()
     }
@@ -113,14 +128,21 @@ final class StoryViewModel {
     func cancel() {
         task?.cancel()
         task = nil
+        thenTask?.cancel()
+        thenTask = nil
         stopSpeech()
         if moreState == .working { moreState = .idle }
+        if thenState == .working { thenState = .idle }
     }
 
     private func run() {
         guard let photoJPEG, let capture else { return }
         task?.cancel()
         stopSpeech()
+        thenTask?.cancel()
+        thenTask = nil
+        thenState = .idle
+        thenImage = nil
         session = nil
         moreState = .idle
         saveFailed = false
@@ -156,6 +178,50 @@ final class StoryViewModel {
         } catch {
             AppServices.logMemoryFailure("save failed", error)
             saveFailed = true
+        }
+    }
+
+    // MARK: - "Then" image
+
+    /// Generates the labelled AI reconstruction. Ignored while a request runs or once the image is shown.
+    /// Runs on its own task so "Tell me more" and the image never cancel each other; `cancel()` stops it silently.
+    func showThen() {
+        guard let current = session, thenState != .working, thenState != .showing else { return }
+        thenState = .working
+        thenTask?.cancel()
+        thenTask = Task { [weak self, services] in
+            do {
+                let flow = try services.makeFlow()
+                // The image UsageEntry is dropped here on purpose: Task 16 records usage.
+                let (png, _) = try await flow.thenImage(for: current)
+                guard !Task.isCancelled, let self else { return }
+                guard let image = UIImage(data: png) else { throw OpenAIError.malformedResponse }
+                self.thenImage = image
+                self.thenState = .showing
+                do {
+                    try self.services.memory.saveThenImage(png, sessionID: current.id)
+                } catch {
+                    AppServices.logMemoryFailure("then image save failed", error)
+                    self.saveFailed = true
+                }
+            } catch {
+                // Our own cancel is silence, whatever error type the sources report it with.
+                guard !Task.isCancelled, let self else { return }
+                let message = UserFacingMessage.message(for: error)
+                self.thenState = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message)
+            }
+        }
+    }
+
+    /// Shows the image saved with a session opened from History, without regenerating it.
+    private func loadStoredThenImage(sessionID: UUID) {
+        do {
+            guard let png = try services.memory.thenImage(sessionID: sessionID),
+                  let image = UIImage(data: png) else { return }
+            thenImage = image
+            thenState = .showing
+        } catch {
+            AppServices.logMemoryFailure("then image load failed", error)
         }
     }
 

@@ -105,6 +105,24 @@ public enum MemoryError: Error, Equatable {
                             identified: identified, levels: stories.map(\.text))
     }
 
+    /// Attaches the "then" image to a saved session, replacing any earlier one.
+    /// Throws `corruptRecord` when the session was never saved: there is nothing to attach to.
+    public func saveThenImage(_ png: Data, sessionID: UUID) throws {
+        guard let record = try captureRecord(id: sessionID) else { throw MemoryError.corruptRecord }
+        do {
+            record.thenImagePNG = png
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    /// The stored "then" image of a session; nil when there is none or the session is unknown.
+    public func thenImage(sessionID: UUID) throws -> Data? {
+        try captureRecord(id: sessionID)?.thenImagePNG
+    }
+
     /// Stories already told about any of `placeIDs` (anywhere), plus stories from unidentified captures within
     /// `priorRadius` of `near`, excluding `excludingSession`; newest first, at most `priorLimit`.
     public func priorStories(placeIDs: [String], near: Coordinate, excludingSession: UUID?) throws -> [PriorStory] {

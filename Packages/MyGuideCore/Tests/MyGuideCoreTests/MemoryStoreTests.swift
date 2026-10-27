@@ -47,6 +47,20 @@ import Testing
         let p = try store.priorStories(placeIDs: [], near: Self.origin, excludingSession: nil)
         #expect(p.map(\.text) == ["near unknown"] && p[0].placeID == nil)
     }
+    @Test func thenImageRoundTrips() throws {
+        let s = Self.session(placeID: "osm:node/1", levels: ["one"])
+        try store.save(s)
+        #expect(try store.thenImage(sessionID: s.id) == nil)
+        try store.saveThenImage(Data([9, 9]), sessionID: s.id)
+        #expect(try store.thenImage(sessionID: s.id) == Data([9, 9]))
+        #expect(try store.thenImage(sessionID: UUID()) == nil)
+        // Saving the session again must not drop the image.
+        try store.save(s)
+        #expect(try store.thenImage(sessionID: s.id) == Data([9, 9]))
+    }
+    @Test func saveThenImageForUnknownSessionThrowsCorruptRecord() {
+        #expect(throws: MemoryError.corruptRecord) { try store.saveThenImage(Data([1]), sessionID: UUID()) }
+    }
     @Test func saveWithoutCoordinateThrows() {
         var s = Self.session(placeID: nil, levels: ["x"]); s.capture.coordinate = nil
         #expect(throws: MemoryError.noPosition) { try store.save(s) }
