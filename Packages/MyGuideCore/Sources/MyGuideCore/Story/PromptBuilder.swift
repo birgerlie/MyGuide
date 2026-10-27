@@ -26,6 +26,9 @@ public enum PromptBuilder {
             var position = String(format: "Position: %.6f, %.6f", c.latitude, c.longitude)
             if let acc = capture.horizontalAccuracy { position += " (accuracy ±\(Int(acc.rounded())) m)" }
             lines.append(position)
+            if capture.positionIsSubstitute {
+                lines.append("Position is where the listener is now, not necessarily where the photo was taken; trust the photo over the places list.")
+            }
         } else {
             lines.append("Position: unknown")
         }

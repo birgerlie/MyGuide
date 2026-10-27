@@ -51,4 +51,17 @@ import ImageIO
         let moved = ctx.withCoordinate(.init(latitude: 1, longitude: 1), accuracy: 8)
         #expect(moved.coordinate != nil && moved.horizontalAccuracy == 8 && moved.heading == nil && moved.headingAccuracy == nil)
     }
+    @Test func substitutePositionFlag() throws {
+        let ctx = CaptureContext(coordinate: nil, horizontalAccuracy: nil, heading: 90, headingAccuracy: 20,
+                                 horizontalFOV: 60, takenAt: .now, source: .library)
+        #expect(ctx.positionIsSubstitute == false)
+        #expect(ctx.withCoordinate(.init(latitude: 1, longitude: 1), accuracy: 8).positionIsSubstitute == true)
+        // A record stored before the flag existed has no key and decodes as not substituted.
+        let old = Data(#"{"coordinate":{"latitude":1,"longitude":2},"horizontalAccuracy":5,"heading":90,"headingAccuracy":10,"horizontalFOV":60,"takenAt":0,"source":"camera"}"#.utf8)
+        let decoded = try JSONDecoder().decode(CaptureContext.self, from: old)
+        #expect(decoded.positionIsSubstitute == false && decoded.coordinate == Coordinate(latitude: 1, longitude: 2) && decoded.heading == 90)
+        // The flag survives a round trip.
+        let moved = ctx.withCoordinate(.init(latitude: 1, longitude: 1), accuracy: 8)
+        #expect(try JSONDecoder().decode(CaptureContext.self, from: JSONEncoder().encode(moved)) == moved)
+    }
 }

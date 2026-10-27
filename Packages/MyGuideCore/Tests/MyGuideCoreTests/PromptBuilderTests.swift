@@ -41,6 +41,14 @@ import Foundation
         #expect(s.contains("Already told: nothing yet"))
         #expect(!s.contains("Map data unavailable"))
     }
+    @Test func substitutePositionIsFlaggedRightAfterPosition() {
+        let line = "Position is where the listener is now, not necessarily where the photo was taken; trust the photo over the places list."
+        let moved = Self.capture(heading: nil, acc: nil).withCoordinate(.init(latitude: 48.2082, longitude: 16.3738), accuracy: 8)
+        let s = PromptBuilder.firstStoryInput(capture: moved, grounding: Self.grounding, priors: [])
+        #expect(s.contains("Position: 48.208200, 16.373800 (accuracy ±8 m)\n" + line + "\nFacing:"))
+        let t = PromptBuilder.firstStoryInput(capture: Self.capture(heading: 312, acc: 10), grounding: Self.grounding, priors: [])
+        #expect(!t.contains("Position is where the listener is now"))
+    }
     @Test func firstInputUnknownHeadingAndFailures() {
         var g = Self.grounding; g.failedSources = [.openStreetMap, .geocoder]; g.address = nil
         let s = PromptBuilder.firstStoryInput(capture: Self.capture(heading: 312, acc: 60), grounding: g, priors: [])
