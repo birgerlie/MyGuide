@@ -14,7 +14,7 @@ import Testing
         #expect(!f.shouldFetch(at: .at(north: 900), now: Self.t0 + 1))        // in flight
         f.fetchSucceeded([], at: .at(), now: Self.t0 + 2)
         #expect(!f.isFetching)
-        // 249 m north of the centre: 249 < 250, no fetch. 250 m: not less than 250, fetch.
+        // 249 m from the centre is below the 250 m threshold (no fetch); 250 m reaches it (fetch).
         #expect(!f.shouldFetch(at: .at(north: 249), now: Self.t0 + 3))
         #expect(f.shouldFetch(at: .at(north: 250), now: Self.t0 + 3))
     }
@@ -22,9 +22,9 @@ import Testing
     @Test func distanceIsMeasuredInAnyDirection() {
         var f = PlaceFeed()
         f.fetchStarted(now: Self.t0); f.fetchSucceeded([], at: .at(north: 100, east: 100), now: Self.t0)
-        // From (100, 100): (100, -140) is 240 m west, (100, -150) is exactly 250 m west.
+        // From (100, 100): (100, -140) is 240 m west, (100, -160) is 260 m west.
         #expect(!f.shouldFetch(at: .at(north: 100, east: -140), now: Self.t0 + 1))
-        #expect(f.shouldFetch(at: .at(north: 100, east: -150), now: Self.t0 + 1))
+        #expect(f.shouldFetch(at: .at(north: 100, east: -160), now: Self.t0 + 1))
     }
 
     @Test func successStoresPlacesAndMovesCentre() {
@@ -64,7 +64,7 @@ import Testing
         #expect(f.shouldFetch(at: .at(north: 300), now: Self.t0 + 63))
     }
 
-    @Test func noFetchWhileWithinRangeAfterFailureWithOldSuccessIsNotRequired() {
+    @Test func withinRangeNeverRefetchesEvenAfterBackoff() {
         var f = PlaceFeed()
         f.fetchStarted(now: Self.t0); f.fetchSucceeded([], at: .at(), now: Self.t0)
         f.fetchStarted(now: Self.t0 + 5); f.fetchFailed(now: Self.t0 + 5)

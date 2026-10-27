@@ -5,8 +5,6 @@ import Foundation
 public struct PlaceFeed: Sendable {
     public static let refetchDistance = 250.0
     public static let retryInterval: TimeInterval = 60
-    /// Haversine rounding (and a rounded metres-per-degree constant) can put a point at 250 m a hair short of it; 1 cm of slack.
-    private static let distanceTolerance = 0.01
 
     public private(set) var places: [WalkingPlace] = []
     public private(set) var isFetching = false
@@ -19,7 +17,7 @@ public struct PlaceFeed: Sendable {
         if isFetching { return false }
         if let lastFailure, now.timeIntervalSince(lastFailure) < Self.retryInterval { return false }
         guard let lastCentre else { return true }
-        return GeoMath.distance(lastCentre, position) >= Self.refetchDistance - Self.distanceTolerance
+        return GeoMath.distance(lastCentre, position) >= Self.refetchDistance
     }
 
     public mutating func fetchStarted(now: Date) {
