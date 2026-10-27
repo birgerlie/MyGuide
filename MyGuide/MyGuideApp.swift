@@ -5,6 +5,7 @@ import SwiftUI
 
 @main
 struct MyGuideApp: App {
+    @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
     private let container: ModelContainer
     @State private var services: AppServices
 
@@ -24,8 +25,16 @@ struct MyGuideApp: App {
                                             migrationPlan: MemoryMigrationPlan.self, configurations: config)
         }
         self.container = container
-        _services = State(initialValue: AppServices(memory: MemoryStore(context: container.mainContext),
-                                                              memoryIsPersistent: persistent))
+        let services = AppServices(memory: MemoryStore(context: container.mainContext),
+                                   memoryIsPersistent: persistent)
+        _services = State(initialValue: services)
+        // Set before the app finishes launching, so an action that cold-launches the app is not dropped.
+        AppDelegate.responseHandler = { response in
+            // The Walking check owns category CHECK; later walking categories are handled alongside it.
+            if response.notification.request.content.categoryIdentifier == WalkingCheckModel.category {
+                services.walkingCheck.handle(response)
+            }
+        }
     }
 
     var body: some Scene {

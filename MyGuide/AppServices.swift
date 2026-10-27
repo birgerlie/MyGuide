@@ -17,6 +17,9 @@ final class AppServices {
     let keychain = KeychainStore(service: AppServices.keychainService)
     /// The one memory store, over the app's main context. Story saving, priors and History all share it.
     let memory: MemoryStore
+    /// The Walking check model lives here, not in its view, so a running check survives leaving the screen
+    /// (the owner locks the phone and walks) and notification actions still find it.
+    let walkingCheck = WalkingCheckModel()
     private let http: HTTPClient = URLSessionHTTPClient()
 
     /// False when the persistent store could not be opened and memory is held in RAM only.

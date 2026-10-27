@@ -18,11 +18,17 @@ targets:
       properties:
         CFBundleDisplayName: MyGuide
         UILaunchScreen: {}
-        UIBackgroundModes: [audio]
+        UIBackgroundModes: [audio, location]
+        NSSupportsLiveActivities: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: "MyGuide uses the camera to photograph what you want a story about."
         NSLocationWhenInUseUsageDescription: "MyGuide uses your exact position and compass heading to work out what you are looking at."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass."
         NSPhotoLibraryUsageDescription: "MyGuide reads where a picked photo was taken so it can tell its story."
+    entitlements:
+      path: MyGuide/MyGuide.entitlements
+      properties:
+        com.apple.developer.usernotifications.time-sensitive: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.birgerlie.MyGuide
