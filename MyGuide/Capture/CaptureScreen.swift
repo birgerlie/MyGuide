@@ -1,0 +1,239 @@
+import CoreLocation
+import MyGuideCore
+import Photos
+import PhotosUI
+import SwiftUI
+
+/// Camera preview, shutter, library picker, Settings and a HUD showing what position and heading will be sent.
+struct CaptureScreen: View {
+    let services: AppServices
+
+    @State private var camera = CameraController()
+    @State private var location = LocationProvider()
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var story: StoryViewModel?
+    @State private var isBusy = false
+    @State private var errorText: String?
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if camera.failure == nil {
+                CameraPreview(session: camera.session, isRunning: camera.isRunning)
+                    .ignoresSafeArea()
+            } else {
+                Text(Self.cameraMessage(camera.failure))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding()
+            }
+            VStack {
+                hud
+                Spacer()
+                controls
+            }
+            .padding()
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    SettingsView(services: services)
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
+            }
+        }
+        .navigationDestination(isPresented: storyPresented) {
+            if let story {
+                StoryView(model: story, location: location)
+            }
+        }
+        .alert("Couldn't use the photo", isPresented: errorPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorText ?? "")
+        }
+        .onAppear {
+            location.start()
+            Task { await camera.start() }
+        }
+        .onDisappear {
+            Task { await camera.stop() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                location.start()
+                // Picks up camera access granted in the Settings app while we were away.
+                if story == nil { Task { await camera.start() } }
+            case .background: location.stop()
+            default: break
+            }
+        }
+        .onChange(of: pickerItem) { _, item in
+            guard let item else { return }
+            pickerItem = nil
+            Task { await usePicked(item) }
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var hud: some View {
+        // Re-evaluated every second so a fix that goes stale shows as "No GPS fix".
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text(Self.hudText(fix: LocationProvider.usableFix(location.location, now: context.date),
+                              compass: location.compass))
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.55), in: Capsule())
+        }
+    }
+
+    private var controls: some View {
+        HStack {
+            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                Image(systemName: "photo.on.rectangle")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(.black.opacity(0.4), in: Circle())
+            }
+            .accessibilityLabel("Pick a photo")
+            .disabled(isBusy)
+            Spacer()
+            Button(action: shutter) {
+                Circle()
+                    .strokeBorder(.white, lineWidth: 4)
+                    .background(Circle().fill(.white.opacity(isBusy ? 0.3 : 0.85)).padding(6))
+                    .frame(width: 76, height: 76)
+            }
+            .accessibilityLabel("Take photo")
+            .disabled(!camera.isRunning || isBusy)
+            Spacer()
+            Color.clear.frame(width: 56, height: 56)
+        }
+    }
+
+    private var storyPresented: Binding<Bool> {
+        Binding(get: { story != nil }, set: { if !$0 { story = nil } })
+    }
+
+    private var errorPresented: Binding<Bool> {
+        Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })
+    }
+
+    // MARK: - Actions
+
+    private func shutter() {
+        guard !isBusy else { return }
+        // Snapshot position and heading at the press, before awaiting the photo.
+        let fix = location.fix()
+        let compass = location.compass
+        let takenAt = Date.now
+        let fov = camera.horizontalFOV ?? FieldOfView.portraitHorizontalFOV(landscapeFOV: FieldOfView.landscapeFOV)
+        isBusy = true
+        Task {
+            defer { isBusy = false }
+            do {
+                let photo = try await camera.capture()
+                let capture = Self.cameraContext(fix: fix, compass: compass, horizontalFOV: fov, takenAt: takenAt)
+                openStory(photo: photo, capture: capture)
+            } catch {
+                errorText = "The camera couldn't take the photo. Try again."
+            }
+        }
+    }
+
+    private func usePicked(_ item: PhotosPickerItem) async {
+        isBusy = true
+        defer { isBusy = false }
+        let data: Data?
+        do {
+            data = try await item.loadTransferable(type: Data.self)
+        } catch {
+            errorText = "Couldn't load the photo from your library."
+            return
+        }
+        guard let data, let metadata = PhotoMetadata.read(from: data) else {
+            errorText = UserFacingMessage.message(for: ImageProcessingError.unreadableImage)
+            return
+        }
+        var capture = metadata.captureContext(fallbackDate: .now)
+        if capture.coordinate == nil, let identifier = item.itemIdentifier,
+           let assetLocation = await Self.assetLocation(identifier),
+           let fix = Self.assetFix(assetLocation) {
+            // Position only; the EXIF heading (if any) still describes this photo, PHAsset adds none.
+            capture.coordinate = fix.coordinate
+            capture.horizontalAccuracy = fix.accuracy
+        }
+        openStory(photo: data, capture: capture)
+    }
+
+    private func openStory(photo: Data, capture: CaptureContext) {
+        let model = StoryViewModel(services: services)
+        model.start(photoJPEG: photo, capture: capture)
+        story = model
+    }
+
+    // MARK: - Helpers
+
+    /// The library asset's location, after asking for read access. Nil if access is refused or there is none.
+    private static func assetLocation(_ identifier: String) async -> CLLocation? {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        guard status == .authorized || status == .limited else { return nil }
+        return PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject?.location
+    }
+
+    /// A library location has no age limit (the photo may be old), but sentinel values still mean "no position".
+    private static func assetFix(_ location: CLLocation) -> (coordinate: Coordinate, accuracy: Double?)? {
+        guard CLLocationCoordinate2DIsValid(location.coordinate),
+              !(location.coordinate.latitude == 0 && location.coordinate.longitude == 0) else { return nil }
+        let accuracy = location.horizontalAccuracy
+        return (Coordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude),
+                accuracy >= 0 && accuracy.isFinite ? accuracy : nil)
+    }
+
+    static func cameraContext(fix: LocationFix?, compass: CompassReading?, horizontalFOV: Double,
+                              takenAt: Date) -> CaptureContext {
+        CaptureContext(coordinate: fix?.coordinate, horizontalAccuracy: fix?.accuracy,
+                       heading: compass?.heading, headingAccuracy: compass?.accuracy,
+                       horizontalFOV: horizontalFOV, takenAt: takenAt, source: .camera)
+    }
+
+    /// e.g. "GPS ±8 m · 312° NW ±10°", "No GPS fix · Compass unavailable".
+    static func hudText(fix: LocationFix?, compass: CompassReading?) -> String {
+        let gps: String
+        if let fix {
+            gps = "GPS ±\(Int(fix.accuracy.rounded())) m"
+        } else {
+            gps = "No GPS fix"
+        }
+        let heading: String
+        if let compass, compass.heading.isFinite, let accuracy = compass.accuracy, accuracy.isFinite {
+            // 359.6 rounds to 360; show it as 0.
+            let degrees = Int(compass.heading.rounded()) % 360
+            heading = "\(degrees)° \(abbreviated(FieldOfView.compassPoint(compass.heading))) ±\(Int(accuracy.rounded()))°"
+        } else {
+            heading = "Compass unavailable"
+        }
+        return "\(gps) · \(heading)"
+    }
+
+    /// "north-west" → "NW".
+    static func abbreviated(_ point: String) -> String {
+        point.split(separator: "-").compactMap { $0.first.map { String($0).uppercased() } }.joined()
+    }
+
+    private static func cameraMessage(_ failure: CameraError?) -> String {
+        switch failure {
+        case .accessDenied: "Camera access is off. Allow it in the Settings app, or pick a photo from your library."
+        case .noCamera: "No back camera found. Pick a photo from your library."
+        default: "The camera couldn't start. Pick a photo from your library."
+        }
+    }
+}

@@ -7,15 +7,33 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */; };
+		0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
+		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
+		6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7601A9D4143D662A6232BA41 /* AppServices.swift */; };
+		65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */; };
 		6AF2350B859D194A378A3A70 /* MyGuideApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CFD5C325D6D5A568828170F /* MyGuideApp.swift */; };
+		6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */; };
 		7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AC3F6758B70A451EA067EB /* SelfCheckView.swift */; };
+		905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */; };
+		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
+		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0127669306FC88F71BBCDBF8 /* StoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryView.swift; sourceTree = "<group>"; };
 		11AC3F6758B70A451EA067EB /* SelfCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCheckView.swift; sourceTree = "<group>"; };
+		18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
+		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
+		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
+		3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryViewModel.swift; sourceTree = "<group>"; };
+		7601A9D4143D662A6232BA41 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8CFD5C325D6D5A568828170F /* MyGuideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideApp.swift; sourceTree = "<group>"; };
+		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
+		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
 		D4F54BE4CD7C5098E4E6DACF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		FA60F0A75E58FC553F167C80 /* MyGuideCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MyGuideCore; path = Packages/MyGuideCore; sourceTree = SOURCE_ROOT; };
@@ -33,14 +51,44 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		00FA2DDF8C4E1866C2BA625A /* Story */ = {
+			isa = PBXGroup;
+			children = (
+				0127669306FC88F71BBCDBF8 /* StoryView.swift */,
+				5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */,
+			);
+			path = Story;
+			sourceTree = "<group>";
+		};
 		355D01E0692B42DA97F82825 /* MyGuide */ = {
 			isa = PBXGroup;
 			children = (
+				7601A9D4143D662A6232BA41 /* AppServices.swift */,
 				D4F54BE4CD7C5098E4E6DACF /* Info.plist */,
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
+				A7D7E3A20BB6FBE11F69FE33 /* Capture */,
+				65FCED6406B373ED5C73E009 /* Platform */,
 				9F2E0ADB1DC00FC77A2ED540 /* SelfCheck */,
+				4F29DA919A204B6D5A248304 /* Settings */,
+				00FA2DDF8C4E1866C2BA625A /* Story */,
 			);
 			path = MyGuide;
+			sourceTree = "<group>";
+		};
+		4F29DA919A204B6D5A248304 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		65FCED6406B373ED5C73E009 /* Platform */ = {
+			isa = PBXGroup;
+			children = (
+				B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */,
+			);
+			path = Platform;
 			sourceTree = "<group>";
 		};
 		9F2E0ADB1DC00FC77A2ED540 /* SelfCheck */ = {
@@ -57,6 +105,17 @@
 				FA60F0A75E58FC553F167C80 /* MyGuideCore */,
 			);
 			path = Packages;
+			sourceTree = "<group>";
+		};
+		A7D7E3A20BB6FBE11F69FE33 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				3A699D92E683036004905812 /* CameraController.swift */,
+				18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */,
+				35446013504E49DDC25F8906 /* CaptureScreen.swift */,
+				99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */,
+			);
+			path = Capture;
 			sourceTree = "<group>";
 		};
 		E2C3F65B6C1CC8B6B541D5BD = {
@@ -148,8 +207,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */,
+				4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */,
+				08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */,
+				FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */,
+				6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */,
+				0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */,
 				6AF2350B859D194A378A3A70 /* MyGuideApp.swift in Sources */,
 				7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */,
+				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
+				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
+				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

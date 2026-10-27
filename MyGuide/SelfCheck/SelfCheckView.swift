@@ -4,11 +4,6 @@ import MyGuideCore
 import SwiftData
 import SwiftUI
 
-enum AppConstants {
-    static let keychainService = "io.github.birgerlie.MyGuide"
-    static let apiKeyAccount = "openai-api-key"
-}
-
 @Model
 final class SelfCheckProbe {
     var createdAt: Date
@@ -154,7 +149,7 @@ final class SelfCheckModel {
     }
 
     private func checkKeychain() -> CheckResult {
-        let store = KeychainStore(service: AppConstants.keychainService)
+        let store = KeychainStore(service: AppServices.keychainService)
         do {
             try store.write("probe", account: "selfcheck")
             let value = try store.read("selfcheck")
@@ -196,20 +191,19 @@ struct SelfCheckView: View {
     @State private var model = SelfCheckModel()
 
     var body: some View {
-        NavigationStack {
-            List {
-                row("Camera", model.camera)
-                row("Location", model.location)
-                row("Keychain", model.keychain)
-                row("SwiftData", model.swiftData)
-            }
-            .navigationTitle("Device check")
-            .toolbar {
-                Button("Run checks") { Task { await model.run() } }
-                    .disabled(model.running)
-            }
-            .task { await model.run() }
+        // Pushed from Settings, so it lives in the app's NavigationStack rather than its own.
+        List {
+            row("Camera", model.camera)
+            row("Location", model.location)
+            row("Keychain", model.keychain)
+            row("SwiftData", model.swiftData)
         }
+        .navigationTitle("Device check")
+        .toolbar {
+            Button("Run checks") { Task { await model.run() } }
+                .disabled(model.running)
+        }
+        .task { await model.run() }
     }
 
     @ViewBuilder

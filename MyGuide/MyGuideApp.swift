@@ -2,9 +2,13 @@ import SwiftUI
 
 @main
 struct MyGuideApp: App {
+    @State private var services = AppServices()
+
     var body: some Scene {
         WindowGroup {
-            SelfCheckView()
+            NavigationStack {
+                CaptureScreen(services: services)
+            }
         }
     }
 }
