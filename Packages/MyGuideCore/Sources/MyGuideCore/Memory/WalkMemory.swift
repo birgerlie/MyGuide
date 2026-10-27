@@ -99,8 +99,8 @@ extension MemoryStore {
         }
     }
 
-    /// Moves a buzz on from `pending`. Afterwards only `heard` → `heard` with a deeper level changes anything;
-    /// the deepest level never decreases. When the change applies, the buzz's place is updated in the same save:
+    /// Moves a buzz on from `pending`. Afterwards only `heard` → `heard` with a deeper level changes anything,
+    /// and `ignored` yields to a late explicit `heard` or `skipped`; the deepest level never decreases. When the change applies, the buzz's place is updated in the same save:
     /// `heard` raises its `deepestLevelHeard` and sets `lastHeardAt = at`, `skipped` sets `skippedAt` (the first
     /// skip time is kept). Both retire the place. A refused change touches nothing.
     /// Throws `corruptRecord` for an unknown buzz id.
@@ -109,6 +109,7 @@ extension MemoryStore {
             throw MemoryError.corruptRecord
         }
         let applies = current == .pending
+            || (current == .ignored && (outcome == .heard || outcome == .skipped))
             || (current == .heard && outcome == .heard && deepestLevel > record.deepestLevel)
         guard applies else { return }
         // recordBuzz stores the place in the same save as the buzz, so it is only missing if deleted since.

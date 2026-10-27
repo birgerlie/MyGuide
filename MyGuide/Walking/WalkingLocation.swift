@@ -6,6 +6,8 @@ import CoreLocation
 final class WalkingLocation: NSObject {
     /// Every fix CoreLocation delivers, oldest first within one delivery.
     var onLocation: ((CLLocation) -> Void)?
+    /// Called whenever the authorization status changes (also with the status at the time the delegate is set).
+    var onAuthorization: (() -> Void)?
     /// Called when access is denied or restricted while updates run.
     var onDenied: (() -> Void)?
 
@@ -72,6 +74,7 @@ extension WalkingLocation: CLLocationManagerDelegate {
                 waiter.resume()
             }
             if self.running, status == .denied || status == .restricted { self.onDenied?() }
+            self.onAuthorization?()
         }
     }
 

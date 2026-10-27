@@ -166,12 +166,37 @@ import Testing
         try store.setBuzzOutcome(skipped.id, .skipped, deepestLevel: 0, at: Self.t0 + 20)
         try store.closePendingBuzzes()
         try store.setBuzzOutcome(skipped.id, .heard, deepestLevel: 2, at: Self.t0 + 40)
-        try store.setBuzzOutcome(ignored.id, .heard, deepestLevel: 1, at: Self.t0 + 40)
-        try store.setBuzzOutcome(ignored.id, .skipped, deepestLevel: 0, at: Self.t0 + 40)
         let s = try #require(try store.place(id: "osm:node/1")), i = try #require(try store.place(id: "osm:node/2"))
         #expect(s.skippedAt == Self.t0 + 20 && s.deepestLevelHeard == 0 && s.lastHeardAt == nil)
         #expect(i.skippedAt == nil && i.deepestLevelHeard == 0 && i.lastHeardAt == nil)
         #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+    }
+    @Test func lateSkipOverridesIgnored() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.closePendingBuzzes()
+        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 30)
+        #expect(try store.buzzLog().map(\.outcome) == [.skipped])
+        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try #require(try store.place(id: "osm:node/1")).skippedAt == Self.t0 + 30)
+    }
+    @Test func lateHearingOverridesIgnored() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.closePendingBuzzes()
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 30)
+        let entry = try #require(try store.buzzLog().first)
+        #expect(entry.outcome == .heard && entry.deepestLevel == 1)
+        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try #require(try store.place(id: "osm:node/1")).lastHeardAt == Self.t0 + 30)
+    }
+    @Test func skippedStaysSkippedWhenHeardLater() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 20)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 30)
+        #expect(try store.buzzLog().map(\.outcome) == [.skipped])
+        #expect(try #require(try store.place(id: "osm:node/1")).lastHeardAt == nil)
     }
     @Test func ignoredBuzzDoesNotRetire() throws {
         let b = Self.buzz("osm:node/1")
@@ -230,7 +255,7 @@ import Testing
         try store.setBuzzOutcome(skipped.id, .skipped, deepestLevel: 0, at: Self.t0 + 10)
         try store.setBuzzOutcome(skipped.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
         try store.setBuzzOutcome(ignored.id, .ignored, deepestLevel: 0, at: Self.t0 + 10)
-        try store.setBuzzOutcome(ignored.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
+        try store.setBuzzOutcome(ignored.id, .pending, deepestLevel: 0, at: Self.t0 + 10)
         try store.setBuzzOutcome(heard.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
         try store.setBuzzOutcome(heard.id, .skipped, deepestLevel: 3, at: Self.t0 + 10)
         try store.setBuzzOutcome(heard.id, .pending, deepestLevel: 3, at: Self.t0 + 10)

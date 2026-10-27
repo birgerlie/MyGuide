@@ -28,4 +28,11 @@ public enum WalkingReadiness {
         if !hasAPIKey { problems.append("Add your OpenAI API key in Settings first.") }
         return problems
     }
+
+    /// Whether walking mode may start. "Always" missing does not block (it still works while the app is in use),
+    /// and neither does Time Sensitive being off (buzzes still arrive outside Focus); a denied location or
+    /// notifications, or a missing key, do. `.notDetermined` does not block here: the controller asks first.
+    public static func canStart(location: Location, notifications: Notifications, hasAPIKey: Bool) -> Bool {
+        location != .denied && notifications != .denied && hasAPIKey
+    }
 }

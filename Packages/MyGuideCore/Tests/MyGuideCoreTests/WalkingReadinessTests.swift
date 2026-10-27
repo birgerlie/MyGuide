@@ -28,4 +28,15 @@ import Testing
         #expect(WalkingReadiness.problems(location: .denied, notifications: .allowed, hasAPIKey: true)
             == ["Location is off for MyGuide. Turn it on in Settings to use walking mode."])
     }
+
+    @Test func canStart() {
+        // Only "Always" missing, or nothing missing, may start; anything else blocks.
+        #expect(WalkingReadiness.canStart(location: .always, notifications: .allowed, hasAPIKey: true))
+        #expect(WalkingReadiness.canStart(location: .whenInUse, notifications: .allowed, hasAPIKey: true))
+        #expect(WalkingReadiness.canStart(location: .always, notifications: .timeSensitiveOff, hasAPIKey: true))
+        #expect(!WalkingReadiness.canStart(location: .whenInUse, notifications: .denied, hasAPIKey: true))
+        #expect(!WalkingReadiness.canStart(location: .denied, notifications: .allowed, hasAPIKey: true))
+        #expect(!WalkingReadiness.canStart(location: .always, notifications: .allowed, hasAPIKey: false))
+        #expect(!WalkingReadiness.canStart(location: .whenInUse, notifications: .allowed, hasAPIKey: false))
+    }
 }

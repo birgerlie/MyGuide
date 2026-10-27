@@ -53,6 +53,14 @@ final class WalkingController {
             stop()
             problems = WalkingReadiness.problems(location: .denied, notifications: .allowed, hasAPIKey: true)
         }
+        // "Always" is answered after start, so the reminder follows the real status while walking.
+        location.onAuthorization = { [weak self] in
+            guard let self, isOn else { return }
+            Task { @MainActor in
+                let found = await self.readiness()
+                if self.isOn { self.problems = found.problems }
+            }
+        }
     }
 
     // MARK: - Start and stop
@@ -73,13 +81,14 @@ final class WalkingController {
             }
         }
         guard startToken == token else { return }
-        location.requestAlways()
 
-        let found = await readiness()
-        problems = found
-        // Only "Always" may be missing: walking still works while the app is open or recently used.
-        let blocking = found.filter { $0 != Self.alwaysMissingMessage }
-        guard blocking.isEmpty, startToken == token else { return }
+        let state = await readiness()
+        problems = state.problems
+        guard startToken == token,
+              WalkingReadiness.canStart(location: state.location, notifications: state.notifications,
+                                        hasAPIKey: state.hasAPIKey) else { return }
+        // Only now: nothing blocks, so upgrading to Always is the one thing left to ask.
+        location.requestAlways()
 
         await BuzzNotifier.registerCategory()
         let now = Date.now
@@ -231,10 +240,17 @@ final class WalkingController {
 
     // MARK: - Readiness
 
-    private static let alwaysMissingMessage = WalkingReadiness.problems(location: .whenInUse, notifications: .allowed,
-                                                                         hasAPIKey: true)[0]
+    private struct Readiness {
+        var location: WalkingReadiness.Location
+        var notifications: WalkingReadiness.Notifications
+        var hasAPIKey: Bool
 
-    private func readiness() async -> [String] {
+        var problems: [String] {
+            WalkingReadiness.problems(location: location, notifications: notifications, hasAPIKey: hasAPIKey)
+        }
+    }
+
+    private func readiness() async -> Readiness {
         let location: WalkingReadiness.Location = switch self.location.authorization {
         case .authorizedAlways: .always
         case .authorizedWhenInUse: .whenInUse
@@ -242,8 +258,7 @@ final class WalkingController {
         case .notDetermined: .notDetermined
         @unknown default: .denied
         }
-        return WalkingReadiness.problems(location: location, notifications: await Self.notificationState(),
-                                         hasAPIKey: hasAPIKey())
+        return Readiness(location: location, notifications: await Self.notificationState(), hasAPIKey: hasAPIKey())
     }
 
     private static func notificationState() async -> WalkingReadiness.Notifications {
