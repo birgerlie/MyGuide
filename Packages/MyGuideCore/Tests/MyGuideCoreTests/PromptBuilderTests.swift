@@ -107,4 +107,54 @@ import Foundation
         guard case .object(let o) = PromptBuilder.continuationSchema, case .array(let req) = o["required"]! else { Issue.record(); return }
         #expect(req == [.string("story")] && o["additionalProperties"] == .bool(false))
     }
+
+    // MARK: - Task 11: continuations
+
+    static func session(grounding: Grounding = PromptBuilderTests.grounding, matched: String? = "osm:way/1") -> StorySession {
+        StorySession(id: UUID(), capture: capture(heading: 312, acc: 10), photoJPEG: Data(), thumbnailJPEG: Data(), language: .english,
+            grounding: grounding,
+            identified: IdentifiedStory(subject: "Michaelertor", confidence: .likely, matchedCandidateID: matched, title: "T", era: "around 1890", story: "L1"),
+            levels: ["L1 text."])
+    }
+    @Test func continuationInput() {
+        let session = Self.session()
+        let s = PromptBuilder.continuationInput(session: session, level: .more,
+            priors: [PriorStory(placeID: "osm:way/1", level: .first, text: "Earlier visit.", toldAt: .now)])
+        #expect(s.contains("Story length: about 75 words (30 seconds spoken)."))
+        #expect(s.contains("Subject: Michaelertor (confidence: likely)"))
+        #expect(s.contains("Facts:\n- Michaelertor — historic=building\n  Summary: Gate of the palace."))
+        #expect(s.contains("Told so far:\nLevel 1: L1 text."))
+        #expect(s.contains("Already told on earlier visits:\n- [osm:way/1] level 1: Earlier visit."))
+        #expect(s.contains("Continue the story from where it left off. Do not restart or repeat."))
+    }
+    @Test func continuationFactsWithoutMatchUseTopThreeInView() {
+        func rc(_ name: String, _ d: Double, inView: Bool?) -> RankedCandidate {
+            RankedCandidate(candidate: Candidate(id: "osm:node/\(name)", name: name, coordinate: .init(latitude: 0, longitude: 0),
+                            kind: "historic=yes", summary: nil, wikipediaTitle: nil, wikidata: nil), distance: d, bearing: 0, inView: inView)
+        }
+        // ranked order is already in-view-first; the out-of-view one sits between to prove filtering, not slicing
+        let g = Grounding(candidates: [rc("A", 10, inView: true), rc("B", 20, inView: true), rc("X", 5, inView: false),
+                                       rc("C", 30, inView: true), rc("D", 40, inView: true)], address: nil, failedSources: [])
+        let s = PromptBuilder.continuationInput(session: Self.session(grounding: g, matched: nil), level: .more, priors: [])
+        #expect(s.contains("Facts:\n- A — historic=yes\n- B — historic=yes\n- C — historic=yes\n"))
+        #expect(!s.contains("- X —") && !s.contains("- D —"))
+        // heading unknown (inView nil everywhere) → nearest 3 in ranked order
+        let g2 = Grounding(candidates: [rc("A", 10, inView: nil), rc("B", 20, inView: nil), rc("C", 30, inView: nil), rc("D", 40, inView: nil)],
+                           address: nil, failedSources: [])
+        let s2 = PromptBuilder.continuationInput(session: Self.session(grounding: g2, matched: nil), level: .more, priors: [])
+        #expect(s2.contains("- C — historic=yes") && !s2.contains("- D —"))
+        #expect(s.contains("Already told on earlier visits: nothing"))
+    }
+    @Test func continuationWithoutCandidatesAndAddress() {
+        let none = Grounding(candidates: [], address: nil, failedSources: [])
+        let s = PromptBuilder.continuationInput(session: Self.session(grounding: none, matched: nil), level: .evenMore, priors: [])
+        // 120·150/60 = 300
+        #expect(s.contains("Story length: about 300 words (2 minutes spoken)."))
+        #expect(s.contains("Facts: none found") && !s.contains("Address:"))
+    }
+    @Test func decodeContinuation() throws {
+        #expect(try PromptBuilder.decodeContinuation(Data(#"{"story":"Two."}"#.utf8)) == "Two.")
+        #expect(throws: OpenAIError.malformedResponse) { try PromptBuilder.decodeContinuation(Data("{}".utf8)) }
+        #expect(throws: OpenAIError.malformedResponse) { try PromptBuilder.decodeContinuation(Data(#"{"story":" \n "}"#.utf8)) }
+    }
 }

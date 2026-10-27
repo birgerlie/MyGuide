@@ -12,11 +12,19 @@ final class StoryViewModel {
         case failed(message: String, canUseCurrentPosition: Bool)
     }
 
+    /// Progress of the "Tell me more" request; the earlier levels stay visible in every case.
+    enum MoreState: Equatable {
+        case idle
+        case working
+        case failed(message: String)
+    }
+
     static let workingText = "Looking around…"
     static let unexpectedCancellationText = "Something went wrong. Try again."
 
     var state: State = .working(StoryViewModel.workingText)
     var session: StorySession?
+    var moreState: MoreState = .idle
 
     @ObservationIgnored private let services: AppServices
     @ObservationIgnored private var photoJPEG: Data?
@@ -50,16 +58,40 @@ final class StoryViewModel {
         run()
     }
 
+    /// Asks for the next level. Ignored while a request is already running or when no level is left.
+    /// Uses the same `task` as the first story, so `cancel()` and a dropped screen stop it too.
+    func tellMore() {
+        guard let current = session, current.nextLevel != nil, moreState != .working else { return }
+        moreState = .working
+        task?.cancel()
+        task = Task { [weak self, services] in
+            do {
+                let flow = try services.makeFlow()
+                let (next, _) = try await flow.continueStory(current)
+                guard !Task.isCancelled, let self else { return }
+                self.session = next
+                self.moreState = .idle
+            } catch {
+                // Our own cancel is silence, whatever error type the sources report it with.
+                guard !Task.isCancelled, let self else { return }
+                let message = UserFacingMessage.message(for: error)
+                self.moreState = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message)
+            }
+        }
+    }
+
     /// Stops in-flight work silently; called when the story screen is dropped (navigated back).
     func cancel() {
         task?.cancel()
         task = nil
+        if moreState == .working { moreState = .idle }
     }
 
     private func run() {
         guard let photoJPEG, let capture else { return }
         task?.cancel()
         session = nil
+        moreState = .idle
         state = .working(Self.workingText)
         task = Task { [weak self, services] in
             do {

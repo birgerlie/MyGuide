@@ -48,12 +48,42 @@ struct StoryView: View {
                         .font(.footnote)
                         .foregroundStyle(.orange)
                 }
-                Text(session.levels.first ?? "")
-                    .font(.body)
-                    .textSelection(.enabled)
+                ForEach(Array(session.levels.enumerated()), id: \.offset) { _, text in
+                    Text(text)
+                        .font(.body)
+                        .textSelection(.enabled)
+                }
+                moreControls(session)
             }
             .padding()
         }
+    }
+
+    @ViewBuilder
+    private func moreControls(_ session: StorySession) -> some View {
+        if let next = session.nextLevel {
+            if case .failed(let message) = model.moreState {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+            let working = model.moreState == .working
+            Button {
+                model.tellMore()
+            } label: {
+                HStack(spacing: 8) {
+                    if working { ProgressView() }
+                    Text(buttonTitle(for: next, failed: model.moreState != .idle && !working))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(working)
+        }
+    }
+
+    private func buttonTitle(for level: StoryLevel, failed: Bool) -> String {
+        if failed { return "Retry" }
+        return level == .more ? "Tell me more" : "Even more"
     }
 
     private func failure(message: String, canUseCurrentPosition: Bool) -> some View {

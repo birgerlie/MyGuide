@@ -63,4 +63,32 @@ public struct PhotoStoryFlow: Sendable {
                                inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
         return (session, [entry])
     }
+
+    /// Adds the next level (spec 8.1.6). Text only: the photo is not sent again.
+    public func continueStory(_ session: StorySession) async throws -> (StorySession, [UsageEntry]) {
+        guard let level = session.nextLevel else { throw PhotoStoryError.noFurtherLevel }
+
+        // Sessions always carry a coordinate (tellFirstStory requires one); without it, skip the lookup.
+        var told: [PriorStory] = []
+        if let coordinate = session.capture.coordinate {
+            let ids = (PromptBuilder.factCandidates(for: session)).map(\.candidate.id)
+            told = await priors(ids, coordinate, session.id)
+        }
+
+        let (json, usage) = try await openAI.respond(
+            model: models.story,
+            reasoningEffort: models.storyReasoningEffort,
+            instructions: PromptBuilder.systemInstructions(language: session.language),
+            text: PromptBuilder.continuationInput(session: session, level: level, priors: told),
+            imageJPEG: nil,
+            schemaName: "continuation",
+            schema: PromptBuilder.continuationSchema)
+        let story = try PromptBuilder.decodeContinuation(json)
+
+        var next = session
+        next.levels.append(story)
+        let entry = UsageEntry(date: now(), kind: .story, model: models.story,
+                               inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
+        return (next, [entry])
+    }
 }

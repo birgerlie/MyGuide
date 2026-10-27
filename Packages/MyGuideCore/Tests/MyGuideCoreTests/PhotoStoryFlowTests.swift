@@ -95,4 +95,48 @@ import Testing
         s.levels += ["two", "three"]
         #expect(s.nextLevel == nil)
     }
+
+    @Test func continueAddsLevelWithoutImage() async throws {
+        let http = Self.http(Self.openAIBody(#"{"story":"Level two."}"#))
+        let flow = Self.flow(http)
+        var s = try await Self.flow(Self.http()).tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: Self.capture, language: .english).0
+        let (next, usage) = try await flow.continueStory(s)
+        #expect(next.levels == ["Once a coachman waited here.", "Level two."] && next.nextLevel == .evenMore)
+        #expect(usage.count == 1 && usage[0].kind == .story)
+        let r = http.requests.first { $0.url!.host == "api.openai.com" }!
+        let content = ((r.jsonBody["input"] as! [[String: Any]])[0]["content"] as! [[String: Any]])
+        #expect(content.count == 1)                        // text only, no image
+        #expect(String(decoding: r.httpBody!, as: UTF8.self).contains("about 75 words"))
+        s.levels = ["a", "b", "c"]
+        let before = http.requests.count
+        await #expect(throws: PhotoStoryError.noFurtherLevel) { try await flow.continueStory(s) }
+        #expect(http.requests.count == before)
+    }
+    @Test func continuePassesSessionIDToPriorsForExclusion() async throws {
+        let s = try await Self.flow(Self.http()).tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: Self.capture, language: .english).0
+        let excluded = LockedBox<UUID?>(nil)
+        let ids = LockedBox<[String]>([])
+        let flow = Self.flow(Self.http(Self.openAIBody(#"{"story":"Two."}"#))) { placeIDs, _, exclude in
+            excluded.set(exclude); ids.set(placeIDs); return []
+        }
+        _ = try await flow.continueStory(s)
+        #expect(excluded.value == s.id)
+        #expect(ids.value == ["osm:node/1"])   // matched candidate only
+    }
+    @Test(arguments: ["", "   \n\t "])
+    func emptyContinuationIsMalformed(story: String) async throws {
+        let s = try await Self.flow(Self.http()).tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: Self.capture, language: .english).0
+        let inner = #"{"story":"\#(story.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\t", with: "\\t"))"}"#
+        await #expect(throws: OpenAIError.malformedResponse) {
+            try await Self.flow(Self.http(Self.openAIBody(inner))).continueStory(s)
+        }
+    }
+    @Test func continueWithoutCoordinateSkipsPriorsAndDoesNotThrow() async throws {
+        var s = try await Self.flow(Self.http()).tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: Self.capture, language: .english).0
+        s.capture.coordinate = nil
+        let called = LockedBox<Bool>(false)
+        let flow = Self.flow(Self.http(Self.openAIBody(#"{"story":"Two."}"#))) { _, _, _ in called.set(true); return [] }
+        let (next, _) = try await flow.continueStory(s)
+        #expect(next.levels.last == "Two." && called.value == false)
+    }
 }

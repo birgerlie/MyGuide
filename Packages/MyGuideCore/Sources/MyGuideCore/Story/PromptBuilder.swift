@@ -66,10 +66,7 @@ public enum PromptBuilder {
             lines.append("Already told: nothing yet")
         } else {
             lines.append("Already told:")
-            for prior in priors {
-                let place = prior.placeID ?? "nearby, unidentified"
-                lines.append("- [\(place)] level \(prior.level.rawValue): \(TextTrim.truncate(prior.text, maxCharacters: priorTextLimit))")
-            }
+            lines.append(contentsOf: priors.map(priorLine))
         }
 
         lines.append("Task: Identify what the photo shows, preferring places in view. Set matchedCandidateID only if the subject is one of the listed places (use its id in brackets). Then write the first story.")
@@ -111,6 +108,71 @@ public enum PromptBuilder {
             story.matchedCandidateID = nil
         }
         return story
+    }
+
+    /// The places whose facts a continuation is grounded in: the matched candidate alone, or else the
+    /// three nearest that are not known to be out of view (ranked order is kept).
+    static func factCandidates(for session: StorySession) -> [RankedCandidate] {
+        if let matched = session.matchedCandidate { return [matched] }
+        return Array(session.grounding.candidates.filter { $0.inView != false }.prefix(3))
+    }
+
+    static func continuationInput(session: StorySession, level: StoryLevel, priors: [PriorStory]) -> String {
+        var lines = ["Story length: \(level.lengthPhrase).",
+                     "Subject: \(session.identified.subject) (confidence: \(session.identified.confidence.rawValue))"]
+        if let address = session.grounding.address {
+            lines.append("Address: \(address.display)")
+        }
+
+        let facts = factCandidates(for: session)
+        if facts.isEmpty {
+            lines.append("Facts: none found")
+        } else {
+            lines.append("Facts:")
+            for ranked in facts {
+                let c = ranked.candidate
+                lines.append("- \(c.name) — \(c.kind)")
+                if let summary = c.summary, !summary.isEmpty {
+                    lines.append("  Summary: \(summary)")
+                }
+            }
+        }
+
+        lines.append("Told so far:")
+        for (index, text) in session.levels.enumerated() {
+            lines.append("Level \(index + 1): \(text)")
+        }
+
+        if priors.isEmpty {
+            lines.append("Already told on earlier visits: nothing")
+        } else {
+            lines.append("Already told on earlier visits:")
+            lines.append(contentsOf: priors.map(priorLine))
+        }
+
+        lines.append("Task: Continue the story from where it left off. Do not restart or repeat. Take a new angle: another person, another moment in time, or something the listener can still see today that connects to it.")
+        return lines.joined(separator: "\n")
+    }
+
+    private struct Continuation: Decodable { var story: String }
+
+    /// Decodes the continuation JSON. An empty or whitespace-only story is malformed.
+    static func decodeContinuation(_ json: Data) throws -> String {
+        let story: String
+        do {
+            story = try JSONDecoder().decode(Continuation.self, from: json).story
+        } catch is DecodingError {
+            throw OpenAIError.malformedResponse
+        }
+        guard !story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OpenAIError.malformedResponse
+        }
+        return story
+    }
+
+    private static func priorLine(_ prior: PriorStory) -> String {
+        let place = prior.placeID ?? "nearby, unidentified"
+        return "- [\(place)] level \(prior.level.rawValue): \(TextTrim.truncate(prior.text, maxCharacters: priorTextLimit))"
     }
 
     /// Nearest whole degree in 0...359; 359.6 prints as 0, never 360.
