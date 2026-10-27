@@ -13,7 +13,7 @@ struct MyGuideApp: App {
         let container: ModelContainer
         var persistent = true
         do {
-            container = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV1.self),
+            container = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV2.self),
                                            migrationPlan: MemoryMigrationPlan.self)
         } catch {
             // Stories still work without a store; they just won't be remembered this run.
@@ -21,7 +21,7 @@ struct MyGuideApp: App {
             persistent = false
             let config = ModelConfiguration(isStoredInMemoryOnly: true)
             // An in-memory store failing means the schema itself is broken: a programmer error.
-            container = try! ModelContainer(for: Schema(versionedSchema: MemorySchemaV1.self),
+            container = try! ModelContainer(for: Schema(versionedSchema: MemorySchemaV2.self),
                                             migrationPlan: MemoryMigrationPlan.self, configurations: config)
         }
         self.container = container

@@ -44,27 +44,31 @@ import SwiftData
     }
 }
 
-/// One told story level, full text (spec 8.2: "stories told (all levels, full text)").
+/// One told story level, full text (spec 8.2: "stories told (all levels, full text)"). Belongs to a photo capture
+/// or to a walk story.
 @Model public final class StoryRecord {
     /// `StoryLevel.rawValue`, 1...3.
     public var level: Int
     public var text: String
-    /// Copy of the capture's `placeID`, so priors can be fetched by place without a join.
+    /// Copy of the owner's `placeID`, so priors can be fetched by place without a join.
     public var placeID: String?
-    /// The capture's `takenAt` plus the level index in seconds, so levels sort in telling order.
+    /// The owner's `takenAt` / `createdAt` plus the level index in seconds, so levels sort in telling order.
     public var createdAt: Date
     public var capture: CaptureRecord?
+    public var walkStory: WalkStoryRecord?
 
-    public init(level: Int, text: String, placeID: String?, createdAt: Date, capture: CaptureRecord? = nil) {
+    public init(level: Int, text: String, placeID: String?, createdAt: Date, capture: CaptureRecord? = nil,
+                walkStory: WalkStoryRecord? = nil) {
         self.level = level
         self.text = text
         self.placeID = placeID
         self.createdAt = createdAt
         self.capture = capture
+        self.walkStory = walkStory
     }
 }
 
-/// A known place the listener has photographed (spec 8.2: "places visited").
+/// A known place: photographed, buzzed or heard.
 @Model public final class PlaceRecord {
     @Attribute(.unique) public var id: String
     public var name: String
@@ -74,9 +78,14 @@ import SwiftData
     /// The highest story level saved for this place; a level counts as heard once saved.
     public var deepestLevelHeard: Int
     public var lastHeardAt: Date?
+    /// When the owner first skipped a buzz about this place; a skipped place never buzzes again.
+    public var skippedAt: Date?
+    public var lastBuzzedAt: Date?
+    public var lastBuzzTripID: UUID?
 
     public init(id: String, name: String, latitude: Double, longitude: Double, firstSeenAt: Date,
-                deepestLevelHeard: Int, lastHeardAt: Date?) {
+                deepestLevelHeard: Int, lastHeardAt: Date?, skippedAt: Date? = nil, lastBuzzedAt: Date? = nil,
+                lastBuzzTripID: UUID? = nil) {
         self.id = id
         self.name = name
         self.latitude = latitude
@@ -84,6 +93,9 @@ import SwiftData
         self.firstSeenAt = firstSeenAt
         self.deepestLevelHeard = deepestLevelHeard
         self.lastHeardAt = lastHeardAt
+        self.skippedAt = skippedAt
+        self.lastBuzzedAt = lastBuzzedAt
+        self.lastBuzzTripID = lastBuzzTripID
     }
 }
 
@@ -111,23 +123,134 @@ import SwiftData
     }
 }
 
+/// A stretch of use in one city (design 7.7); see `TripRule`.
+@Model public final class TripRecord {
+    @Attribute(.unique) public var id: UUID
+    public var startedAt: Date
+    /// Filled from the first known city when the trip started without one.
+    public var city: String?
+    public var lastUsedAt: Date
+
+    public init(id: UUID, startedAt: Date, city: String?, lastUsedAt: Date) {
+        self.id = id
+        self.startedAt = startedAt
+        self.city = city
+        self.lastUsedAt = lastUsedAt
+    }
+}
+
+/// One buzz in the buzz log (design 7.7).
+@Model public final class BuzzRecord {
+    /// `Buzz.id`.
+    @Attribute(.unique) public var id: UUID
+    public var at: Date
+    public var tripID: UUID
+    public var placeID: String
+    public var placeName: String
+    /// `Candidate.kind`.
+    public var kind: String
+    /// `PlaceTier.rawValue`.
+    public var tier: Int
+    /// Metres from the walker when the buzz went out.
+    public var distance: Double
+    /// `BuzzOutcome.rawValue`.
+    public var outcome: String
+    /// The deepest story level heard from this buzz; 0 when none.
+    public var deepestLevel: Int = 0
+
+    public init(id: UUID, at: Date, tripID: UUID, placeID: String, placeName: String, kind: String, tier: Int,
+                distance: Double, outcome: String, deepestLevel: Int = 0) {
+        self.id = id
+        self.at = at
+        self.tripID = tripID
+        self.placeID = placeID
+        self.placeName = placeName
+        self.kind = kind
+        self.tier = tier
+        self.distance = distance
+        self.outcome = outcome
+        self.deepestLevel = deepestLevel
+    }
+}
+
+/// One point of the walked track (spec 8.2), for the later trip diary.
+@Model public final class TrackPoint {
+    public var at: Date
+    public var latitude: Double
+    public var longitude: Double
+    public var tripID: UUID
+
+    public init(at: Date, latitude: Double, longitude: Double, tripID: UUID) {
+        self.at = at
+        self.latitude = latitude
+        self.longitude = longitude
+        self.tripID = tripID
+    }
+}
+
+/// A `WalkStory` without its levels; the levels are `StoryRecord`s.
+@Model public final class WalkStoryRecord {
+    @Attribute(.unique) public var id: UUID
+    /// `WalkStory.Kind.rawValue`.
+    public var kind: String
+    /// The buzzed place's ID; nil for stop stories.
+    public var placeID: String?
+    /// JSON of the buzzed `Candidate`; nil for stop stories.
+    public var placeJSON: Data?
+    /// JSON of the stop story's `Address`; nil when there is none.
+    public var addressJSON: Data?
+    /// The buzz direction line; nil for stop stories.
+    public var detail: String?
+    public var title: String
+    public var latitude: Double
+    public var longitude: Double
+    public var course: Double?
+    /// `StoryLanguage.rawValue`.
+    public var language: String
+    public var createdAt: Date
+    /// The trip the story was first saved in.
+    public var tripID: UUID
+    @Relationship(deleteRule: .cascade, inverse: \StoryRecord.walkStory) public var stories: [StoryRecord] = []
+
+    public init(id: UUID, kind: String, placeID: String?, placeJSON: Data?, addressJSON: Data?, detail: String?,
+                title: String, latitude: Double, longitude: Double, course: Double?, language: String, createdAt: Date,
+                tripID: UUID) {
+        self.id = id
+        self.kind = kind
+        self.placeID = placeID
+        self.placeJSON = placeJSON
+        self.addressJSON = addressJSON
+        self.detail = detail
+        self.title = title
+        self.latitude = latitude
+        self.longitude = longitude
+        self.course = course
+        self.language = language
+        self.createdAt = createdAt
+        self.tripID = tripID
+    }
+}
+
 public enum MemorySchema {
-    /// Every persistent model. The app opens the store through `MemorySchemaV1` and `MemoryMigrationPlan`;
-    /// tests may use this list directly.
+    /// Every live persistent model (`MemorySchemaV2`). The app opens the store through `MemorySchemaV2` and
+    /// `MemoryMigrationPlan`; tests may use this list directly.
     public static let models: [any PersistentModel.Type] = [
-        CaptureRecord.self, StoryRecord.self, PlaceRecord.self, UsageRecord.self
+        CaptureRecord.self, StoryRecord.self, PlaceRecord.self, UsageRecord.self,
+        TripRecord.self, BuzzRecord.self, TrackPoint.self, WalkStoryRecord.self,
     ]
 }
 
-/// Version 1 of the store: the four phase 1 models, unchanged. A later model change adds `MemorySchemaV2`
-/// (with its own copies of the changed models) and a stage to `MemoryMigrationPlan`.
-public enum MemorySchemaV1: VersionedSchema {
-    public static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
+/// Version 2 of the store: phase 2's trips, buzz log, track, walk stories and place flags. Every attribute it adds
+/// to a version 1 entity is optional or defaulted, so the step from version 1 is lightweight.
+public enum MemorySchemaV2: VersionedSchema {
+    public static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
     public static var models: [any PersistentModel.Type] { MemorySchema.models }
 }
 
-/// Migration plan for the memory store. Version 1 is the only version, so there are no stages yet.
+/// Migration plan for the memory store.
 public enum MemoryMigrationPlan: SchemaMigrationPlan {
-    public static var schemas: [any VersionedSchema.Type] { [MemorySchemaV1.self] }
-    public static var stages: [MigrationStage] { [] }
+    public static var schemas: [any VersionedSchema.Type] { [MemorySchemaV1.self, MemorySchemaV2.self] }
+    public static var stages: [MigrationStage] {
+        [.lightweight(fromVersion: MemorySchemaV1.self, toVersion: MemorySchemaV2.self)]
+    }
 }

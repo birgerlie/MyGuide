@@ -9,6 +9,6 @@ let package = Package(
     ],
     targets: [
         .target(name: "MyGuideCore"),
-        .testTarget(name: "MyGuideCoreTests", dependencies: ["MyGuideCore"])
+        .testTarget(name: "MyGuideCoreTests", dependencies: ["MyGuideCore"], resources: [.copy("Fixtures")])
     ]
 )

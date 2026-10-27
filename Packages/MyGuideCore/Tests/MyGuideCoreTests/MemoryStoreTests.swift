@@ -22,37 +22,8 @@ import Testing
     }
     static let origin = Coordinate(latitude: 0, longitude: 0)
 
-    @Test func versionedSchemaWrapsTheFourModels() {
-        #expect(MemorySchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
-        #expect(MemorySchemaV1.models.map { ObjectIdentifier($0) } == MemorySchema.models.map { ObjectIdentifier($0) })
-        #expect(MemoryMigrationPlan.schemas.count == 1 && MemoryMigrationPlan.stages.isEmpty)
-    }
-    @Test func containerWithMigrationPlanWorksInMemory() throws {
-        let c = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV1.self), migrationPlan: MemoryMigrationPlan.self,
-                                   configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-        let versioned = MemoryStore(context: c.mainContext)
-        let s = Self.session(placeID: "osm:node/1", levels: ["one"])
-        try versioned.save(s)
-        let rec = try #require(try versioned.context.fetch(FetchDescriptor<CaptureRecord>()).first)
-        #expect(try versioned.session(for: rec) == s)
-    }
-    /// Stores written before the versioned schema (phase 1 device testing) must open with the migration plan.
-    @Test func unversionedStoreOnDiskOpensWithMigrationPlan() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("MyGuideMigration-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("memory.store")
-        let s = Self.session(placeID: "osm:node/1", levels: ["one", "two"])
-        do {
-            let old = try ModelContainer(for: Schema(MemorySchema.models), configurations: ModelConfiguration(url: url))
-            try MemoryStore(context: old.mainContext).save(s)
-        }
-        let reopened = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV1.self), migrationPlan: MemoryMigrationPlan.self,
-                                          configurations: ModelConfiguration(url: url))
-        let store = MemoryStore(context: reopened.mainContext)
-        let rec = try #require(try store.context.fetch(FetchDescriptor<CaptureRecord>()).first)
-        #expect(try store.session(for: rec) == s)
-    }
+    // Schema versions and migration: MigrationTests.
+
     @Test func saveAndRestoreRoundTrips() throws {
         let s = Self.session(placeID: "osm:node/1", levels: ["one", "two"])
         try store.save(s)

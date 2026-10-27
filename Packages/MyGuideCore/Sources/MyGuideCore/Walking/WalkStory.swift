@@ -1,0 +1,41 @@
+import Foundation
+
+/// A story told while walking (design 7.5–7.6): about a buzzed place, or about the spot where the walker stopped.
+public struct WalkStory: Sendable, Equatable, Identifiable {
+    public enum Kind: String, Sendable, Codable { case buzz, stop }
+
+    public var id: UUID
+    public var kind: Kind
+    /// The buzzed place; nil for `.stop`.
+    public var place: Candidate?
+    /// Where the walker was when the story was made.
+    public var position: Coordinate
+    /// GPS course in degrees clockwise from north; nil when unknown.
+    public var course: Double?
+    public var language: StoryLanguage
+    public var title: String
+    /// Story texts told so far; `levels[0]` is level 1.
+    public var levels: [String]
+    public var createdAt: Date
+    /// The spot's address, for stop stories; nil for `.buzz`.
+    public var address: Address?
+    /// The buzz direction line, such as "50 m left" (`Buzz.detail`); nil for `.stop`.
+    public var detail: String?
+
+    public init(id: UUID, kind: Kind, place: Candidate?, position: Coordinate, course: Double?, language: StoryLanguage,
+                title: String, levels: [String], createdAt: Date, address: Address? = nil, detail: String? = nil) {
+        self.id = id
+        self.kind = kind
+        self.place = place
+        self.position = position
+        self.course = course
+        self.language = language
+        self.title = title
+        self.levels = levels
+        self.createdAt = createdAt
+        self.address = address
+        self.detail = detail
+    }
+
+    public var nextLevel: StoryLevel? { StoryLevel(rawValue: levels.count + 1) }
+}

@@ -25,14 +25,14 @@ public enum MemoryError: Error, Equatable {
     case corruptRecord
 }
 
-/// The on-device memory of places, captures and stories (spec 8.2).
+/// The on-device memory of places, captures, stories, trips and buzzes (spec 8.2, design 7.7).
 @MainActor public final class MemoryStore {
     /// Metres around the capture point within which unidentified captures count as the same spot.
     public static let priorRadius = 75.0
     /// The most prior stories handed to a story request.
     public static let priorLimit = 12
     /// Metres per degree of latitude (and of longitude at the equator) on the GeoMath sphere: 6_371_000 · π / 180.
-    static let metresPerDegree = 111_195.0
+    nonisolated static let metresPerDegree = 111_195.0
 
     public let context: ModelContext
     /// A ModelContext does not keep its container alive, and fetching after the container is gone traps.
@@ -140,8 +140,9 @@ public enum MemoryError: Error, Equatable {
         try captureRecord(id: sessionID)?.thenImagePNG
     }
 
-    /// Stories already told about any of `placeIDs` (anywhere), plus stories from unidentified captures within
-    /// `priorRadius` of `near`, excluding `excludingSession`; newest first, at most `priorLimit`.
+    /// Stories already told about any of `placeIDs` (anywhere, photo or buzz), plus stories from unidentified captures
+    /// and stop stories within `priorRadius` of `near`, excluding the capture or walk story `excludingSession`;
+    /// newest first, at most `priorLimit`.
     public func priorStories(placeIDs: [String], near: Coordinate, excludingSession: UUID?) throws -> [PriorStory] {
         var stories: [StoryRecord] = []
 
@@ -158,9 +159,12 @@ public enum MemoryError: Error, Equatable {
         for capture in try unidentifiedCaptures(near: near) {
             stories += capture.stories
         }
+        for walkStory in try stopStories(near: near) {
+            stories += walkStory.stories
+        }
 
         return stories
-            .filter { excludingSession == nil || $0.capture?.id != excludingSession }
+            .filter { excludingSession == nil || ($0.capture?.id != excludingSession && $0.walkStory?.id != excludingSession) }
             .sorted { ($0.createdAt, $0.level) > ($1.createdAt, $1.level) }
             .prefix(Self.priorLimit)
             .compactMap { story in
@@ -233,30 +237,62 @@ public enum MemoryError: Error, Equatable {
         }
     }
 
+    /// A latitude/longitude box around a point that contains every point within `priorRadius` of it.
+    private struct NearBox {
+        var minLat: Double, maxLat: Double, minLon: Double, maxLon: Double
+        /// False when the box wraps the antimeridian (or spans all longitudes): then bound by latitude only.
+        var boundsLongitude: Bool { minLon >= -180 && maxLon <= 180 }
+
+        init(around point: Coordinate, radius: Double) {
+            let latSpan = radius / MemoryStore.metresPerDegree
+            minLat = point.latitude - latSpan
+            maxLat = point.latitude + latSpan
+            // A degree of longitude shrinks with cos φ and vanishes at the poles, where the division would blow up
+            // to infinity. Any span of 180° or more already covers every longitude, so clamp there.
+            let cosLat = cos(point.latitude * .pi / 180)
+            let lonSpan = cosLat > 0 ? min(180, radius / (MemoryStore.metresPerDegree * cosLat)) : 180
+            minLon = point.longitude - lonSpan
+            maxLon = point.longitude + lonSpan
+        }
+    }
+
     /// Captures with no place ID within `priorRadius` of `point`. The fetch is bounded by a box around the point;
     /// the exact distance is checked in Swift.
     private func unidentifiedCaptures(near point: Coordinate) throws -> [CaptureRecord] {
         let radius = Self.priorRadius
-        let latSpan = radius / Self.metresPerDegree
-        let minLat = point.latitude - latSpan
-        let maxLat = point.latitude + latSpan
-        // A degree of longitude shrinks with cos φ and vanishes at the poles, where the division would blow up
-        // to infinity. Any span of 180° or more already covers every longitude, so clamp there.
-        let cosLat = cos(point.latitude * .pi / 180)
-        let lonSpan = cosLat > 0 ? min(180, radius / (Self.metresPerDegree * cosLat)) : 180
-        let minLon = point.longitude - lonSpan
-        let maxLon = point.longitude + lonSpan
-
+        let box = NearBox(around: point, radius: radius)
+        let (minLat, maxLat, minLon, maxLon) = (box.minLat, box.maxLat, box.minLon, box.maxLon)
         let predicate: Predicate<CaptureRecord>
-        if minLon >= -180 && maxLon <= 180 {
+        if box.boundsLongitude {
             predicate = #Predicate { c in
                 c.placeID == nil && c.latitude >= minLat && c.latitude <= maxLat
                     && c.longitude >= minLon && c.longitude <= maxLon
             }
         } else {
-            // The box wraps the antimeridian (or spans all longitudes): bound by latitude only.
             predicate = #Predicate { c in
                 c.placeID == nil && c.latitude >= minLat && c.latitude <= maxLat
+            }
+        }
+        return try context.fetch(FetchDescriptor(predicate: predicate)).filter {
+            GeoMath.distance(point, Coordinate(latitude: $0.latitude, longitude: $0.longitude)) <= radius
+        }
+    }
+
+    /// Stop stories (walk stories with no place ID) told within `priorRadius` of `point`; bounded like
+    /// `unidentifiedCaptures`.
+    private func stopStories(near point: Coordinate) throws -> [WalkStoryRecord] {
+        let radius = Self.priorRadius
+        let box = NearBox(around: point, radius: radius)
+        let (minLat, maxLat, minLon, maxLon) = (box.minLat, box.maxLat, box.minLon, box.maxLon)
+        let predicate: Predicate<WalkStoryRecord>
+        if box.boundsLongitude {
+            predicate = #Predicate { w in
+                w.placeID == nil && w.latitude >= minLat && w.latitude <= maxLat
+                    && w.longitude >= minLon && w.longitude <= maxLon
+            }
+        } else {
+            predicate = #Predicate { w in
+                w.placeID == nil && w.latitude >= minLat && w.latitude <= maxLat
             }
         }
         return try context.fetch(FetchDescriptor(predicate: predicate)).filter {
