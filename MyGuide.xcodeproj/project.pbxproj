@@ -12,6 +12,7 @@
 		0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */; };
 		0D2B5B8D505B303F92B8CF04 /* WalkingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90746D6CA8E40DE76B97D622 /* WalkingController.swift */; };
 		11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */; };
+		1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB5929240699451326DF1BD /* PhotoImport.swift */; };
 		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
 		25CAC5AE46A2956C88341916 /* WalkingStatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
@@ -37,6 +38,7 @@
 		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
 		B8D753A876BD7F2DBBED7DE1 /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */; };
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
+		BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */; };
 		CE4081054052B226778217DA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB976060B732B94CFFDBA0D /* AppDelegate.swift */; };
 		CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262854964F0668D9EA23A15A /* TellMeIntent.swift */; };
 		D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -110,9 +112,11 @@
 		593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingStatusPill.swift; sourceTree = "<group>"; };
 		5E7A49C840514706DE718EF1 /* WalkStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkStoryView.swift; sourceTree = "<group>"; };
 		6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuideWatch.entitlements; sourceTree = "<group>"; };
+		6FB5929240699451326DF1BD /* PhotoImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoImport.swift; sourceTree = "<group>"; };
 		728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLocation.swift; sourceTree = "<group>"; };
 		7601A9D4143D662A6232BA41 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScreen.swift; sourceTree = "<group>"; };
 		8AB976060B732B94CFFDBA0D /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		8CFD5C325D6D5A568828170F /* MyGuideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideApp.swift; sourceTree = "<group>"; };
 		8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyGuideWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -175,6 +179,7 @@
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
 				A7D7E3A20BB6FBE11F69FE33 /* Capture */,
 				EABF7E6D3FEFD2F8655C128B /* History */,
+				C33F1654996717C37D9C0E03 /* Home */,
 				65FCED6406B373ED5C73E009 /* Platform */,
 				9F2E0ADB1DC00FC77A2ED540 /* SelfCheck */,
 				4F29DA919A204B6D5A248304 /* Settings */,
@@ -248,6 +253,7 @@
 				18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */,
 				35446013504E49DDC25F8906 /* CaptureScreen.swift */,
 				99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */,
+				6FB5929240699451326DF1BD /* PhotoImport.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -268,6 +274,14 @@
 				517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */,
 			);
 			path = MyGuideWidgets;
+			sourceTree = "<group>";
+		};
+		C33F1654996717C37D9C0E03 /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */,
+			);
+			path = Home;
 			sourceTree = "<group>";
 		};
 		D023FD7D155BEF88120B24D0 /* Walking */ = {
@@ -464,9 +478,11 @@
 				08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */,
 				FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */,
 				1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */,
+				BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */,
 				6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */,
 				0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */,
 				6AF2350B859D194A378A3A70 /* MyGuideApp.swift in Sources */,
+				1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */,
 				7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */,
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,

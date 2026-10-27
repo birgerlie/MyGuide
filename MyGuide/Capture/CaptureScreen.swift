@@ -1,20 +1,21 @@
-import CoreLocation
 import MyGuideCore
-import Photos
 import PhotosUI
 import SwiftUI
 
-/// Camera preview, shutter, library picker, Settings and a HUD showing what position and heading will be sent.
+/// Camera preview, shutter, library picker and a HUD showing what position and heading will be sent. Pushed from
+/// Home; the camera runs only while this screen is on top. A finished photo (taken or picked) is handed to Home
+/// through `onPhoto`; Home starts the story and replaces this screen with it.
 struct CaptureScreen: View {
     let services: AppServices
+    /// Home owns the location provider: it runs while this screen is on top or a story offers "Use where I am now".
+    let location: LocationProvider
+    let onPhoto: (_ photo: Data, _ capture: CaptureContext, _ language: StoryLanguage) -> Void
 
     @State private var camera = CameraController()
-    @State private var location = LocationProvider()
     @State private var pickerItem: PhotosPickerItem?
-    @State private var story: StoryViewModel?
     @State private var isBusy = false
     @State private var errorText: String?
-    /// True while this screen (not History, Settings or a story pushed on top of it) is visible.
+    /// True while this screen (not a walk story pushed on top of it) is visible.
     @State private var isOnTop = false
     /// The zoom when the current pinch began; nil between pinches. GestureState also resets on a cancelled pinch.
     @GestureState private var pinchBase: Double?
@@ -35,47 +36,14 @@ struct CaptureScreen: View {
                     .padding()
             }
             VStack {
-                if !services.memoryIsPersistent { MemoryUnavailableNotice().clipShape(Capsule()) }
                 hud
-                WalkingStatusPill(controller: services.walking)
                 Spacer()
-                WalkingPanel(stories: services.walking.stories)
                 controls
             }
             .padding()
         }
         // Over the whole screen: the overlay's transparent areas pass touches through, its buttons keep their taps.
         .simultaneousGesture(pinchToZoom, including: camera.isRunning ? .all : .subviews)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    HistoryView(services: services, location: location)
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .accessibilityLabel("History")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    SettingsView(services: services)
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-                .accessibilityLabel("Settings")
-            }
-        }
-        .navigationDestination(isPresented: storyPresented) {
-            if let story {
-                StoryView(model: story, location: location)
-            }
-        }
-        // A tap on a walking notification (or the panel's title) opens that story.
-        .navigationDestination(isPresented: walkStoryPresented) {
-            if let id = services.walking.stories.openID {
-                WalkStoryView(stories: services.walking.stories, id: id)
-                    .id(id)
-            }
-        }
         .alert("Couldn't use the photo", isPresented: errorPresented) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -91,28 +59,14 @@ struct CaptureScreen: View {
         }
         .onChange(of: scenePhase) { _, phase in
             // Picks up camera access granted in the Settings app while we were away,
-            // but never restarts the camera behind History, Settings or a story.
-            if phase == .active, isOnTop, story == nil { Task { await camera.start() } }
-        }
-        // Location runs while this screen is on top, or while a story offers "Use where I am now".
-        .onChange(of: locationWanted, initial: true) { _, wanted in
-            if wanted { location.start() } else { location.stop() }
+            // but never restarts the camera behind another screen.
+            if phase == .active, isOnTop { Task { await camera.start() } }
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
             pickerItem = nil
             Task { await usePicked(item) }
         }
-    }
-
-    /// Whether location updates should run now (re-evaluated as the scene, the top screen or the story changes).
-    private var locationWanted: Bool {
-        scenePhase != .background && (isOnTop || storyOffersCurrentPosition)
-    }
-
-    private var storyOffersCurrentPosition: Bool {
-        if case .failed(_, canUseCurrentPosition: true) = story?.state { return true }
-        return false
     }
 
     // MARK: - Subviews
@@ -193,44 +147,9 @@ struct CaptureScreen: View {
             .accessibilityLabel("Take photo")
             .disabled(!camera.isRunning || isBusy)
             Spacer()
-            walkButton
+            // Balances the picker so the shutter stays centred.
+            Color.clear.frame(width: 56, height: 56)
         }
-    }
-
-    /// Turns walking mode on or off; yellow while it runs.
-    private var walkButton: some View {
-        let isOn = services.walking.isOn
-        return Button {
-            if isOn {
-                services.walking.stop()
-            } else {
-                Task { await services.walking.start() }
-            }
-        } label: {
-            Image(systemName: isOn ? "figure.walk.motion" : "figure.walk")
-                .font(.title2)
-                .foregroundStyle(isOn ? .yellow : .white)
-                .frame(width: 56, height: 56)
-                .background(.black.opacity(0.4), in: Circle())
-        }
-        .accessibilityLabel("Walking mode")
-        .accessibilityValue(isOn ? "On" : "Off")
-    }
-
-    private var storyPresented: Binding<Bool> {
-        Binding(get: { story != nil }, set: { presented in
-            guard !presented else { return }
-            // The story screen is being dropped (navigated back): stop its work silently.
-            story?.cancel()
-            story = nil
-        })
-    }
-
-    private var walkStoryPresented: Binding<Bool> {
-        let stories = services.walking.stories
-        return Binding(get: { stories.openID != nil }, set: { presented in
-            if !presented { stories.openID = nil }
-        })
     }
 
     private var errorPresented: Binding<Bool> {
@@ -255,7 +174,7 @@ struct CaptureScreen: View {
                 let capture = Self.cameraContext(fix: fix, compass: compass,
                                                  horizontalFOV: FieldOfView.zoomedHorizontalFOV(fov, zoomFactor: photo.zoomFactor),
                                                  takenAt: takenAt)
-                openStory(photo: photo.data, capture: capture, language: language)
+                onPhoto(photo.data, capture, language)
             } catch {
                 errorText = "The camera couldn't take the photo. Try again."
             }
@@ -266,51 +185,13 @@ struct CaptureScreen: View {
         let language = storyLanguage
         isBusy = true
         defer { isBusy = false }
-        let data: Data?
-        do {
-            data = try await item.loadTransferable(type: Data.self)
-        } catch {
-            errorText = "Couldn't load the photo from your library."
-            return
+        switch await PhotoImport.load(item) {
+        case .success(let loaded): onPhoto(loaded.data, loaded.capture, language)
+        case .failure(let failure): errorText = failure.text
         }
-        guard let data, let metadata = PhotoMetadata.read(from: data) else {
-            errorText = UserFacingMessage.message(for: ImageProcessingError.unreadableImage)
-            return
-        }
-        var capture = metadata.captureContext(fallbackDate: .now)
-        if capture.coordinate == nil, let identifier = item.itemIdentifier,
-           let assetLocation = await Self.assetLocation(identifier),
-           let fix = Self.assetFix(assetLocation) {
-            // Position only; the EXIF heading (if any) still describes this photo, PHAsset adds none.
-            capture.coordinate = fix.coordinate
-            capture.horizontalAccuracy = fix.accuracy
-        }
-        openStory(photo: data, capture: capture, language: language)
-    }
-
-    private func openStory(photo: Data, capture: CaptureContext, language: StoryLanguage) {
-        let model = StoryViewModel(services: services, language: language)
-        model.start(photoJPEG: photo, capture: capture)
-        story = model
     }
 
     // MARK: - Helpers
-
-    /// The library asset's location, after asking for read access. Nil if access is refused or there is none.
-    private static func assetLocation(_ identifier: String) async -> CLLocation? {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-        guard status == .authorized || status == .limited else { return nil }
-        return PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject?.location
-    }
-
-    /// A library location has no age limit (the photo may be old), but sentinel values still mean "no position".
-    private static func assetFix(_ location: CLLocation) -> (coordinate: Coordinate, accuracy: Double?)? {
-        guard CLLocationCoordinate2DIsValid(location.coordinate),
-              !(location.coordinate.latitude == 0 && location.coordinate.longitude == 0) else { return nil }
-        let accuracy = location.horizontalAccuracy
-        return (Coordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude),
-                accuracy >= 0 && accuracy.isFinite ? accuracy : nil)
-    }
 
     static func cameraContext(fix: LocationFix?, compass: CompassReading?, horizontalFOV: Double,
                               takenAt: Date) -> CaptureContext {

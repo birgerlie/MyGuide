@@ -45,9 +45,7 @@ struct MyGuideApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
-                CaptureScreen(services: services)
-            }
+            HomeScreen(services: services)
             // myguide://walk/<id>, from the Live Activity: open that walk story.
             .onOpenURL { url in
                 if let id = WalkLink.storyID(from: url) { services.walking.stories.open(id) }

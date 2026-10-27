@@ -35,7 +35,7 @@ final class WalkingStories {
     private(set) var fetchingMore: Set<UUID> = []
     /// The last failure reported, shown on that story's screen.
     private(set) var lastFailure: Failure?
-    /// The story the owner asked to open; the capture screen shows it and clears this when it is closed.
+    /// The story the owner asked to open; Home pushes it and clears this at once.
     var openID: UUID?
     private(set) var playback = WalkingPlayback()
 
