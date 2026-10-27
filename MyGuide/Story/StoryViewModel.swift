@@ -57,6 +57,9 @@ final class StoryViewModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var thenTask: Task<Void, Never>?
     @ObservationIgnored private var speechTask: Task<Void, Never>?
+    /// Keeps a first story (through its level 1 audio fetch) or a continuation running if the phone is locked
+    /// mid-request. At most one is held; `.invalid` when none.
+    @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     /// Language for a first story; read when the photo is taken or picked. Stored sessions keep their own.
     @ObservationIgnored private var newSessionLanguage: StoryLanguage = .english
     @ObservationIgnored private let audio = AudioPlayer()
@@ -83,6 +86,7 @@ final class StoryViewModel {
         thenTask?.cancel()
         speechTask?.cancel()
         audio.stop()
+        endBackgroundWork()
     }
 
     func start(photoJPEG: Data, capture: CaptureContext) {
@@ -109,7 +113,9 @@ final class StoryViewModel {
         guard let current = session, current.nextLevel != nil, moreState != .working else { return }
         moreState = .working
         task?.cancel()
+        let background = beginBackgroundWork()
         task = Task { [weak self, services] in
+            defer { self?.endBackgroundWork(background) }
             do {
                 let flow = try services.makeFlow()
                 let (next, usage) = try await flow.continueStory(current)
@@ -135,6 +141,7 @@ final class StoryViewModel {
         thenTask?.cancel()
         thenTask = nil
         stopSpeech()
+        endBackgroundWork()
         if moreState == .working { moreState = .idle }
         if thenState == .working { thenState = .idle }
     }
@@ -152,7 +159,11 @@ final class StoryViewModel {
         saveFailed = false
         state = .working(Self.workingText)
         let language = newSessionLanguage
+        let background = beginBackgroundWork()
         task = Task { [weak self, services] in
+            // On success the level 1 audio fetch takes over the background task and ends it.
+            var handedToSpeech = false
+            defer { if !handedToSpeech { self?.endBackgroundWork(background) } }
             do {
                 let flow = try services.makeFlow()
                 let (session, usage) = try await flow.tellFirstStory(photoJPEG: photoJPEG, capture: capture,
@@ -164,7 +175,8 @@ final class StoryViewModel {
                 self.state = .showing
                 self.persist(session)
                 // The text is already on screen; audio follows and never delays it.
-                self.playSpeech(level: 0)
+                handedToSpeech = true
+                self.playSpeech(level: 0, backgroundWork: background)
             } catch {
                 // Our own cancel (or a superseding run) is silence, whatever error type the sources report it with.
                 guard !Task.isCancelled, let self else { return }
@@ -246,14 +258,19 @@ final class StoryViewModel {
 
     /// Starts speaking one level, stopping whatever else is loading or playing. A replay hits the cache.
     /// Failure only marks that level as failed; the text is never affected.
-    func playSpeech(level: Int) {
-        guard let session, session.levels.indices.contains(level) else { return }
+    /// `backgroundWork`, if given, is ended once the audio fetch finishes, however it finishes.
+    func playSpeech(level: Int, backgroundWork: UIBackgroundTaskIdentifier = .invalid) {
+        guard let session, session.levels.indices.contains(level) else {
+            endBackgroundWork(backgroundWork)
+            return
+        }
         stopSpeech()
         speech[level] = .loading
         let text = session.levels[level]
         let language = session.language
         let key = "\(session.id.uuidString)-\(level + 1)"
         speechTask = Task { [weak self, services] in
+            defer { self?.endBackgroundWork(backgroundWork) }
             do {
                 let service = try services.makeSpeech()
                 let (url, usage) = try await service.audioFile(text: text, language: language, cacheKey: key)
@@ -287,5 +304,42 @@ final class StoryViewModel {
         speechTask = nil
         audio.stop()
         speech = [:]
+    }
+
+    // MARK: - Background time
+
+    /// Starts a background task for the work about to run, ending any previous one first so none leaks.
+    private func beginBackgroundWork() -> UIBackgroundTaskIdentifier {
+        endBackgroundWork()
+        let id = UIApplication.shared.beginBackgroundTask(withName: "MyGuide story") { [weak self] in
+            self?.backgroundTimeExpired()
+        }
+        backgroundTask = id
+        return id
+    }
+
+    /// Ends `id` if it is still the one held. A stale id (already ended, or replaced by newer work) is ignored,
+    /// so no identifier is ever ended twice.
+    private func endBackgroundWork(_ id: UIBackgroundTaskIdentifier) {
+        guard id != .invalid, id == backgroundTask else { return }
+        endBackgroundWork()
+    }
+
+    /// Ends the held background task, if any.
+    private func endBackgroundWork() {
+        guard backgroundTask != .invalid else { return }
+        let id = backgroundTask
+        backgroundTask = .invalid
+        UIApplication.shared.endBackgroundTask(id)
+    }
+
+    /// iOS is about to suspend the app: stop the work and end the task. A first story that was still working
+    /// shows the error with Retry instead of a spinner that would never finish.
+    private func backgroundTimeExpired() {
+        let wasWorking = if case .working = state { true } else { false }
+        cancel()
+        if wasWorking {
+            state = .failed(message: Self.unexpectedCancellationText, canUseCurrentPosition: false)
+        }
     }
 }
