@@ -4,16 +4,28 @@ import MyGuideCore
 
 /// The Live Activity of walking mode: "Walking" with the status line, and a stop story on the lock screen. An
 /// update works with the app in the background; one that cannot be made throws, so the caller can fall back to a
-/// notification. Updates are applied in the order they were made.
+/// notification. Updates are applied in the order they were made. Every push carries a stale date
+/// (`WalkingStatus.activityStaleDate`), so an activity whose app was ended stops claiming "Walking" on its own.
 @MainActor
 final class WalkingActivityController {
     static let headline = "Walking"
 
     struct NotRunning: Error {}
 
+    /// What the activity shows (or was last asked to show).
+    private struct Shown {
+        var headline: String
+        var body: String
+        var storyID: UUID?
+    }
+
     private var activity: Activity<WalkingActivityAttributes>?
     /// The last status text; nothing is pushed for the same text again.
     private var status: String?
+    private var shown: Shown?
+    /// The newest stale date the controller knows, and the one last pushed.
+    private var staleDate: Date?
+    private var pushedStaleDate: Date?
     private var buzzCount = 0
     /// True while the activity shows a stop story. Status changes leave it up until the next buzz.
     private var showingStop = false
@@ -33,13 +45,17 @@ final class WalkingActivityController {
         buzzCount = 0
         showingStop = false
         lastPush = nil
+        let stale = WalkingStatus.activityStaleDate(lastFixAt: nil, startedAt: date)
+        shown = Shown(headline: Self.headline, body: text, storyID: nil)
+        staleDate = stale
+        pushedStaleDate = stale
         await Self.endAll()
         // A newer start (stop, then start again) owns the activity now; this one must not touch it.
         guard generation == mine, ActivityAuthorizationInfo().areActivitiesEnabled else { return nil }
         do {
             let state = WalkingActivityAttributes.ContentState(headline: Self.headline, body: text, updatedAt: date, storyID: nil)
             let requested = try Activity.request(attributes: WalkingActivityAttributes(startedAt: date),
-                                                 content: ActivityContent(state: state, staleDate: nil))
+                                                 content: ActivityContent(state: state, staleDate: stale))
             activity = requested
             return requested.id
         } catch {
@@ -48,16 +64,24 @@ final class WalkingActivityController {
         }
     }
 
-    /// Shows the status line, but only when its text changed (a buzz, or GPS found or lost), not on every fix.
-    func updateStatus(_ text: String, buzzCount count: Int) {
+    /// Shows the status line when its text changed (a buzz, or GPS found or lost), not on every fix; and pushes what
+    /// is shown again when `staleDate` has moved on enough (`WalkingStatus.needsStaleRefresh`). A stop story on show
+    /// stays up until the next buzz.
+    func updateStatus(_ text: String, buzzCount count: Int, staleDate stale: Date) {
         buzzCount = count
-        guard activity != nil, text != status else { return }
-        status = text
-        if showingStop {
-            guard count != stopBuzzCount else { return }
-            showingStop = false
+        staleDate = stale
+        guard activity != nil else { return }
+        if text != status {
+            status = text
+            if showingStop, count != stopBuzzCount { showingStop = false }
+            if !showingStop {
+                push(Shown(headline: Self.headline, body: text, storyID: nil), alert: nil)
+                return
+            }
         }
-        push(headline: Self.headline, body: text, storyID: nil, alert: nil)
+        if let shown, WalkingStatus.needsStaleRefresh(pushed: pushedStaleDate, next: stale) {
+            push(shown, alert: nil)
+        }
     }
 
     /// Puts the stop story on the lock screen; `quiet` leaves out the alert (sound, screen on) while another story
@@ -69,7 +93,7 @@ final class WalkingActivityController {
         let text = story.levels.first ?? ""
         let alert = quiet ? nil : AlertConfiguration(title: LocalizedStringResource(stringLiteral: story.title),
                                                      body: LocalizedStringResource(stringLiteral: text), sound: .default)
-        await push(headline: story.title, body: text, storyID: story.id, alert: alert).value
+        await push(Shown(headline: story.title, body: text, storyID: story.id), alert: alert).value
     }
 
     /// Ends the current run's activity at once (walking mode is off).
@@ -84,6 +108,9 @@ final class WalkingActivityController {
         if activity?.id == id {
             activity = nil
             status = nil
+            shown = nil
+            staleDate = nil
+            pushedStaleDate = nil
             showingStop = false
             lastPush = nil
         }
@@ -94,12 +121,26 @@ final class WalkingActivityController {
         }
     }
 
+    /// Ends every walking activity but the current run's: left over from a run whose app was ended (walking mode
+    /// never survives a relaunch), or from the Walking check of an earlier launch.
+    func endLeftovers() {
+        let current = activity?.id
+        Task {
+            for activity in Activity<WalkingActivityAttributes>.activities where activity.id != current {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+    }
+
     @discardableResult
-    private func push(headline: String, body: String, storyID: UUID?, alert: AlertConfiguration?) -> Task<Void, Never> {
+    private func push(_ next: Shown, alert: AlertConfiguration?) -> Task<Void, Never> {
         guard let activity else { return Task {} }
+        shown = next
+        pushedStaleDate = staleDate
         let content = ActivityContent(
-            state: WalkingActivityAttributes.ContentState(headline: headline, body: body, updatedAt: .now, storyID: storyID),
-            staleDate: nil)
+            state: WalkingActivityAttributes.ContentState(headline: next.headline, body: next.body, updatedAt: .now,
+                                                          storyID: next.storyID),
+            staleDate: staleDate)
         let previous = lastPush
         let task = Task { @MainActor in
             await previous?.value

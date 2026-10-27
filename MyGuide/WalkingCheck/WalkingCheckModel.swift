@@ -276,8 +276,12 @@ final class WalkingCheckModel: NSObject {
         guard !activityRunning else { return }
         activityRunning = true  // also guards against a second tap while old activities are being ended
         activityResult = nil
-        // Ended first, so an activity left over from an earlier launch does not stay on the lock screen beside the new one.
-        await Self.endAllActivities()
+        // Only the check's own earlier activity is ended: walking mode's must survive the check (leftovers from an
+        // earlier launch are ended at launch).
+        if let previous = activityID {
+            activityID = nil
+            await Self.endActivity(id: previous)
+        }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             activityRunning = false
             activityStatus = "Live Activities are turned off"
@@ -310,12 +314,6 @@ final class WalkingCheckModel: NSObject {
         activityRunning = false
         activityStatus = "Ended"
         if let id { Task { await Self.endActivity(id: id) } }
-    }
-
-    private nonisolated static func endAllActivities() async {
-        for activity in Activity<WalkingActivityAttributes>.activities {
-            await activity.end(nil, dismissalPolicy: .immediate)
-        }
     }
 
     // `Activity` is not Sendable, so it is looked up by id inside these nonisolated helpers

@@ -191,6 +191,13 @@ final class WalkingController {
         Task { await BuzzNotifier.removeWalkNotifications() }
     }
 
+    /// At launch: walking mode never survives a relaunch, so a walking Live Activity still on the lock screen belongs
+    /// to a run whose app was ended. Ends them, unless walking mode is on or starting by now.
+    func endLeftoverActivities() {
+        guard !isOn, startToken == nil else { return }
+        activity.endLeftovers()
+    }
+
     // MARK: - Commands
 
     /// Every command goes through the playback machine (Skip too), so there is one path per command.
@@ -299,10 +306,13 @@ final class WalkingController {
         refreshActivity(now: now)
     }
 
-    /// Shows the status on the Live Activity; it only changes with the buzz count or the GPS state.
+    /// Shows the status on the Live Activity; it only changes with the buzz count or the GPS state, and is pushed
+    /// again now and then to move its stale date on.
     private func refreshActivity(now: Date) {
-        guard isOn, let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now) else { return }
-        activity.updateStatus(text, buzzCount: buzzCount)
+        guard isOn, let startedAt,
+              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now) else { return }
+        activity.updateStatus(text, buzzCount: buzzCount,
+                              staleDate: WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: startedAt))
     }
 
     // MARK: - Stops

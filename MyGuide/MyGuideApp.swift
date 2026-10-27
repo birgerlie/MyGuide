@@ -40,6 +40,7 @@ struct MyGuideApp: App {
             }
         }
         Task { await BuzzNotifier.registerCategories() }
+        services.walking.endLeftoverActivities()
     }
 
     var body: some Scene {
