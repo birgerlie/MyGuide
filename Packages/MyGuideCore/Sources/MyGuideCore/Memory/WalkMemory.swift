@@ -84,6 +84,13 @@ extension MemoryStore {
         return Set(try context.fetch(descriptor).map(\.placeID))
     }
 
+    /// The positions of the trip's stop stories, so the same spot is not told twice in a trip.
+    public func stopSpots(tripID: UUID) throws -> [Coordinate] {
+        let stop = WalkStory.Kind.stop.rawValue
+        let descriptor = FetchDescriptor<WalkStoryRecord>(predicate: #Predicate { $0.tripID == tripID && $0.kind == stop })
+        return try context.fetch(descriptor).map { Coordinate(latitude: $0.latitude, longitude: $0.longitude) }
+    }
+
     /// Logs the buzz as pending and marks its place as buzzed in the trip. A new place starts unheard.
     /// Recording a buzz id that is already logged changes nothing.
     public func recordBuzz(_ buzz: Buzz, tripID: UUID, at: Date) throws {

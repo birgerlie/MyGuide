@@ -25,6 +25,9 @@ targets:
         UILaunchScreen: {}
         UIBackgroundModes: [audio, location]
         NSSupportsLiveActivities: true
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.birgerlie.MyGuide
+            CFBundleURLSchemes: [myguide]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: "MyGuide uses the camera to photograph what you want a story about."
         NSLocationWhenInUseUsageDescription: "MyGuide uses your exact position and compass heading to work out what you are looking at."

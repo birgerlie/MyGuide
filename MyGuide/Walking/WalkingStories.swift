@@ -55,6 +55,8 @@ final class WalkingStories {
     @ObservationIgnored private let audio = AudioPlayer()
     @ObservationIgnored private var prepareTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var moreTasks: [UUID: Task<Void, Never>] = [:]
+    /// Stop stories being told, by a token of their own.
+    @ObservationIgnored private var stopTasks: [UUID: Task<Void, Never>] = [:]
     /// Fetches the speech of a level that has no audio file yet, then plays it.
     @ObservationIgnored private var playTask: Task<Void, Never>?
     /// Identifies the current `play`; `stopAudio()` clears it, so a fetch whose play was stopped or replaced
@@ -141,6 +143,37 @@ final class WalkingStories {
         }
     }
 
+    /// Tells the story for the spot where the walker has stopped: looks up the address (`address` returns nil on a
+    /// failure or timeout), writes the text, records the usage and saves the story. `ready` is called with the saved
+    /// story. A failure is only logged: a stop story is a lock-screen extra, nobody asked for it.
+    func prepareStop(position: Coordinate, nearby: [WalkingPlace], language: StoryLanguage,
+                     address: @escaping @MainActor () async -> Address?,
+                     ready: @escaping @MainActor (WalkStory) -> Void) {
+        let tripID = currentTripID?()
+        let token = UUID()
+        stopTasks[token] = runInBackground("MyGuide stop story") { [weak self] in
+            guard let self else { return }
+            defer { stopTasks[token] = nil }
+            do {
+                let found = await address()
+                try Task.checkCancellation()
+                let flow = try makeFlow()
+                let (story, usage) = try await flow.stopStory(position: position, address: found, nearby: nearby,
+                                                              language: language)
+                // Paid calls are counted even when the story is no longer wanted.
+                recordUsage(usage)
+                try Task.checkCancellation()
+                save(story, tripID: tripID)
+                prepared.store(story)
+                ready(story)
+            } catch is CancellationError {
+                // Walking mode went off meanwhile: silent.
+            } catch {
+                AppServices.logMemoryFailure("stop story failed", error)
+            }
+        }
+    }
+
     func tellMe(_ id: UUID) {
         dispatch(.tellMe(id), for: id)
     }
@@ -175,6 +208,7 @@ final class WalkingStories {
     func stopAll() {
         for (id, task) in prepareTasks { cancelOwn(id, task) }
         for (id, task) in moreTasks { cancelOwn(id, task) }
+        for task in stopTasks.values { task.cancel() }
         stopListening()
         featuredID = nil
     }

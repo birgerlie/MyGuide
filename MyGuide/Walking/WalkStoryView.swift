@@ -77,11 +77,14 @@ struct WalkStoryView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(working)
                 }
-                Button("Skip this place", role: .destructive) {
-                    stories.skip(id)
-                    dismiss()
+                // A stop story has no place to skip.
+                if story.kind == .buzz {
+                    Button("Skip this place", role: .destructive) {
+                        stories.skip(id)
+                        dismiss()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
             .padding()
         }

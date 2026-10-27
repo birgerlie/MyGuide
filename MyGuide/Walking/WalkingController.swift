@@ -41,6 +41,8 @@ final class WalkingController {
     @ObservationIgnored private let hasAPIKey: () -> Bool
     @ObservationIgnored private let location = WalkingLocation()
     @ObservationIgnored private var engine: BuzzEngine?
+    @ObservationIgnored private var stopDetector: StopDetector?
+    @ObservationIgnored private let activity = WalkingActivityController()
     @ObservationIgnored private var appliedPerHour = BuzzBudget.defaultPerHour
     @ObservationIgnored private var feed = PlaceFeed()
     @ObservationIgnored private var source: WalkingPlaceSource?
@@ -116,6 +118,12 @@ final class WalkingController {
         do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
         let city = await Self.city(near: location.lastKnown)
         guard startToken == token else { return }
+        // Started while the app is in front (Live Activities need that); leftovers of an earlier launch end first.
+        await activity.start(at: now, status: WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 0, now: now) ?? "Walking")
+        guard startToken == token else {
+            activity.end()
+            return
+        }
         let trip: UUID
         do {
             trip = try memory.touchTrip(now: now, city: city).id
@@ -127,6 +135,10 @@ final class WalkingController {
         var excluded = Set<String>()
         do { excluded.formUnion(try memory.retiredPlaceIDs()) } catch { AppServices.logMemoryFailure("retired places failed", error) }
         do { excluded.formUnion(try memory.placeIDsBuzzed(tripID: trip)) } catch { AppServices.logMemoryFailure("buzzed places failed", error) }
+
+        var stopSpots: [Coordinate] = []
+        do { stopSpots = try memory.stopSpots(tripID: trip) } catch { AppServices.logMemoryFailure("stop spots failed", error) }
+        stopDetector = StopDetector(previousStops: stopSpots)
 
         appliedPerHour = Self.configuredPerHour()
         var engine = BuzzEngine(perHour: appliedPerHour, now: now, excluded: excluded)
@@ -163,8 +175,10 @@ final class WalkingController {
         fetchTask = nil
         feed.fetchCancelled()
         engine = nil
+        stopDetector = nil
         source = nil
         problems = []
+        activity.end()
         // Preparations and fetches still end with their (silent) failure events, so the machine never stays busy.
         stories.stopAll()
         Task { await BuzzNotifier.removeWalkNotifications() }
@@ -220,6 +234,7 @@ final class WalkingController {
                 try? await Task.sleep(for: Self.autoOffInterval)
                 guard !Task.isCancelled, let self, self.isOn, self.runToken == run else { return }
                 self.checkAutoOff(now: .now)
+                self.refreshActivity(now: .now)
             }
         }
     }
@@ -252,6 +267,11 @@ final class WalkingController {
 
         if feed.shouldFetch(at: position, now: now) { fetch(around: position, now: now) }
 
+        // The raw speed: -1 means unknown, which the detector does not count as moving.
+        if let spot = stopDetector?.update(position: position, accuracy: fix.horizontalAccuracy, speed: fix.speed, now: now) {
+            tellStop(at: spot)
+        }
+
         let perHour = Self.configuredPerHour()
         if perHour != appliedPerHour {
             appliedPerHour = perHour
@@ -262,6 +282,39 @@ final class WalkingController {
                                    course: course, now: now)
         self.engine = engine
         if let buzz { deliver(buzz, position: position, course: course, at: now) }
+        refreshActivity(now: now)
+    }
+
+    /// Shows the status on the Live Activity; it only changes with the buzz count or the GPS state.
+    private func refreshActivity(now: Date) {
+        guard isOn, let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now) else { return }
+        activity.updateStatus(text, buzzCount: buzzCount)
+    }
+
+    // MARK: - Stops
+
+    /// The owner has stayed put: tell a short story about the spot (design 7.6).
+    private func tellStop(at spot: Coordinate) {
+        let run = runToken
+        stories.prepareStop(position: spot, nearby: feed.places, language: Self.storyLanguage(),
+                            address: { await Self.address(at: spot) },
+                            ready: { [weak self] story in self?.deliverStop(story, run: run) })
+    }
+
+    /// Live Activity first (it can be updated from the background); a notification only when that fails.
+    private func deliverStop(_ story: WalkStory, run: UUID?) {
+        guard isOn, runToken == run else { return }
+        // No sound over a story that is playing.
+        let quiet = stories.listening != nil
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await activity.showStop(story, quiet: quiet)
+            } catch {
+                guard isOn, runToken == run else { return }
+                do { try await BuzzNotifier.postStop(story, quiet: quiet) } catch { AppServices.logMemoryFailure("stop post failed", error) }
+            }
+        }
     }
 
     private func deliver(_ buzz: Buzz, position: Coordinate, course: Double?, at now: Date) {
@@ -367,15 +420,19 @@ final class WalkingController {
     /// The city at `location`, or nil when there is no position, the lookup fails or it takes longer than 8 s.
     private static func city(near location: CLLocation?) async -> String? {
         guard let location else { return nil }
-        let coordinate = Coordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
-        let once = OnceBox<String?>()
+        return await address(at: Coordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude))?.city
+    }
+
+    /// The address at `coordinate`, or nil when the lookup fails or it takes longer than 8 s.
+    private static func address(at coordinate: Coordinate) async -> Address? {
+        let once = OnceBox<Address?>()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            await withCheckedContinuation { (continuation: CheckedContinuation<Address?, Never>) in
                 once.install(continuation)
                 // MapKit's request ignores cancellation, so neither task is awaited: whichever finishes first resumes.
                 Task {
-                    let city = try? await MapKitReverseGeocoder().address(for: coordinate).city
-                    once.resume(city)
+                    let address = try? await MapKitReverseGeocoder().address(for: coordinate)
+                    once.resume(address)
                 }
                 Task {
                     try? await Task.sleep(for: geocodeTimeout)

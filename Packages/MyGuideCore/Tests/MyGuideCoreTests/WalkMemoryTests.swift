@@ -213,6 +213,23 @@ import Testing
         #expect(try store.retiredPlaceIDs().isEmpty)
         #expect(try store.context.fetchCount(FetchDescriptor<PlaceRecord>()) == 0)
     }
+    // MARK: - stopSpots
+
+    @Test func stopSpotsReturnsTheTripsStopStoriesOnly() throws {
+        try store.saveWalkStory(Self.stopStory(north: 0, levels: ["a"]), tripID: Self.trip)
+        try store.saveWalkStory(Self.stopStory(north: 500, levels: ["b"], at: 600), tripID: Self.trip)
+        // Another trip's stop and this trip's buzz story are excluded.
+        try store.saveWalkStory(Self.stopStory(north: 900, levels: ["c"]), tripID: Self.otherTrip)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["d"]), tripID: Self.trip)
+        let spots = try store.stopSpots(tripID: Self.trip)
+        #expect(spots.count == 2)
+        #expect(spots.contains(.at(north: 0)) && spots.contains(.at(north: 500)))
+        #expect(try store.stopSpots(tripID: Self.otherTrip) == [.at(north: 900)])
+    }
+    @Test func stopSpotsIsEmptyForATripWithoutStops() throws {
+        #expect(try store.stopSpots(tripID: Self.trip).isEmpty)
+    }
+
     @Test func secondSkipKeepsTheFirstTime() throws {
         try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.trip, at: Self.t0)
         try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 5)

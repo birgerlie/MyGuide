@@ -17,6 +17,8 @@ struct WalkingLiveActivity: Widget {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
+            // A tap opens the stop story on show; nothing to open while the activity only says "Walking".
+            .widgetURL(context.state.storyID.map(WalkingActivityAttributes.storyURL))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.center) {
@@ -31,6 +33,7 @@ struct WalkingLiveActivity: Widget {
             } minimal: {
                 Image(systemName: "figure.walk")
             }
+            .widgetURL(context.state.storyID.map(WalkingActivityAttributes.storyURL))
         }
     }
 }

@@ -30,10 +30,11 @@ struct MyGuideApp: App {
         _services = State(initialValue: services)
         // Set before the app finishes launching, so an action that cold-launches the app is not dropped.
         AppDelegate.responseHandler = { response in
-            // The Walking check owns category CHECK; walking mode owns BUZZ, MORE and STORY_FAILED.
+            // The Walking check owns category CHECK; walking mode owns BUZZ, MORE, STORY_FAILED and STOP.
             switch response.notification.request.content.categoryIdentifier {
             case WalkingCheckModel.category: services.walkingCheck.handle(response)
-            case BuzzNotifier.category, BuzzNotifier.moreCategory, BuzzNotifier.failedCategory:
+            case BuzzNotifier.category, BuzzNotifier.moreCategory, BuzzNotifier.failedCategory,
+                BuzzNotifier.stopCategory:
                 services.walking.handle(response)
             default: break
             }
@@ -45,6 +46,10 @@ struct MyGuideApp: App {
         WindowGroup {
             NavigationStack {
                 CaptureScreen(services: services)
+            }
+            // myguide://walk/<id>, from the Live Activity: open that walk story.
+            .onOpenURL { url in
+                if let id = WalkingActivityAttributes.storyID(from: url) { services.walking.stories.open(id) }
             }
         }
         .modelContainer(container)

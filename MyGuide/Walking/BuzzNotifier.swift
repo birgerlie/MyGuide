@@ -2,11 +2,12 @@ import MyGuideCore
 import UserNotifications
 
 /// Posts and manages walking-mode notifications: a buzz (Tell me, Skip), the offer of the next part (More, Skip)
-/// and a story that could not be told. Every one carries its buzz id in `userInfo["buzzID"]`.
+/// a story that could not be told and a stop story. Every one carries its buzz id in `userInfo["buzzID"]`.
 enum BuzzNotifier {
     nonisolated static let category = "BUZZ"
     nonisolated static let moreCategory = "MORE"
     nonisolated static let failedCategory = "STORY_FAILED"
+    nonisolated static let stopCategory = "STOP"
     nonisolated static let tellMeAction = "TELL_ME"
     nonisolated static let moreAction = "MORE"
     nonisolated static let skipAction = "SKIP"
@@ -18,7 +19,7 @@ enum BuzzNotifier {
     static let failedTitle = "Couldn't get the story"
     static let moreBody = "Tap More for the next part."
 
-    /// Registers BUZZ, MORE and STORY_FAILED, merging with the categories other features registered (never
+    /// Registers BUZZ, MORE, STORY_FAILED and STOP, merging with the categories other features registered (never
     /// replacing them). The actions run in the background: the story plays without unlocking the phone.
     static func registerCategories() async {
         let center = UNUserNotificationCenter.current()
@@ -29,6 +30,7 @@ enum BuzzNotifier {
             UNNotificationCategory(identifier: category, actions: [tellMe, skip], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: moreCategory, actions: [more, skip], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: failedCategory, actions: [], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: stopCategory, actions: [], intentIdentifiers: [], options: []),
         ]
         let ourIDs = Set(ours.map(\.identifier))
         var categories = await center.notificationCategories().filter { !ourIDs.contains($0.identifier) }
@@ -46,6 +48,14 @@ enum BuzzNotifier {
     /// Offers the next part of a story that just finished.
     static func postMore(id: UUID, title: String) async throws {
         try await add(content(category: moreCategory, title: title, body: moreBody, id: id), identifier: "\(id)-more")
+    }
+
+    /// Delivers a stop story: its title and text, the story id as request identifier. `quiet` leaves out the sound
+    /// (another story is playing). Used when the Live Activity cannot show it.
+    static func postStop(_ story: WalkStory, quiet: Bool) async throws {
+        let content = content(category: stopCategory, title: story.title, body: story.levels.first ?? "", id: story.id)
+        if quiet { content.sound = nil }
+        try await add(content, identifier: story.id.uuidString)
     }
 
     /// Says a story could not be told; `body` is the user-facing reason.
