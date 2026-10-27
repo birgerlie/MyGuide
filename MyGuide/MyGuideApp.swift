@@ -49,7 +49,7 @@ struct MyGuideApp: App {
             }
             // myguide://walk/<id>, from the Live Activity: open that walk story.
             .onOpenURL { url in
-                if let id = WalkingActivityAttributes.storyID(from: url) { services.walking.stories.open(id) }
+                if let id = WalkLink.storyID(from: url) { services.walking.stories.open(id) }
             }
         }
         .modelContainer(container)

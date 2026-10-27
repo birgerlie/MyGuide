@@ -14,14 +14,10 @@ struct WalkingActivityAttributes: ActivityAttributes {
 
     var startedAt: Date
 
-    /// `myguide://walk/<id>`: opens the walk story with that id.
+    /// `myguide://walk/<id>`: opens the walk story with that id. The widget extension does not link MyGuideCore, so
+    /// this is a one-line mirror of `WalkLink.url(for:)`; `WalkLinkTests` pins the format, and the app parses with
+    /// `WalkLink.storyID(from:)`.
     static func storyURL(_ id: UUID) -> URL {
         URL(string: "myguide://walk/\(id.uuidString)")!
-    }
-
-    /// The story id in a `myguide://walk/<id>` link; nil for any other URL.
-    static func storyID(from url: URL) -> UUID? {
-        guard url.scheme == "myguide", url.host() == "walk", url.pathComponents.count == 2 else { return nil }
-        return UUID(uuidString: url.pathComponents[1])
     }
 }

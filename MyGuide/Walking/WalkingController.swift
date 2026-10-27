@@ -113,15 +113,19 @@ final class WalkingController {
         // Only now: nothing blocks, so upgrading to Always is the one thing left to ask.
         location.requestAlways()
 
-        await BuzzNotifier.registerCategories()
+        // First of all: a Live Activity can only be requested in the foreground, and the owner may lock the phone at
+        // once. Any left over from an earlier launch end first.
         let now = Date.now
+        let activityID = await activity.start(at: now, status: WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 0, now: now) ?? "Walking")
+        guard startToken == token else {
+            activity.end(activityID)
+            return
+        }
+        await BuzzNotifier.registerCategories()
         do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
         let city = await Self.city(near: location.lastKnown)
-        guard startToken == token else { return }
-        // Started while the app is in front (Live Activities need that); leftovers of an earlier launch end first.
-        await activity.start(at: now, status: WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 0, now: now) ?? "Walking")
         guard startToken == token else {
-            activity.end()
+            activity.end(activityID)
             return
         }
         let trip: UUID

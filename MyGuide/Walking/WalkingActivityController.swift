@@ -19,23 +19,32 @@ final class WalkingActivityController {
     private var showingStop = false
     private var stopBuzzCount = 0
     private var lastPush: Task<Void, Never>?
+    /// Counts starts, so a start that was overtaken knows it is stale.
+    private var generation = 0
 
-    /// Starts the activity, after ending any left over from an earlier launch. A failure is logged and walking mode
-    /// goes on without one (stop stories then arrive as notifications).
-    func start(at date: Date, status text: String) async {
-        await Self.endAll()
+    /// Starts the activity, after ending any left over from an earlier launch, and returns its id (nil when there is
+    /// none: not allowed, failed, or a newer start took over while this one was ending the old ones). A failure is
+    /// logged and walking mode goes on without one (stop stories then arrive as notifications).
+    func start(at date: Date, status text: String) async -> String? {
+        generation += 1
+        let mine = generation
         activity = nil
         status = text
         buzzCount = 0
         showingStop = false
         lastPush = nil
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        await Self.endAll()
+        // A newer start (stop, then start again) owns the activity now; this one must not touch it.
+        guard generation == mine, ActivityAuthorizationInfo().areActivitiesEnabled else { return nil }
         do {
             let state = WalkingActivityAttributes.ContentState(headline: Self.headline, body: text, updatedAt: date, storyID: nil)
-            activity = try Activity.request(attributes: WalkingActivityAttributes(startedAt: date),
-                                            content: ActivityContent(state: state, staleDate: nil))
+            let requested = try Activity.request(attributes: WalkingActivityAttributes(startedAt: date),
+                                                 content: ActivityContent(state: state, staleDate: nil))
+            activity = requested
+            return requested.id
         } catch {
             AppServices.logMemoryFailure("live activity start failed", error)
+            return nil
         }
     }
 
@@ -63,15 +72,21 @@ final class WalkingActivityController {
         await push(headline: story.title, body: text, storyID: story.id, alert: alert).value
     }
 
-    /// Ends the activity at once (walking mode is off).
-    func end() {
-        // Only this run's activity: a start soon after must not lose the one it requests.
-        let ending = activity
-        activity = nil
-        status = nil
-        showingStop = false
-        lastPush = nil
-        Task { await ending?.end(nil, dismissalPolicy: .immediate) }
+    /// Ends an activity at once: the one with `id` (a start that was given up), else the current one (walking mode
+    /// is off). Only that instance; a start soon after must not lose the one it requests.
+    func end(_ id: String? = nil) {
+        guard let target = id ?? activity?.id else { return }
+        if activity?.id == target {
+            activity = nil
+            status = nil
+            showingStop = false
+            lastPush = nil
+        }
+        Task {
+            for activity in Activity<WalkingActivityAttributes>.activities where activity.id == target {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
     }
 
     @discardableResult
