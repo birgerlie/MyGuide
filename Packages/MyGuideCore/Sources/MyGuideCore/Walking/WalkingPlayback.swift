@@ -4,7 +4,10 @@ import Foundation
 /// (design 7.5). Pure state: the app feeds events in and carries out the returned effects.
 public struct WalkingPlayback: Sendable, Equatable {
     public enum Event: Sendable, Equatable {
-        case buzzSent(UUID), storyReady(UUID), storyFailed(UUID), moreReady(UUID, level: Int), moreFailed(UUID)
+        case buzzSent(UUID), storyReady(UUID), storyFailed(UUID), moreReady(UUID, level: Int)
+        /// `storedLevels`: the levels whose text exists now (the new level's text may be saved although its speech
+        /// failed); 0 when unknown. The stored count never decreases.
+        case moreFailed(UUID, storedLevels: Int = 0)
         case tellMe(UUID), more(UUID), skip(UUID), finished(UUID, level: Int), stoppedExternally
         /// The listener picked one level of a story that has its text (the in-app story screen).
         case listen(UUID, level: Int)
@@ -68,6 +71,9 @@ public struct WalkingPlayback: Sendable, Equatable {
     /// The highest level played or being played for the story; nil when none was played or the id is unknown.
     public func deepestLevel(_ id: UUID) -> Int? { levels[id] }
 
+    /// The number of levels whose text exists for the story (told or not); 0 when unknown.
+    public func storedLevels(_ id: UUID) -> Int { stored[id] ?? 0 }
+
     /// The level being fetched for the story ("more"); nil when nothing is being fetched for it.
     public func fetchingLevel(_ id: UUID) -> Int? {
         if case .fetching(let level) = phases[id] { return level }
@@ -83,7 +89,7 @@ public struct WalkingPlayback: Sendable, Equatable {
     public mutating func handle(_ event: Event) -> [Effect] {
         let effects = process(event)
         switch event {
-        case .buzzSent(let id), .storyReady(let id), .storyFailed(let id), .moreReady(let id, _), .moreFailed(let id),
+        case .buzzSent(let id), .storyReady(let id), .storyFailed(let id), .moreReady(let id, _), .moreFailed(let id, _),
              .tellMe(let id), .more(let id), .skip(let id), .finished(let id, _), .listen(let id, _),
              .restored(let id, _, _):
             touch(id)
@@ -167,9 +173,11 @@ public struct WalkingPlayback: Sendable, Equatable {
             stored[id] = max(stored[id] ?? 0, level)
             return start(id, level: level)
 
-        case .moreFailed(let id):
+        case .moreFailed(let id, let storedLevels):
             guard case .fetching = phases[id] else { return [] }
             phases[id] = .ready
+            // A level whose text was saved can be listened to even though its speech failed.
+            stored[id] = max(stored[id] ?? 0, min(storedLevels, StoryLevel.allCases.count))
             return [.reportFailure(id)]
 
         case .skip(let id):

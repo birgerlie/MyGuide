@@ -103,6 +103,7 @@ struct WalkStoryView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .disabled(listening == nil && !stories.canListen(id, level: level))
             if listening?.isLoading == true { ProgressView().controlSize(.small) }
         }
     }

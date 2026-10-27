@@ -316,8 +316,8 @@ import Testing
         #expect(p.handle(.more(Self.a)) == [.stopAudio, .play(Self.a, level: 2)])
     }
     @Test func fetchedLevelsCountAsStored() {
-        // After more fetched level 2, a replay of level 1 then "more" plays level 2 again from storage? No: the
-        // deepest heard is 2, so next = 3, which is fetched.
+        // A fetched level counts as stored and as heard: after level 2 was fetched and played, a replay of level 1
+        // does not lower the deepest heard (2), so "more" asks for 2 + 1 = 3, which is fetched.
         var p = WalkingPlayback()
         _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a)); _ = p.handle(.tellMe(Self.a))
         _ = p.handle(.finished(Self.a, level: 1)); _ = p.handle(.more(Self.a)); _ = p.handle(.moreReady(Self.a, level: 2))
@@ -325,5 +325,29 @@ import Testing
         #expect(p.handle(.listen(Self.a, level: 1)) == [.play(Self.a, level: 1)])
         _ = p.handle(.finished(Self.a, level: 1))
         #expect(p.handle(.more(Self.a)) == [.fetchMore(Self.a)] && p.fetchingLevel(Self.a) == 3)
+    }
+
+    @Test func moreFailedAfterTheTextWasSavedKeepsTheLevelPlayable() {
+        // The text of level 2 was saved but its speech failed: storedLevels 2 raises the stored count from 1 to 2.
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a))
+        #expect(p.storedLevels(Self.a) == 1)
+        _ = p.handle(.more(Self.a))
+        #expect(p.handle(.moreFailed(Self.a, storedLevels: 2)) == [.reportFailure(Self.a)] && !p.isBusy)
+        #expect(p.storedLevels(Self.a) == 2)
+        #expect(p.handle(.listen(Self.a, level: 2)) == [.play(Self.a, level: 2)])
+    }
+    @Test func moreFailedWithoutNewTextLeavesTheCount() {
+        // The text call itself failed: max(1, 0) = 1 and max(1, 1) = 1 stored; level 2 stays unplayable, "more" refetches.
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a)); _ = p.handle(.more(Self.a))
+        _ = p.handle(.moreFailed(Self.a))
+        #expect(p.storedLevels(Self.a) == 1)
+        _ = p.handle(.more(Self.a)); _ = p.handle(.moreFailed(Self.a, storedLevels: 1))
+        #expect(p.storedLevels(Self.a) == 1 && p.handle(.listen(Self.a, level: 2)).isEmpty)
+        // Counts above three are capped: min(9, 3) = 3.
+        _ = p.handle(.more(Self.a)); _ = p.handle(.moreFailed(Self.a, storedLevels: 9))
+        #expect(p.storedLevels(Self.a) == 3)
+        #expect(p.storedLevels(Self.b) == 0)            // unknown
     }
 }

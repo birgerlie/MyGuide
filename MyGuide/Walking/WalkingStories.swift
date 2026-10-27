@@ -92,6 +92,12 @@ final class WalkingStories {
             && (playback.deepestLevel(id) ?? 1) < StoryLevel.allCases.count
     }
 
+    /// False when the machine knows the story but not the level's text yet (preparing), so a speaker button would do
+    /// nothing. A story the machine does not know is restored when the level is asked for.
+    func canListen(_ id: UUID, level: Int) -> Bool {
+        !playback.hasStory(id) || level <= playback.storedLevels(id)
+    }
+
     /// The story as saved in memory; nil when unknown or unreadable (logged).
     func storedStory(_ id: UUID) -> WalkStory? {
         do {
@@ -318,7 +324,8 @@ final class WalkingStories {
                 endFetchingMore(id, with: .moreReady(id, level: target))
             } catch {
                 remember(failure(error, for: id), for: id)
-                endFetchingMore(id, with: .moreFailed(id))
+                // The new level's text may be saved although its speech failed: it stays listenable.
+                endFetchingMore(id, with: .moreFailed(id, storedLevels: prepared.story(id)?.levels.count ?? 0))
             }
         }
     }
