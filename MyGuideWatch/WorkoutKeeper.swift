@@ -8,10 +8,15 @@ final class WorkoutKeeper: NSObject {
     private var session: HKWorkoutSession?
     private var builder: HKLiveWorkoutBuilder?
 
+    private var starting = false
+
     var isRunning: Bool { session != nil }
 
     func start() async throws {
-        guard session == nil else { return }
+        // Set synchronously: the authorization prompt below suspends, and a second call must not get past here.
+        guard session == nil, !starting else { return }
+        starting = true
+        defer { starting = false }
         try await store.requestAuthorization(toShare: [HKObjectType.workoutType()], read: [])
         let configuration = HKWorkoutConfiguration()
         configuration.activityType = .walking

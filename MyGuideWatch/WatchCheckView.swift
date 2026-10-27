@@ -9,6 +9,7 @@ final class WatchCheckModel {
     private static let buzzCount = 5  // at 0, 30, 60, 90 and 120 s
 
     private(set) var workoutRunning = false
+    private(set) var workoutStarting = false
     private(set) var status = "Not started"
     private(set) var pingStatus = "Not tried"
 
@@ -16,7 +17,10 @@ final class WatchCheckModel {
     @ObservationIgnored private var buzzTask: Task<Void, Never>?
 
     func startWorkout() async {
-        guard !workoutRunning else { return }
+        // Set synchronously: the first-run permission prompt suspends, and a second tap must not start another session.
+        guard !workoutRunning, !workoutStarting else { return }
+        workoutStarting = true
+        defer { workoutStarting = false }
         do {
             try await workout.start()
         } catch {
@@ -72,6 +76,7 @@ struct WatchCheckView: View {
                     Button("Stop") { Task { await model.stopWorkout() } }
                 } else {
                     Button("Start workout") { Task { await model.startWorkout() } }
+                        .disabled(model.workoutStarting)
                 }
                 Button("Ping phone") { Task { await model.ping() } }
                 Text(model.pingStatus).font(.footnote).foregroundStyle(.secondary)
