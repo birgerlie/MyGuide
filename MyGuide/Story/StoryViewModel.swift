@@ -194,6 +194,7 @@ final class StoryViewModel {
         do {
             try services.memory.save(session)
             saveFailed = false
+            LatestStoryRef.record(.photo(session.id))
         } catch {
             AppServices.logMemoryFailure("save failed", error)
             saveFailed = true

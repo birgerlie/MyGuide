@@ -440,6 +440,7 @@ final class WalkingStories {
     private func save(_ story: WalkStory, tripID: UUID?) {
         do {
             try memory.saveWalkStory(story, tripID: tripID ?? UUID())
+            LatestStoryRef.record(.walk(story.id))
         } catch {
             AppServices.logMemoryFailure("walk story save failed", error)
         }

@@ -27,6 +27,11 @@ struct HomeScreen: View {
     @State private var pushedModel: StoryViewModel?
     /// Speaks the latest photo story from the card; separate from `pushedModel`, which is the full screen's.
     @State private var cardModel: StoryViewModel?
+    /// The story shown, resolved by `refreshCard`; nil with `resolved` set means there is none yet (first run).
+    @State private var latest: LatestStory?
+    @State private var latestPhoto: CaptureRecord?
+    @State private var latestWalkTitle: String?
+    @State private var resolved = false
     @State private var cardThumbnail: UIImage?
     @State private var cardSessionLevels: [String] = []
     @State private var cardWalkStory: WalkStory?
@@ -51,11 +56,6 @@ struct HomeScreen: View {
         var descriptor = FetchDescriptor<WalkStoryRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
         descriptor.fetchLimit = 1
         return descriptor
-    }
-
-    private var latest: LatestStory? {
-        LatestStory.newest(photo: photos.first.map { ($0.id, $0.takenAt) },
-                           walk: walks.first.map { ($0.id, $0.createdAt) })
     }
 
     var body: some View {
@@ -98,10 +98,7 @@ struct HomeScreen: View {
         }
         .onChange(of: path) { _, path in
             // The story screen is being dropped (navigated back): stop its work silently.
-            if !path.contains(.photoStory), let model = pushedModel {
-                model.cancel()
-                pushedModel = nil
-            }
+            if !path.contains(.photoStory) { setPushedModel(nil) }
             if path.isEmpty {
                 Task { await refreshCard() }
             } else {
@@ -117,7 +114,9 @@ struct HomeScreen: View {
             pickerItem = nil
             Task { await usePicked(item) }
         }
-        .task(id: latest) { await refreshCard() }
+        // The queries are the fallback and the trigger: a new walk story changes them at once; a story told from
+        // Home's stack is picked up when Home comes back to the top.
+        .task(id: [photos.first?.id, walks.first?.id]) { await refreshCard() }
     }
 
     // MARK: - Content
@@ -125,33 +124,32 @@ struct HomeScreen: View {
     @ViewBuilder
     private var content: some View {
         switch latest {
-        case .photo(let id):
-            if let record = photos.first(where: { $0.id == id }) {
+        case .photo:
+            if let record = latestPhoto {
                 card(title: record.title, thumbnail: cardThumbnail, levels: cardSessionLevels,
                      playing: cardModel.map { $0.speechState(for: 0) != .idle } ?? false,
                      canPlay: cardModel != nil,
                      play: { cardModel?.toggleSpeech(level: 0) }, open: openPhotoStory)
             }
         case .walk(let id):
-            if let record = walks.first(where: { $0.id == id }) {
-                walkCard(record: record)
-            }
-        case nil:
+            if let title = latestWalkTitle { walkCard(id: id, title: title) }
+        case nil where resolved:
             Text(Self.firstRunText)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .padding(.vertical, 40)
+        case nil:
+            EmptyView()
         }
     }
 
-    private func walkCard(record: WalkStoryRecord) -> some View {
+    private func walkCard(id: UUID, title: String) -> some View {
         let stories = services.walking.stories
-        let id = record.id
         // The prepared copy gains levels as they arrive; the stored one covers stories no longer prepared.
         let live = stories.story(id)
         let walkStory = [live, cardWalkStory].compactMap { $0 }.max { $0.levels.count < $1.levels.count }
         let playing = stories.listening?.id == id
-        return card(title: record.title, thumbnail: nil, levels: walkStory?.levels ?? [],
+        return card(title: title, thumbnail: nil, levels: walkStory?.levels ?? [],
                     playing: playing, canPlay: playing || stories.canListen(id, level: 1),
                     play: { if playing { stories.stopListening() } else { stories.listen(id, level: 1) } },
                     open: { openWalkStory(id) })
@@ -224,6 +222,8 @@ struct HomeScreen: View {
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.capsule)
             .accessibilityLabel("Open camera")
+            // A picked photo is still loading: opening the camera now would race its story onto the stack.
+            .disabled(isBusy)
             walkButton
         }
         .padding(.horizontal)
@@ -272,13 +272,22 @@ struct HomeScreen: View {
 
     // MARK: - Navigation
 
-    /// A photo was taken or picked on the camera screen: its story replaces the camera, so going back lands on
-    /// Home with the camera off. If the camera is no longer on top (the owner went back, or a walk story is open
-    /// over it) the photo is dropped before any paid request starts, rather than hijacking the screen.
+    /// A photo was taken or picked on the camera screen: its story takes the camera's place in the stack, so going
+    /// back lands on Home with the camera off. If something was pushed over the camera meanwhile (a walk story), it
+    /// stays on top and the photo story waits under it. If the camera left the stack (the owner went back) the photo
+    /// is dropped before any paid request starts, rather than hijacking the screen.
     private func photoReady(_ photo: Data, _ capture: CaptureContext, _ language: StoryLanguage) {
-        guard path.last == .camera else { return }
-        pushedModel = startStory(photo: photo, capture: capture, language: language)
-        path = [.photoStory]
+        guard let newPath = StoryPath.replacingCamera(in: path, camera: HomeRoute.camera, with: .photoStory) else {
+            return
+        }
+        setPushedModel(startStory(photo: photo, capture: capture, language: language))
+        path = newPath
+    }
+
+    /// Every replacement cancels the old story first, so no request or audio outlives its screen.
+    private func setPushedModel(_ model: StoryViewModel?) {
+        pushedModel?.cancel()
+        pushedModel = model
     }
 
     private func startStory(photo: Data, capture: CaptureContext, language: StoryLanguage) -> StoryViewModel {
@@ -289,10 +298,10 @@ struct HomeScreen: View {
 
     /// The card's story, in full on its own screen: the stored session, as History reopens it.
     private func openPhotoStory() {
-        guard let record = photos.first else { return }
+        guard let record = latestPhoto else { return }
         do {
             let session = try services.memory.session(for: record)
-            pushedModel = StoryViewModel(session: session, services: services)
+            setPushedModel(StoryViewModel(session: session, services: services))
             path.append(.photoStory)
         } catch {
             AppServices.logMemoryFailure("open session failed", error)
@@ -317,25 +326,40 @@ struct HomeScreen: View {
         defer { isBusy = false }
         switch await PhotoImport.load(item) {
         case .success(let loaded):
-            pushedModel = startStory(photo: loaded.data, capture: loaded.capture, language: language)
-            // The picker is shown from Home only; a story already open (rare) is replaced by the new one.
-            path = [.photoStory]
+            setPushedModel(startStory(photo: loaded.data, capture: loaded.capture, language: language))
+            // Loading took a while: the owner may have opened a walk story meanwhile. The photo story goes under
+            // whatever is open, so it never replaces what they are looking at.
+            path = StoryPath.underneath(path, story: .photoStory)
         case .failure(let failure):
             errorText = failure.text
         }
     }
 
-    /// Loads what the card shows for the latest story: a photo story's session and thumbnail, or a walk story's
-    /// stored copy. Runs when the latest story changes and each time Home comes back to the top.
+    /// Decides the latest story (most recently told, else the newest stored) and loads what its card shows: a photo
+    /// story's session and thumbnail, or a walk story's stored copy. Runs when the stored newest changes and each
+    /// time Home comes back to the top.
     private func refreshCard() async {
         cardModel?.stopSpeech()
         cardModel = nil
         cardThumbnail = nil
         cardSessionLevels = []
         cardWalkStory = nil
+        latestPhoto = nil
+        latestWalkTitle = nil
+        // A ref whose record is gone (deleted from History) is ignored.
+        let told = LatestStoryRef.load().flatMap { ref -> LatestStoryRef? in
+            switch ref.story {
+            case .photo(let id): fetchPhoto(id) != nil ? ref : nil
+            case .walk(let id): fetchWalk(id) != nil ? ref : nil
+            }
+        }
+        latest = LatestStory.newest(told: told, photo: photos.first.map { ($0.id, $0.takenAt) },
+                                    walk: walks.first.map { ($0.id, $0.createdAt) })
+        resolved = true
         switch latest {
         case .photo(let id):
-            guard let record = photos.first(where: { $0.id == id }) else { return }
+            guard let record = fetchPhoto(id) else { return }
+            latestPhoto = record
             cardThumbnail = UIImage(data: record.thumbnailJPEG)
             do {
                 let session = try services.memory.session(for: record)
@@ -345,10 +369,23 @@ struct HomeScreen: View {
                 AppServices.logMemoryFailure("home card load failed", error)
             }
         case .walk(let id):
+            latestWalkTitle = fetchWalk(id)?.title
             cardWalkStory = services.walking.stories.storedStory(id)
         case nil:
             break
         }
+    }
+
+    private func fetchPhoto(_ id: UUID) -> CaptureRecord? {
+        var descriptor = FetchDescriptor<CaptureRecord>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? services.memory.context.fetch(descriptor).first
+    }
+
+    private func fetchWalk(_ id: UUID) -> WalkStoryRecord? {
+        var descriptor = FetchDescriptor<WalkStoryRecord>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? services.memory.context.fetch(descriptor).first
     }
 
     private var errorPresented: Binding<Bool> {
