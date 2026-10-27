@@ -111,10 +111,12 @@ public enum PromptBuilder {
     }
 
     /// The places whose facts a continuation is grounded in: the matched candidate alone, or else the
-    /// three nearest that are not known to be out of view (ranked order is kept).
+    /// first three in view, or, when none is in view or the heading is unknown, the nearest three (ranked order).
     static func factCandidates(for session: StorySession) -> [RankedCandidate] {
         if let matched = session.matchedCandidate { return [matched] }
-        return Array(session.grounding.candidates.filter { $0.inView != false }.prefix(3))
+        let ranked = session.grounding.candidates
+        let inView = ranked.filter { $0.inView == true }
+        return Array((inView.isEmpty ? ranked : inView).prefix(3))
     }
 
     static func continuationInput(session: StorySession, level: StoryLevel, priors: [PriorStory]) -> String {

@@ -157,4 +157,20 @@ import Foundation
         #expect(throws: OpenAIError.malformedResponse) { try PromptBuilder.decodeContinuation(Data("{}".utf8)) }
         #expect(throws: OpenAIError.malformedResponse) { try PromptBuilder.decodeContinuation(Data(#"{"story":" \n "}"#.utf8)) }
     }
+    @Test func continuationFactsWhenNothingInViewFallBackToNearestThree() {
+        func rc(_ name: String) -> RankedCandidate {
+            RankedCandidate(candidate: Candidate(id: "osm:node/\(name)", name: name, coordinate: .init(latitude: 0, longitude: 0),
+                            kind: "historic=yes", summary: nil, wikipediaTitle: nil, wikidata: nil), distance: 10, bearing: 0, inView: false)
+        }
+        let g = Grounding(candidates: [rc("A"), rc("B"), rc("C"), rc("D")], address: nil, failedSources: [])
+        let s = PromptBuilder.continuationInput(session: Self.session(grounding: g, matched: nil), level: .more, priors: [])
+        #expect(s.contains("Facts:\n- A — historic=yes\n- B — historic=yes\n- C — historic=yes\n"))
+        #expect(!s.contains("- D —") && !s.contains("Facts: none found"))
+    }
+    @Test func toldSoFarListsEveryLevelInOrder() {
+        var session = Self.session()
+        session.levels = ["First.", "Second."]
+        let s = PromptBuilder.continuationInput(session: session, level: .evenMore, priors: [])
+        #expect(s.contains("Told so far:\nLevel 1: First.\nLevel 2: Second.\n"))
+    }
 }

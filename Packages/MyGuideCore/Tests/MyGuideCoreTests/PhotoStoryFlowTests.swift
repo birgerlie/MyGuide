@@ -107,19 +107,26 @@ import Testing
         let content = ((r.jsonBody["input"] as! [[String: Any]])[0]["content"] as! [[String: Any]])
         #expect(content.count == 1)                        // text only, no image
         #expect(String(decoding: r.httpBody!, as: UTF8.self).contains("about 75 words"))
+        let body = String(decoding: r.httpBody!, as: UTF8.self)
+        #expect(body.contains("Once a coachman waited here.") && body.contains(#""name":"continuation""#))
         s.levels = ["a", "b", "c"]
         let before = http.requests.count
         await #expect(throws: PhotoStoryError.noFurtherLevel) { try await flow.continueStory(s) }
         #expect(http.requests.count == before)
     }
     @Test func continuePassesSessionIDToPriorsForExclusion() async throws {
-        let s = try await Self.flow(Self.http()).tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: Self.capture, language: .english).0
+        // Non-zero coordinate so a hard-coded (0, 0) would be caught.
+        var cap = Self.capture
+        cap.coordinate = Coordinate(latitude: 0.0001, longitude: 0.0002)
+        let s = try await Self.flow(Self.http()).tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: cap, language: .english).0
         let excluded = LockedBox<UUID?>(nil)
         let ids = LockedBox<[String]>([])
-        let flow = Self.flow(Self.http(Self.openAIBody(#"{"story":"Two."}"#))) { placeIDs, _, exclude in
-            excluded.set(exclude); ids.set(placeIDs); return []
+        let near = LockedBox<Coordinate?>(nil)
+        let flow = Self.flow(Self.http(Self.openAIBody(#"{"story":"Two."}"#))) { placeIDs, coordinate, exclude in
+            excluded.set(exclude); ids.set(placeIDs); near.set(coordinate); return []
         }
         _ = try await flow.continueStory(s)
+        #expect(near.value == cap.coordinate)
         #expect(excluded.value == s.id)
         #expect(ids.value == ["osm:node/1"])   // matched candidate only
     }
@@ -138,5 +145,18 @@ import Testing
         let flow = Self.flow(Self.http(Self.openAIBody(#"{"story":"Two."}"#))) { _, _, _ in called.set(true); return [] }
         let (next, _) = try await flow.continueStory(s)
         #expect(next.levels.last == "Two." && called.value == false)
+    }
+    @Test func continueWithNothingInViewPassesNearestThreeIDsToPriors() async throws {
+        var s = try await Self.flow(Self.http()).tellFirstStory(photoJPEG: TestImages.jpeg(width: 10, height: 10), capture: Self.capture, language: .english).0
+        func rc(_ n: String) -> RankedCandidate {
+            RankedCandidate(candidate: Candidate(id: "osm:node/\(n)", name: n, coordinate: .init(latitude: 0, longitude: 0),
+                            kind: "historic=yes", summary: nil, wikipediaTitle: nil, wikidata: nil), distance: 10, bearing: 0, inView: false)
+        }
+        s.grounding = Grounding(candidates: [rc("A"), rc("B"), rc("C"), rc("D")], address: nil, failedSources: [])
+        s.identified.matchedCandidateID = nil
+        let ids = LockedBox<[String]>([])
+        let flow = Self.flow(Self.http(Self.openAIBody(#"{"story":"Two."}"#))) { placeIDs, _, _ in ids.set(placeIDs); return [] }
+        _ = try await flow.continueStory(s)
+        #expect(ids.value == ["osm:node/A", "osm:node/B", "osm:node/C"])
     }
 }
