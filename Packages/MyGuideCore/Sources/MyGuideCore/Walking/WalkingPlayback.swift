@@ -19,12 +19,16 @@ public struct WalkingPlayback: Sendable, Equatable {
         case ready
         case failed
         case fetching
-        case skipped
     }
+
+    /// Stories remembered at most; older idle ones are forgotten (a forgotten id behaves as unknown).
+    static let memoryLimit = 20
 
     private var phases: [UUID: Phase] = [:]
     /// The highest level played or being played for each story; drives the three-level limit.
     private var levels: [UUID: Int] = [:]
+    /// Ids from least to most recently touched; bounds `phases` and `levels`.
+    private var recency: [UUID] = []
     public private(set) var playing: (id: UUID, level: Int)?
 
     public init() {}
@@ -39,12 +43,43 @@ public struct WalkingPlayback: Sendable, Equatable {
         return phases.values.contains { phase in
             switch phase {
             case .preparing, .fetching: true
-            case .ready, .failed, .skipped: false
+            case .ready, .failed: false
             }
         }
     }
 
     public mutating func handle(_ event: Event) -> [Effect] {
+        let effects = process(event)
+        switch event {
+        case .buzzSent(let id), .storyReady(let id), .storyFailed(let id), .moreReady(let id, _), .moreFailed(let id),
+             .tellMe(let id), .more(let id), .skip(let id), .finished(let id, _):
+            touch(id)
+        case .stoppedExternally:
+            break
+        }
+        return effects
+    }
+
+    private mutating func touch(_ id: UUID) {
+        recency.removeAll { $0 == id }
+        if phases[id] != nil || levels[id] != nil { recency.append(id) }
+        // Drop the oldest ids that are idle; never one that is playing, preparing or fetching.
+        var index = 0
+        while recency.count > Self.memoryLimit, index < recency.count {
+            let old = recency[index]
+            switch phases[old] {
+            case .preparing, .fetching:
+                index += 1
+            default:
+                if playing?.id == old { index += 1; continue }
+                phases[old] = nil
+                levels[old] = nil
+                recency.remove(at: index)
+            }
+        }
+    }
+
+    private mutating func process(_ event: Event) -> [Effect] {
         switch event {
         case .buzzSent(let id):
             phases[id] = .preparing(wanted: false)
@@ -65,11 +100,12 @@ public struct WalkingPlayback: Sendable, Equatable {
             case .preparing:
                 phases[id] = .preparing(wanted: true)
                 return []
-            case .ready:
-                // Already playing this story: the tap changes nothing.
+            case .ready, .fetching:
+                // Already playing this story: the tap changes nothing. While more is being fetched the tap replays
+                // level 1 and the fetch carries on; its `moreReady` plays the new level.
                 if playing?.id == id { return [] }
                 return start(id, level: 1)
-            case .failed, .fetching, .skipped, nil:
+            case .failed, nil:
                 // Unknown: the app was relaunched and the prepared story is gone; the app re-prepares from memory.
                 return [.reportFailure(id)]
             }
@@ -95,17 +131,18 @@ public struct WalkingPlayback: Sendable, Equatable {
                 playing = nil
                 effects.append(.stopAudio)
             }
-            // A story still being prepared or fetched is remembered so its late result is ignored.
-            phases[id] = .skipped
+            // Forgetting the id makes a late result for it (ready, more ready) be ignored.
+            phases[id] = nil
             levels[id] = nil
             effects.append(.retire(id))
             return effects
 
         case .finished(let id, let level):
-            // A stale finish (the story was interrupted or skipped) changes nothing.
-            guard playing?.id == id else { return [] }
+            // A stale finish (interrupted, skipped, or of an earlier level than the one now playing) changes nothing.
+            guard let current = playing, current.id == id, current.level == level else { return [] }
             playing = nil
-            return level < StoryLevel.allCases.count ? [.offerMore(id)] : []
+            // After a replay of level 1 the later levels exist already: offer more only if some level is still untold.
+            return (levels[id] ?? level) < StoryLevel.allCases.count ? [.offerMore(id)] : []
 
         case .stoppedExternally:
             playing = nil
@@ -117,7 +154,7 @@ public struct WalkingPlayback: Sendable, Equatable {
         var effects: [Effect] = []
         if let current = playing, current.id != id { effects.append(.stopAudio) }
         playing = (id, level)
-        levels[id] = level
+        levels[id] = max(levels[id] ?? 0, level)
         effects.append(.play(id, level: level))
         return effects
     }
