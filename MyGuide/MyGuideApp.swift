@@ -10,17 +10,20 @@ struct MyGuideApp: App {
 
     init() {
         let container: ModelContainer
+        var persistent = true
         do {
             container = try ModelContainer(for: Schema(MemorySchema.models))
         } catch {
             // Stories still work without a store; they just won't be remembered this run.
             AppServices.logMemoryFailure("persistent store unavailable, using in-memory", error)
+            persistent = false
             let config = ModelConfiguration(isStoredInMemoryOnly: true)
             // An in-memory store failing means the schema itself is broken: a programmer error.
             container = try! ModelContainer(for: Schema(MemorySchema.models), configurations: config)
         }
         self.container = container
-        _services = State(initialValue: AppServices(memory: MemoryStore(context: container.mainContext)))
+        _services = State(initialValue: AppServices(memory: MemoryStore(context: container.mainContext),
+                                                              memoryIsPersistent: persistent))
     }
 
     var body: some Scene {

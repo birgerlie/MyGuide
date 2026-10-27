@@ -16,19 +16,9 @@ struct HistoryView: View {
     static let deleteFailedText = "Couldn't delete the story."
 
     var body: some View {
-        Group {
-            if records.isEmpty {
-                ContentUnavailableView("No stories yet", systemImage: "clock.arrow.circlepath",
-                                       description: Text("Photograph something and its story will be kept here."))
-            } else {
-                List {
-                    ForEach(records) { record in
-                        Button { open(record) } label: { HistoryRow(record: record) }
-                            .buttonStyle(.plain)
-                    }
-                    .onDelete(perform: delete)
-                }
-            }
+        VStack(spacing: 0) {
+            if !services.memoryIsPersistent { MemoryUnavailableNotice() }
+            content
         }
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
@@ -41,6 +31,22 @@ struct HistoryView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorText ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if records.isEmpty {
+            ContentUnavailableView("No stories yet", systemImage: "clock.arrow.circlepath",
+                                   description: Text("Photograph something and its story will be kept here."))
+        } else {
+            List {
+                ForEach(records) { record in
+                    Button { open(record) } label: { HistoryRow(record: record) }
+                        .buttonStyle(.plain)
+                }
+                .onDelete(perform: delete)
+            }
         }
     }
 
@@ -115,5 +121,18 @@ private struct HistoryRow: View {
         let city = (try? JSONDecoder().decode(Grounding.self, from: record.groundingJSON))?.address?.city
         guard let city, !city.isEmpty else { return date }
         return "\(date) · \(city)"
+    }
+}
+
+/// Shown when the persistent store could not be opened and memory lives in RAM only.
+struct MemoryUnavailableNotice: View {
+    var body: some View {
+        Text("Memory is unavailable — stories won't be kept after you close the app.")
+            .font(.footnote)
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(.red.opacity(0.85))
     }
 }

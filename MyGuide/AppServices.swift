@@ -1,6 +1,7 @@
 import Foundation
 import MyGuideCore
 import os
+import SwiftData
 
 /// Builds the network clients and the story flow. The API key is read from the Keychain on every call,
 /// so a key saved or removed in Settings takes effect without a relaunch.
@@ -16,8 +17,12 @@ final class AppServices {
     let memory: MemoryStore
     private let http: HTTPClient = URLSessionHTTPClient()
 
-    init(memory: MemoryStore) {
+    /// False when the persistent store could not be opened and memory is held in RAM only.
+    let memoryIsPersistent: Bool
+
+    init(memory: MemoryStore, memoryIsPersistent: Bool = true) {
         self.memory = memory
+        self.memoryIsPersistent = memoryIsPersistent
     }
 
     /// Logs a memory failure without any story text: only the error's type, and domain and code when it has them.
@@ -64,13 +69,21 @@ final class AppServices {
         return PhotoStoryFlow(grounding: grounding, openAI: openAI, priors: priors)
     }
 
-    /// Deletes a history entry (its stories cascade), saves, then removes its cached speech files.
+    /// Deletes a history entry (its stories cascade) and, in the same save, its `PlaceRecord` when no other
+    /// capture refers to that place (a deleted visit must not linger). Then removes its cached speech files.
     /// On a failed save the context is rolled back and the error rethrown; the cache is left alone.
     func deleteHistoryEntry(_ record: CaptureRecord) throws {
         let id = record.id
+        let placeID = record.placeID
         let context = memory.context
-        context.delete(record)
         do {
+            context.delete(record)
+            if let placeID {
+                let others = FetchDescriptor<CaptureRecord>(predicate: #Predicate { $0.placeID == placeID && $0.id != id })
+                if try context.fetchCount(others) == 0, let place = try memory.place(id: placeID) {
+                    context.delete(place)
+                }
+            }
             try context.save()
         } catch {
             context.rollback()
@@ -83,9 +96,17 @@ final class AppServices {
     /// Cached speech is named `<session id>-<level>-<language>.mp3`.
     private static func removeSpeechFiles(sessionID: UUID) {
         let fm = FileManager.default
-        let prefix = sessionID.uuidString
-        guard let files = try? fm.contentsOfDirectory(at: speechCacheDirectory, includingPropertiesForKeys: nil) else {
-            return // no cache directory yet: nothing to remove
+        let prefix = sessionID.uuidString + "-"
+        let files: [URL]
+        do {
+            files = try fm.contentsOfDirectory(at: speechCacheDirectory, includingPropertiesForKeys: nil)
+        } catch {
+            let ns = error as NSError
+            let missing = (ns.domain == NSCocoaErrorDomain && (ns.code == NSFileReadNoSuchFileError || ns.code == NSFileNoSuchFileError))
+                || (ns.domain == NSPOSIXErrorDomain && ns.code == Int(ENOENT))
+            // No cache directory yet means nothing to remove; anything else is worth a log line.
+            if !missing { logMemoryFailure("speech cache listing failed", error) }
+            return
         }
         for file in files where file.lastPathComponent.hasPrefix(prefix) {
             do { try fm.removeItem(at: file) } catch { logMemoryFailure("speech cache cleanup failed", error) }

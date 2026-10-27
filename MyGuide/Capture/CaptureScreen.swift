@@ -29,6 +29,7 @@ struct CaptureScreen: View {
                     .padding()
             }
             VStack {
+                if !services.memoryIsPersistent { MemoryUnavailableNotice().clipShape(Capsule()) }
                 hud
                 Spacer()
                 controls
