@@ -38,4 +38,7 @@ public struct WalkStory: Sendable, Equatable, Identifiable {
     }
 
     public var nextLevel: StoryLevel? { StoryLevel(rawValue: levels.count + 1) }
+
+    /// Only a buzz story can be skipped: a skip retires its place. A stop story has no place to retire.
+    public var canSkip: Bool { kind == .buzz }
 }

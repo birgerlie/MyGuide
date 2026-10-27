@@ -2,7 +2,7 @@ import MyGuideCore
 import SwiftUI
 
 /// The walking story that is playing or ready, above the capture controls: its title (tap to open it), Play/Stop,
-/// More and Skip.
+/// More and, for a buzz story, Skip.
 struct WalkingPanel: View {
     let stories: WalkingStories
 
@@ -37,12 +37,15 @@ struct WalkingPanel: View {
                 }
                 .accessibilityLabel("More")
                 .disabled(!stories.canMore(story.id))
-                Button {
-                    stories.skip(story.id)
-                } label: {
-                    icon("xmark")
+                // A stop story has no place to skip.
+                if story.canSkip {
+                    Button {
+                        stories.skip(story.id)
+                    } label: {
+                        icon("xmark")
+                    }
+                    .accessibilityLabel("Skip")
                 }
-                .accessibilityLabel("Skip")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

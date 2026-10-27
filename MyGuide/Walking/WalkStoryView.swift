@@ -78,7 +78,7 @@ struct WalkStoryView: View {
                     .disabled(working)
                 }
                 // A stop story has no place to skip.
-                if story.kind == .buzz {
+                if story.canSkip {
                     Button("Skip this place", role: .destructive) {
                         stories.skip(id)
                         dismiss()

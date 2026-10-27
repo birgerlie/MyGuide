@@ -195,7 +195,9 @@ final class WalkingStories {
         feed(.stoppedExternally)
     }
 
+    /// A skip on a stop story (a stale button or command) does nothing: there is no place to retire.
     func skip(_ id: UUID) {
+        if let story = prepared.story(id) ?? storedStory(id), !story.canSkip { return }
         feed(.skip(id))
     }
 
@@ -372,7 +374,10 @@ final class WalkingStories {
     }
 
     private func retire(_ id: UUID, deepestLevel: Int) {
-        let candidate = (prepared.story(id) ?? storedStory(id))?.place
+        let story = prepared.story(id) ?? storedStory(id)
+        // `skip` already refuses stop stories; never retire (or start the skip pause) for one.
+        if let story, !story.canSkip { return }
+        let candidate = story?.place
         // Nothing more for this place: stop its work and take its notifications away.
         if let task = prepareTasks[id] { cancelOwn(id, task) }
         if let task = moreTasks[id] { cancelOwn(id, task) }
