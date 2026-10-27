@@ -38,11 +38,57 @@ import Foundation
         #expect(c.map(\.id) == ["wiki:no/10", "wiki:no/11", "wiki:en/3"])
         #expect(http.requests.count == 2)
     }
-    @Test func norwegianWithThreeResultsSkipsFallback() async throws {
+    @Test func norwegianWithThreeResultsIgnoresFallback() async throws {
         let http = StubHTTPClient { _ in (200, Self.body([Self.page(1, "A", q: nil), Self.page(2, "B", q: nil), Self.page(3, "C", q: nil)])) }
         let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
         #expect(c.count == 3)
-        #expect(http.requests.count == 1)
+        // The English request now runs alongside the primary, so it is always issued.
+        #expect(http.requests.count == 2)
+    }
+    @Test func englishRequestRunsConcurrentlyButIsIgnoredWhenPrimaryHasThree() async throws {
+        let http = StubHTTPClient { r in
+            r.url!.host == "no.wikipedia.org"
+              ? (200, Self.body([Self.page(10, "A", q: "Q1"), Self.page(11, "B", q: nil), Self.page(12, "C", q: nil)]))
+              : (200, Self.body([Self.page(1, "English only", q: "Q9"), Self.page(2, "Also English", q: nil)]))
+        }
+        let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
+        #expect(c.map(\.id) == ["wiki:no/10", "wiki:no/11", "wiki:no/12"])
+        #expect(Set(http.requests.compactMap { $0.url?.host }) == ["no.wikipedia.org", "en.wikipedia.org"])
+        #expect(http.requests.count == 2)
+    }
+    /// Holds the Norwegian response until the English request has arrived; a sequential client never sends it.
+    final class EnglishFirstHTTP: HTTPClient, @unchecked Sendable {
+        let englishSeen = LockedBox(false)
+        func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            if request.url!.host == "en.wikipedia.org" {
+                englishSeen.set(true)
+                return (WikipediaClientTests.body([WikipediaClientTests.page(1, "E", q: nil)]), response)
+            }
+            let deadline = ContinuousClock.now + .seconds(2)
+            while !englishSeen.value {
+                guard ContinuousClock.now < deadline else { throw GroundingFetchError.http(599) }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            return (WikipediaClientTests.body([WikipediaClientTests.page(10, "N", q: nil)]), response)
+        }
+    }
+    @Test func englishRequestIsInFlightBeforePrimaryAnswers() async throws {
+        let c = try await WikipediaClient(http: EnglishFirstHTTP()).articles(around: vienna, radius: 400, language: .norwegian)
+        #expect(c.map(\.id) == ["wiki:no/10", "wiki:en/1"])
+    }
+    @Test func englishLanguageMakesOneRequest() async throws {
+        let http = StubHTTPClient { _ in (200, Self.body([Self.page(1, "A", q: nil)])) }
+        let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .english)
+        #expect(c.map(\.id) == ["wiki:en/1"] && http.requests.count == 1)
+    }
+    @Test func primaryFailureThrowsEvenWhenEnglishSucceeds() async {
+        let http = StubHTTPClient { r in
+            r.url!.host == "no.wikipedia.org" ? (502, Data()) : (200, Self.body([Self.page(1, "A", q: nil)]))
+        }
+        await #expect(throws: GroundingFetchError.http(502)) {
+            try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
+        }
     }
     @Test func englishFallbackFailureIsSwallowed() async throws {
         let http = StubHTTPClient { r in

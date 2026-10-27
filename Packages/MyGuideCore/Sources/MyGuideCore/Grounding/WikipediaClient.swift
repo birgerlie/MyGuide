@@ -30,23 +30,34 @@ public struct WikipediaClient: Sendable {
     }
 
     public func articles(around: Coordinate, radius: Int, language: StoryLanguage) async throws -> [Candidate] {
+        guard language != .english else {
+            return try await fetch(code: language.wikipediaCode, around: around, radius: radius)
+        }
+        // The English fallback starts alongside the primary so a thin story-language result costs no extra
+        // round trip. Its outcome is captured, not thrown: a failed fallback must not discard the primary results.
+        // If the primary throws, or has enough results, the fallback is cancelled when this scope exits.
+        async let fallback = Self.outcome { try await fetch(code: StoryLanguage.english.wikipediaCode, around: around, radius: radius) }
         let primary = try await fetch(code: language.wikipediaCode, around: around, radius: radius)
-        guard language != .english, primary.count < Self.fallbackThreshold else { return primary }
+        guard primary.count < Self.fallbackThreshold else { return primary }
 
-        // A failed English fallback must not discard the story-language results.
-        // Cancellation is the exception: it must propagate.
         let english: [Candidate]
-        do {
-            english = try await fetch(code: StoryLanguage.english.wikipediaCode, around: around, radius: radius)
-        } catch is CancellationError {
+        switch await fallback {
+        case .success(let candidates):
+            english = candidates
+        case .failure(let error) where error is CancellationError:
+            // Cancellation is the exception: it must propagate.
             throw CancellationError()
-        } catch {
+        case .failure:
             return primary
         }
         let known = Set(primary.compactMap(\.wikidata))
         return primary + english.filter { candidate in
             candidate.wikidata.map { !known.contains($0) } ?? true
         }
+    }
+
+    private static func outcome<T: Sendable>(_ work: @Sendable () async throws -> T) async -> Result<T, Error> {
+        do { return .success(try await work()) } catch { return .failure(error) }
     }
 
     private func fetch(code: String, around: Coordinate, radius: Int) async throws -> [Candidate] {
