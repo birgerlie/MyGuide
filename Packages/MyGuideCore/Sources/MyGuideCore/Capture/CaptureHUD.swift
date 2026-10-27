@@ -1,0 +1,28 @@
+import Foundation
+
+/// The capture screen's one-line summary of what position and heading will be sent,
+/// e.g. "GPS ±8 m · 312° NW ±10°".
+public enum CaptureHUD {
+    public static func text(fix: LocationFix?, compass: CompassReading?) -> String {
+        let gps = fix.map { "GPS ±\(Int($0.accuracy.rounded())) m" } ?? "No GPS fix"
+        return "\(gps) · \(headingText(compass))"
+    }
+
+    /// "north-west" → "NW", from `FieldOfView.compassPoint`.
+    public static func abbreviatedCompassPoint(_ degrees: Double) -> String {
+        FieldOfView.compassPoint(degrees)
+            .split(separator: "-")
+            .compactMap { $0.first.map { String($0).uppercased() } }
+            .joined()
+    }
+
+    /// Without a valid accuracy the core treats the heading as unusable, so it shows as unavailable.
+    private static func headingText(_ compass: CompassReading?) -> String {
+        guard let compass, compass.heading.isFinite,
+              let accuracy = compass.accuracy, accuracy.isFinite else { return "Compass unavailable" }
+        // Wrap first so any finite heading maps into 0..<360; 359.6 rounds to 360 and shows as 0.
+        let wrapped = (compass.heading.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+        let degrees = Int(wrapped.rounded()) % 360
+        return "\(degrees)° \(abbreviatedCompassPoint(wrapped)) ±\(Int(accuracy.rounded()))°"
+    }
+}

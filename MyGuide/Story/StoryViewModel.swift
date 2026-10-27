@@ -13,6 +13,7 @@ final class StoryViewModel {
     }
 
     static let workingText = "Looking around…"
+    static let unexpectedCancellationText = "Something went wrong. Try again."
 
     var state: State = .working(StoryViewModel.workingText)
     var session: StorySession?
@@ -24,6 +25,11 @@ final class StoryViewModel {
 
     init(services: AppServices) {
         self.services = services
+    }
+
+    // Backstop: work for a dropped screen must not keep running (the owner normally calls cancel()).
+    isolated deinit {
+        task?.cancel()
     }
 
     func start(photoJPEG: Data, capture: CaptureContext) {
@@ -44,7 +50,7 @@ final class StoryViewModel {
         run()
     }
 
-    /// Stops in-flight work silently, e.g. when the user navigates back.
+    /// Stops in-flight work silently; called when the story screen is dropped (navigated back).
     func cancel() {
         task?.cancel()
         task = nil
@@ -64,11 +70,11 @@ final class StoryViewModel {
                 self.session = session
                 self.state = .showing
             } catch {
-                // Cancellation is silence: some sources report it with their own error types, so check the task too.
+                // Our own cancel (or a superseding run) is silence, whatever error type the sources report it with.
                 guard !Task.isCancelled, let self else { return }
                 let message = UserFacingMessage.message(for: error)
-                guard !message.isEmpty else { return }
-                self.state = .failed(message: message,
+                // A CancellationError we did not ask for must not leave the spinner up with no way out.
+                self.state = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message,
                                      canUseCurrentPosition: (error as? PhotoStoryError) == .noPosition)
             }
         }

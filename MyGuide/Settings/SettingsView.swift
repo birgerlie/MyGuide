@@ -74,16 +74,11 @@ struct SettingsView: View {
             let key = try services.keychain.read(AppServices.apiKeyAccount)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             hasSavedKey = !key.isEmpty
-            savedKeySuffix = Self.visibleSuffix(of: key)
+            savedKeySuffix = APIKeyDisplay.visibleSuffix(of: key)
         } catch {
             hasSavedKey = false
             savedKeySuffix = nil
             errorText = "Couldn't read the Keychain: \(error)"
         }
-    }
-
-    /// The last 4 characters, but only for keys long enough that this reveals a small part of them.
-    static func visibleSuffix(of key: String) -> String? {
-        key.count >= 12 ? String(key.suffix(4)) : nil
     }
 }

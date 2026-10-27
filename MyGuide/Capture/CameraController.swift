@@ -130,15 +130,17 @@ final class CameraSession: @unchecked Sendable {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
             return .failure(.noCamera)
         }
+        guard let input = try? AVCaptureDeviceInput(device: device) else { return .failure(.configurationFailed) }
         session.beginConfiguration()
-        defer { session.commitConfiguration() }
         session.sessionPreset = .photo
-        guard let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input), session.canAddOutput(output) else {
+        guard session.canAddInput(input), session.canAddOutput(output) else {
+            session.commitConfiguration()
             return .failure(.configurationFailed)
         }
         session.addInput(input)
         session.addOutput(output)
+        // The .photo preset picks the device's active format at commit; read the FOV only after it.
+        session.commitConfiguration()
         let fov = Double(device.activeFormat.videoFieldOfView)
         configuredFOV = fov
         return .success(fov)

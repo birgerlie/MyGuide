@@ -84,8 +84,8 @@ struct CaptureScreen: View {
     private var hud: some View {
         // Re-evaluated every second so a fix that goes stale shows as "No GPS fix".
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text(Self.hudText(fix: LocationProvider.usableFix(location.location, now: context.date),
-                              compass: location.compass))
+            Text(CaptureHUD.text(fix: LocationProvider.usableFix(location.location, now: context.date),
+                                 compass: location.compass))
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10)
@@ -96,7 +96,9 @@ struct CaptureScreen: View {
 
     private var controls: some View {
         HStack {
-            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+            // .current keeps the original bytes (and their GPS EXIF) instead of a transcoded copy.
+            PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .current,
+                         photoLibrary: .shared()) {
                 Image(systemName: "photo.on.rectangle")
                     .font(.title2)
                     .foregroundStyle(.white)
@@ -120,7 +122,12 @@ struct CaptureScreen: View {
     }
 
     private var storyPresented: Binding<Bool> {
-        Binding(get: { story != nil }, set: { if !$0 { story = nil } })
+        Binding(get: { story != nil }, set: { presented in
+            guard !presented else { return }
+            // The story screen is being dropped (navigated back): stop its work silently.
+            story?.cancel()
+            story = nil
+        })
     }
 
     private var errorPresented: Binding<Bool> {
@@ -203,30 +210,6 @@ struct CaptureScreen: View {
         CaptureContext(coordinate: fix?.coordinate, horizontalAccuracy: fix?.accuracy,
                        heading: compass?.heading, headingAccuracy: compass?.accuracy,
                        horizontalFOV: horizontalFOV, takenAt: takenAt, source: .camera)
-    }
-
-    /// e.g. "GPS ±8 m · 312° NW ±10°", "No GPS fix · Compass unavailable".
-    static func hudText(fix: LocationFix?, compass: CompassReading?) -> String {
-        let gps: String
-        if let fix {
-            gps = "GPS ±\(Int(fix.accuracy.rounded())) m"
-        } else {
-            gps = "No GPS fix"
-        }
-        let heading: String
-        if let compass, compass.heading.isFinite, let accuracy = compass.accuracy, accuracy.isFinite {
-            // 359.6 rounds to 360; show it as 0.
-            let degrees = Int(compass.heading.rounded()) % 360
-            heading = "\(degrees)° \(abbreviated(FieldOfView.compassPoint(compass.heading))) ±\(Int(accuracy.rounded()))°"
-        } else {
-            heading = "Compass unavailable"
-        }
-        return "\(gps) · \(heading)"
-    }
-
-    /// "north-west" → "NW".
-    static func abbreviated(_ point: String) -> String {
-        point.split(separator: "-").compactMap { $0.first.map { String($0).uppercased() } }.joined()
     }
 
     private static func cameraMessage(_ failure: CameraError?) -> String {

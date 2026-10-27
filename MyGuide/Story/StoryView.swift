@@ -11,8 +11,6 @@ struct StoryView: View {
         content
             .navigationTitle("Story")
             .navigationBarTitleDisplayMode(.inline)
-            // Leaving the screen cancels the work; the cancellation is never shown as an error.
-            .onDisappear { model.cancel() }
     }
 
     @ViewBuilder
@@ -45,7 +43,7 @@ struct StoryView: View {
                 }
                 Text(session.identified.title)
                     .font(.title2.bold())
-                ForEach(Self.badges(for: session), id: \.self) { badge in
+                ForEach(StoryBadges.badges(for: session), id: \.self) { badge in
                     Label(badge, systemImage: "questionmark.circle")
                         .font(.footnote)
                         .foregroundStyle(.orange)
@@ -81,19 +79,5 @@ struct StoryView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Spec 8.1.5: label uncertainty about the subject and missing grounding.
-    static func badges(for session: StorySession) -> [String] {
-        var badges: [String] = []
-        switch session.identified.confidence {
-        case .certain: break
-        case .likely: badges.append("Probably \(session.identified.subject)")
-        case .unsure: badges.append("Not sure: \(session.identified.subject)?")
-        }
-        if !session.grounding.failedSources.isEmpty {
-            badges.append("Less certain: map data unavailable")
-        }
-        return badges
     }
 }

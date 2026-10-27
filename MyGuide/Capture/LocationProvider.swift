@@ -2,20 +2,10 @@ import CoreLocation
 import MyGuideCore
 import Observation
 
-/// A position good enough to send: a valid fix no older than `LocationProvider.maxFixAge`.
-struct LocationFix: Sendable, Equatable {
-    var coordinate: Coordinate
-    /// Metres; always >= 0.
-    var accuracy: Double
-}
-
 /// Continuous position and compass heading for the capture screen.
 @MainActor
 @Observable
 final class LocationProvider: NSObject {
-    /// Brief, Task 10 step 4: a location older than this counts as no coordinate.
-    nonisolated static let maxFixAge: TimeInterval = 60
-
     var location: CLLocation?
     var compass: CompassReading?
 
@@ -50,16 +40,12 @@ final class LocationProvider: NSObject {
         Self.usableFix(location, now: now)
     }
 
-    /// Sanitises CoreLocation sentinels: negative `horizontalAccuracy` marks an invalid fix,
-    /// and a fix older than `maxFixAge` counts as none.
+    /// Applies `LocationFix.usable` (sentinel and 60 s staleness rules) to a CoreLocation fix.
     nonisolated static func usableFix(_ location: CLLocation?, now: Date) -> LocationFix? {
-        guard let location,
-              location.horizontalAccuracy >= 0, location.horizontalAccuracy.isFinite,
-              CLLocationCoordinate2DIsValid(location.coordinate),
-              now.timeIntervalSince(location.timestamp) <= maxFixAge else { return nil }
-        return LocationFix(coordinate: Coordinate(latitude: location.coordinate.latitude,
-                                                  longitude: location.coordinate.longitude),
-                           accuracy: location.horizontalAccuracy)
+        guard let location else { return nil }
+        return LocationFix.usable(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude,
+                                  horizontalAccuracy: location.horizontalAccuracy,
+                                  timestamp: location.timestamp, now: now)
     }
 
     private func beginUpdatesIfAuthorized() {
