@@ -73,14 +73,15 @@ import Testing
             "Then write a 2–3 sentence summary of the day as a walk the user took.",
             "\"Taken near\" an event means only that the photo was taken close by in time and place; say the photo shows that place only if it is clearly visible, otherwise caption what is visible and mention the event as where the walk was.",
             "Use only facts from the event list and what is clearly visible in a photo. Where this is stricter than HONESTY below, this wins: never add facts from your own knowledge, even hedged with \"I believe\".",
-            "The HONESTY bullets about \"Told in the last 3 hours\", \"Told here before\" and \"worth the detour\" do not apply; every other HONESTY rule does. Never suggest a detour.",
+            "The HONESTY bullets about \"Told in the last 3 hours\" and \"Told here before\" do not apply, and neither does the part of the \"Never pad\" bullet that tells them what is nearby and worth the detour; every other HONESTY rule does, including \"Never pad\" and \"stop shorter\". Never suggest a detour.",
             "Answer in the language the request names.",
         ] {
             #expect(s.contains(rule))
         }
         // The two rules the merged facts rule replaced are gone, so no weaker duplicate competes with it.
         for removed in ["Never state facts that are not in the event list", "only facts you may use",
-                        "the HONESTY rules about them do not apply"] {
+                        "the HONESTY rules about them do not apply",
+                        "and \"worth the detour\" do not apply"] {
             #expect(!s.contains(removed))
         }
         // One constant for both languages, so the prefix caches.
