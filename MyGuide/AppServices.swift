@@ -69,7 +69,9 @@ final class AppServices {
         let watchLink = watchLink
         walking.onStateChange = { watchLink.pushState($0.message) }
         walking.onStarted = { source in
-            if source == .phone { Self.startWatchApp(walkLog: walkLog) }
+            // Only with the watch app installed on a paired watch: otherwise the launch fails, and every phone walk
+            // would log that failure.
+            if source == .phone, watchLink.isPaired, watchLink.isInstalled { Self.startWatchApp(walkLog: walkLog) }
         }
         watchLink.onCommand = { message in
             if message["type"] as? String == "check.tell" {
