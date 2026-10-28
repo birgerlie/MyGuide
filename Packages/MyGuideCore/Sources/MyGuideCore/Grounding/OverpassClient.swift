@@ -13,6 +13,9 @@ public struct OverpassClient: Sendable {
     static let keptTagKeys: Set<String> = [
         "historic", "tourism", "amenity", "building", "memorial", "man_made", "railway", "public_transport",
         "place", "office", "castle_type", "bridge", "highway", "heritage",
+        // Facts for the guide prompt; they never change a place's tier.
+        "start_date", "architect", "building:architecture", "inscription", "description", "artist_name",
+        "name:etymology", "wikidata", "heritage:operator", "memorial:type", "material",
     ]
 
     private let http: HTTPClient

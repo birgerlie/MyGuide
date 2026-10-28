@@ -59,18 +59,21 @@ public struct RankedCandidate: Sendable, Equatable, Codable {
 
 public struct Address: Sendable, Equatable, Codable {
     public var line: String?
+    /// Neighbourhood or suburb; absent in addresses persisted before it existed.
+    public var district: String?
     public var city: String?
     public var country: String?
 
-    public init(line: String? = nil, city: String? = nil, country: String? = nil) {
+    public init(line: String? = nil, district: String? = nil, city: String? = nil, country: String? = nil) {
         self.line = line
+        self.district = district
         self.city = city
         self.country = country
     }
 
     /// The non-nil parts joined with ", ".
     public var display: String {
-        [line, city, country].compactMap { $0 }.joined(separator: ", ")
+        [line, district, city, country].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
