@@ -91,20 +91,22 @@ import Foundation
     }
 
     @Test func timeoutReturnsNilAndIsNotCached() async {
-        let slow = LockedBox(true)
-        let http = SlowHTTPClient(slow: slow)
-        let impatient = ArticleTextCache(client: WikipediaClient(http: http), timeout: .milliseconds(50))
-        #expect(await impatient.text(wikipediaTitle: "de:A") == nil)
-        slow.set(false)
-        // A fresh cache with the default timeout: only the first call exercises the short timeout.
-        #expect(await ArticleTextCache(client: WikipediaClient(http: http)).text(wikipediaTitle: "de:A") == "Late.")
+        let http = HangsOnceHTTPClient()
+        let cache = ArticleTextCache(client: WikipediaClient(http: http), timeout: .seconds(1))
+        #expect(await cache.text(wikipediaTitle: "de:A") == nil)
+        // Same cache instance: the timed-out title must be fetched again, and this time it answers at once.
+        #expect(await cache.text(wikipediaTitle: "de:A") == "Late.")
+        // First call (timed out) = 1 request, second call (retry) = 1 request: 2 in total.
+        #expect(http.count.value == 2)
     }
 }
 
-private struct SlowHTTPClient: HTTPClient {
-    let slow: LockedBox<Bool>
+/// The first send hangs far past any test timeout; later sends answer immediately.
+private struct HangsOnceHTTPClient: HTTPClient {
+    let count = LockedBox(0)
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        if slow.value { try await Task.sleep(for: .seconds(30)) }
+        let n = count.withValue { $0 += 1; return $0 }
+        if n == 1 { try await Task.sleep(for: .seconds(3)) }
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         return (ArticleTextCacheTests.body("Late."), response)
     }
