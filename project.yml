@@ -39,6 +39,7 @@ targets:
       path: MyGuide/MyGuide.entitlements
       properties:
         com.apple.developer.usernotifications.time-sensitive: true
+        com.apple.developer.healthkit: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.birgerlie.MyGuide

@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 import MyGuideCore
 import os
 import SwiftData
@@ -64,11 +65,70 @@ final class AppServices {
             makeSource: { Self.walkingSource(http: http) },
             hasAPIKey: { ((try? keychain.read(Self.apiKeyAccount)) ?? nil)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false })
         let walkingCheck = walkingCheck
-        watchLink.onMessage = { message in
-            if message["type"] as? String == "check.tell" { walkingCheck.handleWatchTell() }
-            return [:]
+        let walking = walking
+        let watchLink = watchLink
+        walking.onStateChange = { watchLink.pushState($0.message) }
+        walking.onStarted = { source in
+            if source == .phone { Self.startWatchApp(walkLog: walkLog) }
+        }
+        watchLink.onCommand = { message in
+            if message["type"] as? String == "check.tell" {
+                walkingCheck.handleWatchTell()
+                return [:]
+            }
+            guard let command = GuidedWalkCommand(message: message) else { return [:] }
+            return Self.handle(command, walking: walking, watchLink: watchLink)
         }
         watchLink.activate()
+        // Remembered until the session is activated, then pushed: the watch finds the phone's state at once.
+        watchLink.pushState(walking.guidedWalkState.message)
+    }
+
+    /// A guided walk command from the watch, by the action table of spec 4. Returns the reply: the walk state after
+    /// the command, or `starting` for a start, which runs on without prompts; its final state is pushed as the
+    /// application context (spec 10.2). A command with nothing to do (a start while starting or on, a pause while
+    /// paused by hand…) replies with the current state.
+    private static func handle(_ command: GuidedWalkCommand, walking: WalkingController,
+                               watchLink: WatchLink) -> [String: Any] {
+        switch command.action(in: walking.guidedWalkState.phase) {
+        case .start:
+            var starting = walking.guidedWalkState
+            starting.phase = .starting
+            // The start clears the last start's problem; the reply must not show it again.
+            starting.problem = nil
+            Task { @MainActor in
+                if let problem = await walking.start(source: .watch, interactive: false) {
+                    watchLink.pushState(GuidedWalkState.off(sentAt: .now, problem: problem).message)
+                }
+            }
+            return starting.message
+        case .pauseManual:
+            walking.pause(source: .watch)
+        case .resume:
+            walking.resume(source: .watch)
+        case .stop:
+            walking.stop(reason: .user, source: .watch)
+        case .none:
+            break
+        }
+        return walking.guidedWalkState.message
+    }
+
+    /// The one HealthKit store, used only to launch the watch app.
+    nonisolated private static let healthStore = HKHealthStore()
+
+    /// Launches the watch app with an outdoor walk, so it begins the workout (spec 5.3). A failure is a walk log
+    /// `failure` and changes nothing else. Nonisolated, so HealthKit's completion (called on its own queue) is not
+    /// given main-actor isolation, which would trap at run time.
+    nonisolated private static func startWatchApp(walkLog: WalkLog) {
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = .walking
+        configuration.locationType = .outdoor
+        healthStore.startWatchApp(with: configuration) { @Sendable success, error in
+            guard !success else { return }
+            let text = error.map(WalkLogEvent.errorText) ?? "no error given"
+            Task { @MainActor in walkLog.log(.failure(context: "watch app launch failed", error: text)) }
+        }
     }
 
     /// Logs a memory failure without any story text: only the error's type, and domain and code when it has them.

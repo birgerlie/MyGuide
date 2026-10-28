@@ -46,6 +46,9 @@ final class WalkingController {
     var isStarting: Bool { startToken != nil }
     /// Called with the walk state after every change to it other than `sentAt` (spec 5.1); the watch link sends it on.
     @ObservationIgnored var onStateChange: ((GuidedWalkState) -> Void)?
+    /// Called with the start's source once a start has succeeded (walking mode is on); not for a refused or cancelled
+    /// start. A phone start launches the watch app through it (spec 5.3).
+    @ObservationIgnored var onStarted: ((WalkSource) -> Void)?
     /// The walking stories: prepared at buzz time, played, continued and skipped.
     let stories: WalkingStories
 
@@ -276,6 +279,7 @@ final class WalkingController {
         location.start()
         motion.start { [weak self] reading in self?.handleMotion(reading) }
         startTimer(run: run)
+        onStarted?(source)
         return nil
     }
 
