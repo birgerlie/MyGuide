@@ -135,4 +135,68 @@ import Testing
             #expect(!text.contains("sk-secret-123"))
         }
     }
+
+    // MARK: - Multi-image
+
+    static func content(_ request: URLRequest) -> [[String: Any]] {
+        (((request.jsonBody["input"] as? [[String: Any]])?.first)?["content"] as? [[String: Any]]) ?? []
+    }
+
+    @Test func multiImageRequestAttachesEachImageInOrderWithDetail() async throws {
+        let http = StubHTTPClient { _ in (200, Self.okBody) }
+        let images = [Data([0x01]), Data([0x02, 0x03]), Data([0x04, 0x05, 0x06])]
+        let r = try await OpenAIClient(apiKey: "k", http: http).respond(
+            model: "m", reasoningEffort: "low", instructions: "sys", text: "hello", images: images, imageDetail: "low",
+            schemaName: "day", schema: Self.schema, promptCacheKey: "myguide-day-v1")
+        #expect(r.usage == TokenUsage(inputTokens: 1200, outputTokens: 400))
+        let request = try #require(http.requests.first)
+        let b = request.jsonBody
+        #expect(b["model"] as? String == "m")
+        #expect(b["store"] as? Bool == false)
+        #expect(b["instructions"] as? String == "sys")
+        #expect(b["prompt_cache_key"] as? String == "myguide-day-v1")
+        #expect((b["reasoning"] as? [String: Any])?["effort"] as? String == "low")
+        #expect(((b["text"] as? [String: Any])?["format"] as? [String: Any])?["name"] as? String == "day")
+        let content = Self.content(request)
+        // 1 text part + 3 images = 4 parts, the text first.
+        #expect(content.count == 4)
+        #expect(content.first?["type"] as? String == "input_text")
+        #expect(content.first?["text"] as? String == "hello")
+        let parts = content.dropFirst()
+        #expect(parts.allSatisfy { $0["type"] as? String == "input_image" && $0["detail"] as? String == "low" })
+        // Base64 of 01 = "AQ==", of 02 03 = "AgM=", of 04 05 06 = "BAUG".
+        #expect(parts.map { $0["image_url"] as? String } == ["AQ==", "AgM=", "BAUG"].map { "data:image/jpeg;base64," + $0 })
+    }
+
+    @Test func multiImageRequestWithoutImagesSendsTextOnly() async throws {
+        let http = StubHTTPClient { _ in (200, Self.okBody) }
+        _ = try await OpenAIClient(apiKey: "k", http: http).respond(
+            model: "m", reasoningEffort: nil, instructions: "s", text: "t", images: [], imageDetail: "high",
+            schemaName: "s", schema: Self.schema, promptCacheKey: nil)
+        let request = try #require(http.requests.first)
+        #expect(request.jsonBody["reasoning"] == nil)
+        #expect(request.jsonBody.keys.contains("prompt_cache_key") == false)
+        let content = Self.content(request)
+        // Text part only: 1.
+        #expect(content.count == 1)
+        #expect(content.first?["type"] as? String == "input_text")
+    }
+
+    @Test func multiImageRequestSharesErrorMapping() async {
+        let client = OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (401, Data(#"{"error":{"code":"invalid_api_key"}}"#.utf8)) })
+        await #expect(throws: OpenAIError.invalidAPIKey) {
+            try await client.respond(model: "m", reasoningEffort: nil, instructions: "s", text: "t", images: [Data([1])],
+                                     imageDetail: "low", schemaName: "s", schema: Self.schema, promptCacheKey: nil)
+        }
+    }
+
+    @Test func singleImageRequestSendsNoDetail() async throws {
+        // The single-image call is unchanged: its image part carries no `detail`.
+        let http = StubHTTPClient { _ in (200, Self.okBody) }
+        _ = try await call(OpenAIClient(apiKey: "k", http: http))
+        let request = try #require(http.requests.first)
+        let image = try #require(Self.content(request).last)
+        #expect(image["type"] as? String == "input_image")
+        #expect(image.keys.contains("detail") == false)
+    }
 }

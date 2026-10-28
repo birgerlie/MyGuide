@@ -20,7 +20,7 @@ import Testing
     }
 
     static func photo(at seconds: TimeInterval, coordinate: Coordinate? = nil) -> DayStoryPhoto {
-        DayStoryPhoto(id: "library:p", time: noon + seconds, coordinate: coordinate, storyTitle: nil)
+        DayStoryPhoto(id: "library:p", time: noon + seconds, coordinate: coordinate, kind: .library)
     }
 
     /// The day's date is midnight in Oslo: noon − 12 h = 1793142000.
@@ -78,7 +78,7 @@ import Testing
     // MARK: - Cap
 
     static func photos(_ n: Int) -> [DayStoryPhoto] {
-        (0..<n).map { DayStoryPhoto(id: "library:\($0)", time: noon + Double($0) * 60, coordinate: nil, storyTitle: nil) }
+        (0..<n).map { DayStoryPhoto(id: "library:\($0)", time: noon + Double($0) * 60, coordinate: nil, kind: .library) }
     }
 
     @Test func capKeepsFirstAndLastEvenlySpread() {
@@ -117,11 +117,25 @@ import Testing
         // 3 photos: the photo story and two library photos.
         #expect(plan.totalPhotos == 3)
         let storyPhoto = try #require(plan.photos.first { $0.id == "capture:s" })
-        #expect(storyPhoto.storyTitle == "Oslo Cathedral" && storyPhoto.coordinate == .at(north: 5000)
+        #expect(storyPhoto.kind == .photoStory(title: "Oslo Cathedral") && storyPhoto.coordinate == .at(north: 5000)
                 && storyPhoto.time == story.time)
-        #expect(plan.photos.first { $0.id == "library:near" }?.storyTitle == nil)
+        #expect(plan.photos.first { $0.id == "library:near" }?.kind == .library)
         // Only library photos are matched; the photo story's photo belongs to its own story.
         #expect(plan.matches == ["library:near": buzz])
+    }
+
+    @Test func unnamedPhotoStoryIsStillAPhotoStory() throws {
+        // A photo story with neither title nor place has an empty name, but it is still its own story's photo:
+        // never matched, even with a buzz 60 s and 0 m away, and the request names it as a photo story.
+        let buzz = Self.event("walk:b", .buzz, at: 0, coordinate: .at(), place: "Akershus Fortress")
+        let unnamed = Self.event("capture:u", .photoStory, at: 60, coordinate: .at(), title: " ")
+        let day = Self.day([buzz, unnamed])
+        let plan = DayStoryPlan.make(day: day)
+        let photo = try #require(plan.photos.first)
+        #expect(photo.kind == .photoStory(title: ""))
+        #expect(plan.matches.isEmpty)
+        let input = PromptBuilder.dayStoryInput(plan: plan, day: day, language: .english, timeZone: Self.oslo)
+        #expect(input.contains("\n- [p1] 12:01, photo story\n"))
     }
 
     @Test func makeCapsAtTwelve() {

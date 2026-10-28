@@ -72,6 +72,8 @@ import Testing
             "Write a caption for each photo: what is in the frame first, then the matched event's facts. At most 40 words, warm and specific, no greetings.",
             "Then write a 2–3 sentence summary of the day as a walk the user took.",
             "Never state facts that are not in the event list or clearly visible in a photo.",
+            "The event list and what is clearly visible in the photos are the only facts you may use; leave out anything you know about a place from elsewhere.",
+            "This request has no \"Told in the last 3 hours\" or \"Told here before\" lists and no nearby places: the HONESTY rules about them do not apply, and never suggest a detour.",
             "Answer in the language the request names.",
         ] {
             #expect(s.contains(rule))

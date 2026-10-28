@@ -37,6 +37,44 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
                 "image_url": .string("data:image/jpeg;base64," + imageJPEG.base64EncodedString()),
             ])
         }
+        return try await respond(model: model, reasoningEffort: reasoningEffort, instructions: instructions,
+                                 content: content, schemaName: schemaName, schema: schema, promptCacheKey: promptCacheKey)
+    }
+
+    /// Structured-output call with several JPEG images, attached after the text in the order given, each at
+    /// `imageDetail` (`"low"`, `"high"` or `"auto"`). Otherwise as the single-image call.
+    public func respond(
+        model: String,
+        reasoningEffort: String?,
+        instructions: String,
+        text: String,
+        images: [Data],
+        imageDetail: String,
+        schemaName: String,
+        schema: JSONValue,
+        promptCacheKey: String?
+    ) async throws -> (json: Data, usage: TokenUsage) {
+        let content: [JSONValue] = [["type": "input_text", "text": .string(text)]] + images.map { jpeg in
+            [
+                "type": "input_image",
+                "image_url": .string("data:image/jpeg;base64," + jpeg.base64EncodedString()),
+                "detail": .string(imageDetail),
+            ]
+        }
+        return try await respond(model: model, reasoningEffort: reasoningEffort, instructions: instructions,
+                                 content: content, schemaName: schemaName, schema: schema, promptCacheKey: promptCacheKey)
+    }
+
+    /// Sends one user message made of `content` parts to the Responses API.
+    private func respond(
+        model: String,
+        reasoningEffort: String?,
+        instructions: String,
+        content: [JSONValue],
+        schemaName: String,
+        schema: JSONValue,
+        promptCacheKey: String?
+    ) async throws -> (json: Data, usage: TokenUsage) {
         var body: [String: JSONValue] = [
             "model": .string(model),
             "store": false,

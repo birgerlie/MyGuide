@@ -6,14 +6,21 @@ public struct DayStoryPhoto: Sendable, Equatable {
     public var id: String
     public var time: Date
     public var coordinate: Coordinate?
-    /// The story's name (`DayStoryPlan.eventName`) for a photo story's photo; nil for a library photo.
-    public var storyTitle: String?
+    public var kind: Kind
 
-    public init(id: String, time: Date, coordinate: Coordinate?, storyTitle: String?) {
+    public enum Kind: Sendable, Equatable {
+        /// Imported from the library; matched to an event by time and place.
+        case library
+        /// A photo story's photo, which belongs to its own story. `title` is the story's name
+        /// (`DayStoryPlan.eventName`), empty when it has none.
+        case photoStory(title: String)
+    }
+
+    public init(id: String, time: Date, coordinate: Coordinate?, kind: Kind) {
         self.id = id
         self.time = time
         self.coordinate = coordinate
-        self.storyTitle = storyTitle
+        self.kind = kind
     }
 }
 
@@ -41,9 +48,10 @@ public struct DayStoryPlan: Sendable, Equatable {
         let all = ordered.compactMap { entry -> DayStoryPhoto? in
             switch entry.kind {
             case .libraryPhoto:
-                DayStoryPhoto(id: entry.id, time: entry.time, coordinate: entry.coordinate, storyTitle: nil)
+                DayStoryPhoto(id: entry.id, time: entry.time, coordinate: entry.coordinate, kind: .library)
             case .photoStory:
-                DayStoryPhoto(id: entry.id, time: entry.time, coordinate: entry.coordinate, storyTitle: eventName(entry))
+                DayStoryPhoto(id: entry.id, time: entry.time, coordinate: entry.coordinate,
+                              kind: .photoStory(title: eventName(entry)))
             case .buzz, .stop:
                 nil
             }
@@ -51,7 +59,7 @@ public struct DayStoryPlan: Sendable, Equatable {
         let photos = choose(all, cap: photoCap)
         var matches: [String: DiaryEntry] = [:]
         // A photo story's photo belongs to its own story; only library photos are matched.
-        for photo in photos where photo.storyTitle == nil {
+        for photo in photos where photo.kind == .library {
             matches[photo.id] = match(photo, events: events)
         }
         return DayStoryPlan(photos: photos, matches: matches, events: events, totalPhotos: all.count)
