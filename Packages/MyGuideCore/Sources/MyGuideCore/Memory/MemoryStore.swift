@@ -38,10 +38,13 @@ public enum MemoryError: Error, Equatable {
     /// A ModelContext does not keep its container alive, and fetching after the container is gone traps.
     /// Holding it here lets callers pass just a context (for example `container.mainContext` of a local container).
     private let container: ModelContainer
+    /// The clock a newly stored story level is stamped with (`StoryRecord.createdAt`).
+    let now: () -> Date
 
-    public init(context: ModelContext) {
+    public init(context: ModelContext, now: @escaping () -> Date = Date.init) {
         self.context = context
         self.container = context.container
+        self.now = now
     }
 
     /// Upserts the session keyed by `session.id`. The capture's blobs and denormalised fields are refreshed;
@@ -82,12 +85,14 @@ public enum MemoryError: Error, Equatable {
 
             // Stored text, level and createdAt are never rewritten. placeID is a denormalised copy of the
             // capture's and is kept in step, so a story is found by exactly one of the two prior queries.
+            // A new level is stamped with when it was written, not when the photo was taken (an imported photo can
+            // be years old); levels written in the same save share the time and are ordered by level.
             let storedLevels = Set(record.stories.map(\.level))
             for story in record.stories where story.placeID != placeID { story.placeID = placeID }
             var appended = false
+            let writtenAt = now()
             for (index, text) in session.levels.enumerated() where !storedLevels.contains(index + 1) {
-                let story = StoryRecord(level: index + 1, text: text, placeID: placeID,
-                                        createdAt: session.capture.takenAt.addingTimeInterval(TimeInterval(index)))
+                let story = StoryRecord(level: index + 1, text: text, placeID: placeID, createdAt: writtenAt)
                 context.insert(story)
                 story.capture = record
                 appended = true
@@ -314,7 +319,7 @@ public enum MemoryError: Error, Equatable {
     }
 
     private func upsertPlace(_ candidate: Candidate, takenAt: Date, deepestLevel: Int, heardNow: Bool) throws {
-        let now = Date()
+        let now = now()
         if let place = try place(id: candidate.id) {
             place.name = candidate.name
             place.latitude = candidate.coordinate.latitude

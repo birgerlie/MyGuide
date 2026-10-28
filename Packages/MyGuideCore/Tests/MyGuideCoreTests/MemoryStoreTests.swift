@@ -5,9 +5,10 @@ import Testing
 
 @MainActor @Suite struct MemoryStoreTests {
     let store: MemoryStore
+    /// Stamps every story level the suite's store writes; tests about order move it.
+    let clock = WalkMemoryTests.Clock(Date(timeIntervalSince1970: 0))
     init() throws {
-        let c = try ModelContainer(for: Schema(MemorySchema.models), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-        store = MemoryStore(context: c.mainContext)
+        store = try WalkMemoryTests.clockedStore(clock)
     }
     // 1 m of latitude = 1/111_195 degree
     static func session(placeID: String?, n metres: Double = 0, levels: [String], at t: TimeInterval = 0) -> StorySession {
@@ -69,8 +70,12 @@ import Testing
     }
     @Test func excludesCurrentSessionAndCapsNewestTwelve() throws {
         let current = Self.session(placeID: "osm:node/1", levels: ["mine"], at: 999)
+        clock.date = Date(timeIntervalSince1970: 999)
         try store.save(current)
-        for i in 0..<15 { try store.save(Self.session(placeID: "osm:node/1", levels: ["s\(i)"], at: Double(i))) }
+        for i in 0..<15 {
+            clock.date = Date(timeIntervalSince1970: Double(i))
+            try store.save(Self.session(placeID: "osm:node/1", levels: ["s\(i)"], at: Double(i)))
+        }
         let p = try store.priorStories(placeIDs: ["osm:node/1"], near: Self.origin, excludingSession: current.id)
         #expect(p.count == 12 && p.first?.text == "s14" && !p.contains { $0.text == "mine" })
     }
@@ -117,15 +122,18 @@ import Testing
     }
     @Test func mixedQueryReturnsEachStoryOnceNewestFirst() throws {
         // Place match far away (5 km), unidentified capture 10 m away, unrelated place 10 m away (not asked for).
+        clock.date = Date(timeIntervalSince1970: 100)
         try store.save(Self.session(placeID: "osm:node/1", n: 5_000, levels: ["place a", "place b"], at: 100))
+        clock.date = Date(timeIntervalSince1970: 200)
         try store.save(Self.session(placeID: nil, n: 10, levels: ["nearby"], at: 200))
+        clock.date = Date(timeIntervalSince1970: 300)
         try store.save(Self.session(placeID: "osm:node/2", n: 10, levels: ["other place"], at: 300))
         let p = try store.priorStories(placeIDs: ["osm:node/1"], near: Self.origin, excludingSession: nil)
-        // createdAt: nearby = 200 s; place b = 100 + 1 = 101 s; place a = 100 + 0 = 100 s.
+        // createdAt = written at: nearby = 200 s; place a and b both 100 s (one save), level 2 (b) first.
         #expect(p.map(\.text) == ["nearby", "place b", "place a"])
         #expect(p.map(\.level) == [.first, .more, .first])
         #expect(p.map(\.placeID) == [nil, "osm:node/1", "osm:node/1"])
-        #expect(p.map(\.toldAt) == [Date(timeIntervalSince1970: 200), Date(timeIntervalSince1970: 101), Date(timeIntervalSince1970: 100)])
+        #expect(p.map(\.toldAt) == [Date(timeIntervalSince1970: 200), Date(timeIntervalSince1970: 100), Date(timeIntervalSince1970: 100)])
     }
     @Test func emptyPlaceIDsAndNoNearbyCapturesGiveNoPriors() throws {
         try store.save(Self.session(placeID: "osm:node/1", levels: ["at origin but identified"]))

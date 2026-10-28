@@ -5,9 +5,10 @@ import Testing
 
 @MainActor @Suite struct WalkMemoryTests {
     let store: MemoryStore
+    /// Stamps every story level the suite's store writes; starts at `t0`, and tests about order move it.
+    let clock = Clock(WalkMemoryTests.t0)
     init() throws {
-        let c = try ModelContainer(for: Schema(MemorySchema.models), configurations: .init(isStoredInMemoryOnly: true))
-        store = MemoryStore(context: c.mainContext)
+        store = try Self.clockedStore(clock)
     }
     static let t0 = Date(timeIntervalSince1970: 1_000_000)
     static let trip = UUID(), otherTrip = UUID()
@@ -400,14 +401,16 @@ import Testing
     @Test func savingMoreLevelsAppendsOnlyTheNewOnes() throws {
         var s = Self.buzzStory("osm:node/1", levels: ["L1"])
         try store.saveWalkStory(s, tripID: Self.trip)
+        clock.date = Self.t0 + 30
         s.levels.append("L2")
         try store.saveWalkStory(s, tripID: Self.trip)
+        clock.date = Self.t0 + 90
         try store.saveWalkStory(s, tripID: Self.trip)
         let stories = try store.context.fetch(FetchDescriptor<StoryRecord>()).sorted { $0.level < $1.level }
         #expect(stories.map(\.level) == [1, 2] && stories.map(\.text) == ["L1", "L2"])
         #expect(stories.allSatisfy { $0.placeID == "osm:node/1" && $0.capture == nil && $0.walkStory?.id == s.id })
-        // createdAt = story createdAt + level index: t0 + 0 and t0 + 1.
-        #expect(stories.map(\.createdAt) == [Self.t0, Self.t0 + 1])
+        // createdAt = when each level was written: L1 at t0, L2 at t0 + 30; the resave at t0 + 90 rewrites neither.
+        #expect(stories.map(\.createdAt) == [Self.t0, Self.t0 + 30])
         #expect(try store.context.fetchCount(FetchDescriptor<WalkStoryRecord>()) == 1)
         #expect(try store.place(id: "osm:node/1")?.deepestLevelHeard == 0)
     }
@@ -491,7 +494,7 @@ import Testing
         try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
         // The place is 5 km away from `near`: found by place ID, not by distance.
         let p = try store.priorStories(placeIDs: ["osm:node/1"], near: .at(north: 5_000), excludingSession: nil)
-        // createdAt: two = t0 + 1, one = t0 + 0, newest first.
+        // Both levels written in one save at t0: the level breaks the tie, newest (two) first.
         #expect(p.map(\.text) == ["two", "one"] && p.map(\.placeID) == ["osm:node/1", "osm:node/1"])
         #expect(try store.priorStories(placeIDs: ["osm:node/2"], near: .at(), excludingSession: nil).isEmpty)
     }
@@ -568,14 +571,72 @@ import Testing
         #expect(try store.priorStories(placeIDs: ["osm:node/1"], near: .at(), excludingSession: nil).map(\.text) == ["stop"])
     }
     @Test func photoAndWalkPriorsMixNewestFirst() throws {
-        // Photo capture at t = 100 s, 10 m away and unidentified; stop story at t0 (1 000 000 s), 20 m away.
+        // Photo told at 100 s, 10 m away and unidentified; stop story told at t0 (1 000 000 s), 20 m away.
+        clock.date = Date(timeIntervalSince1970: 100)
         try store.save(MemoryStoreTests.session(placeID: nil, n: 10, levels: ["photo"], at: 100))
+        clock.date = Self.t0
         try store.saveWalkStory(Self.stopStory(north: 20, levels: ["stop"]), tripID: Self.trip)
         let p = try store.priorStories(placeIDs: [], near: .at(), excludingSession: nil)
         #expect(p.map(\.text) == ["stop", "photo"])
     }
 
     // MARK: - Recent stories
+
+    /// A store whose clock the test sets; `clock.date` stamps every newly stored level.
+    final class Clock { var date: Date; init(_ date: Date) { self.date = date } }
+    static func clockedStore(_ clock: Clock) throws -> MemoryStore {
+        let c = try ModelContainer(for: Schema(MemorySchema.models), configurations: .init(isStoredInMemoryOnly: true))
+        return MemoryStore(context: c.mainContext, now: { clock.date })
+    }
+
+    @Test func importedPhotoWithAnOldTakenAtIsRecent() throws {
+        // A library photo taken in 1970 (takenAt = 100 s) told now (2 000 000 s): the level is stamped 2 000 000,
+        // inside the window since 2 000 000 − 10 800 = 1 989 200.
+        let clock = Clock(Date(timeIntervalSince1970: 2_000_000))
+        let store = try Self.clockedStore(clock)
+        try store.save(MemoryStoreTests.session(placeID: "osm:node/1", levels: ["photo"], at: 100))
+        let r = try store.recentStories(since: clock.date - RecentStories.window, excludingSession: nil)
+        #expect(r == [RecentStory(toldAt: clock.date, placeName: "Gate", level: .first, text: "photo", prepared: false)])
+    }
+    @Test func aLevelAppendedLaterCarriesItsOwnTime() throws {
+        // Walk story created at t0; level 1 written at t0 + 100, level 2 at t0 + 400. Before the fix level 2 was
+        // stamped createdAt + 1 = t0 + 1.
+        let clock = Clock(Self.t0 + 100)
+        let store = try Self.clockedStore(clock)
+        var s = Self.stopStory(north: 20, levels: ["one"], at: 0)
+        try store.saveWalkStory(s, tripID: Self.trip)
+        clock.date = Self.t0 + 400
+        s.levels.append("two")
+        try store.saveWalkStory(s, tripID: Self.trip)
+        try store.saveWalkStory(s, tripID: Self.trip)
+        let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
+        #expect(r.map(\.text) == ["two", "one"])
+        #expect(r.map(\.toldAt) == [Self.t0 + 400, Self.t0 + 100])
+    }
+    @Test func aPhotoLevelAppendedLaterCarriesItsOwnTime() throws {
+        // Photo taken at 100 s; level 1 written at 2 000 000, level 2 at 2 000 300; a resave rewrites neither.
+        let clock = Clock(Date(timeIntervalSince1970: 2_000_000))
+        let store = try Self.clockedStore(clock)
+        var s = MemoryStoreTests.session(placeID: "osm:node/1", levels: ["one"], at: 100)
+        try store.save(s)
+        clock.date = Date(timeIntervalSince1970: 2_000_300)
+        s.levels.append("two")
+        try store.save(s)
+        clock.date = Date(timeIntervalSince1970: 2_000_900)
+        try store.save(s)
+        let r = try store.recentStories(since: Date(timeIntervalSince1970: 1_999_990), excludingSession: nil)
+        #expect(r.map(\.text) == ["two", "one"])
+        #expect(r.map(\.toldAt) == [Date(timeIntervalSince1970: 2_000_300), Date(timeIntervalSince1970: 2_000_000)])
+    }
+    @Test func levelsWrittenInOneSaveShareTheTimeAndOrderByLevel() throws {
+        // Three levels stored at once (a relaunch catching up): all stamped t0 + 50; level breaks the tie, 3 first.
+        let clock = Clock(Self.t0 + 50)
+        let store = try Self.clockedStore(clock)
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["one", "two", "three"], at: 0), tripID: Self.trip)
+        let r = try store.recentStories(since: Self.t0, excludingSession: nil)
+        #expect(r.map(\.text) == ["three", "two", "one"])
+        #expect(r.map(\.toldAt) == [Self.t0 + 50, Self.t0 + 50, Self.t0 + 50])
+    }
 
     @Test func pendingBuzzStoryCountsAsPrepared() throws {
         let b = Self.buzz("osm:node/1")
@@ -591,7 +652,7 @@ import Testing
         try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one", "two", "three"], id: b.id), tripID: Self.trip)
         try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
         let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
-        // createdAt: two = t0 + 1, one = t0; newest first; level 3 > deepest 2 is left out.
+        // All three written at t0, so the level breaks the tie; level 3 > deepest 2 is left out.
         #expect(r.map(\.text) == ["two", "one"] && r.map(\.prepared) == [false, false])
         #expect(r.map(\.placeName) == ["Name osm:node/1", "Name osm:node/1"])
     }
@@ -615,6 +676,7 @@ import Testing
         #expect(r == [RecentStory(toldAt: Self.t0, placeName: nil, level: .first, text: "stop", prepared: false)])
     }
     @Test func photoSessionUsesTheCaptureSubject() throws {
+        clock.date = Date(timeIntervalSince1970: 2_000_000)
         try store.save(MemoryStoreTests.session(placeID: "osm:node/1", levels: ["photo"], at: 2_000_000))
         let r = try store.recentStories(since: Date(timeIntervalSince1970: 1_999_990), excludingSession: nil)
         #expect(r == [RecentStory(toldAt: Date(timeIntervalSince1970: 2_000_000), placeName: "Gate", level: .first,
@@ -622,14 +684,16 @@ import Testing
     }
     @Test func storiesBeforeSinceAreExcludedAndSinceItselfIsIncluded() throws {
         try store.saveWalkStory(Self.stopStory(north: 20, levels: ["old"], at: 0), tripID: Self.trip)
+        clock.date = Self.t0 + 100
         try store.saveWalkStory(Self.stopStory(north: 20, levels: ["edge"], at: 100), tripID: Self.trip)
         // since = t0 + 100: "old" (t0) is out, "edge" (exactly t0 + 100) is in.
         #expect(try store.recentStories(since: Self.t0 + 100, excludingSession: nil).map(\.text) == ["edge"])
         #expect(try store.recentStories(since: Self.t0 + 101, excludingSession: nil).isEmpty)
     }
     @Test func atMostTenNewestStoriesAreReturned() throws {
-        // 12 stop stories at t0 + 0 ... 11; the 10 newest are 11 down to 2.
+        // 12 stop stories written at t0 + 0 ... 11; the 10 newest are 11 down to 2.
         for i in 0..<12 {
+            clock.date = Self.t0 + Double(i)
             try store.saveWalkStory(Self.stopStory(north: 20, levels: ["s\(i)"], at: Double(i)), tripID: Self.trip)
         }
         let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
@@ -637,12 +701,16 @@ import Testing
         #expect(r.map(\.text) == (2...11).reversed().map { "s\($0)" })
     }
     @Test func excludingSessionDropsThatWalkStoryAndThatCapture() throws {
+        // Written at: stop t0 + 5, buzz t0, photo t0 + 50.
         let stop = Self.stopStory(north: 20, levels: ["stop"], at: 5)
+        clock.date = Self.t0 + 5
         try store.saveWalkStory(stop, tripID: Self.trip)
         let b = Self.buzz("osm:node/1")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        clock.date = Self.t0
         try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one"], id: b.id), tripID: Self.trip)
         let photo = MemoryStoreTests.session(placeID: nil, levels: ["photo"], at: 1_000_050)
+        clock.date = Self.t0 + 50
         try store.save(photo)
         let since = Self.t0 - 10
         #expect(try store.recentStories(since: since, excludingSession: nil).count == 3)

@@ -219,12 +219,12 @@ extension MemoryStore {
             }
 
             // As in `save(_ session:)`: placeID is a denormalised copy kept in step; text, level and createdAt
-            // are never rewritten.
+            // are never rewritten; a new level is stamped with when it was written.
             let storedLevels = Set(record.stories.map(\.level))
             for stored in record.stories where stored.placeID != placeID { stored.placeID = placeID }
+            let writtenAt = now()
             for (index, text) in story.levels.enumerated() where !storedLevels.contains(index + 1) {
-                let level = StoryRecord(level: index + 1, text: text, placeID: placeID,
-                                        createdAt: story.createdAt.addingTimeInterval(TimeInterval(index)))
+                let level = StoryRecord(level: index + 1, text: text, placeID: placeID, createdAt: writtenAt)
                 context.insert(level)
                 level.walkStory = record
             }
