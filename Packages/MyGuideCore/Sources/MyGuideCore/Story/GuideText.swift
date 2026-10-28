@@ -59,11 +59,16 @@ public enum GuideText {
         let parts = factTagKeys.compactMap { key -> String? in
             // OSM values are untrusted and may span lines; keep each place's facts on one line.
             guard let raw = tags[key] else { return nil }
-            let value = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let value = oneLine(raw)
             guard !value.isEmpty else { return nil }
             return "\(key)=\(TextTrim.truncate(value, maxCharacters: 200))"
         }
         return parts.isEmpty ? nil : "OSM: " + parts.joined(separator: "; ")
+    }
+
+    /// Every run of whitespace (newlines included) as one space, ends trimmed: untrusted text stays on its prompt line.
+    public static func oneLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     private static func format(_ date: Date, _ pattern: String, _ timeZone: TimeZone) -> String {

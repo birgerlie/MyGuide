@@ -128,20 +128,48 @@ import Testing
         #expect(Self.buzzInput(context: WalkContext(address: Self.address, bearing: 0, street: "Kirkegata", cameFrom: blankAlong))
             .contains("\nCame from: Stortorvet, 2 min ago, 100 m, behind\n"))
     }
-    @Test func buzzFactsBlockIsOmittedWhenEmptyAndNeighboursCappedAtFour() {
+    @Test func buzzWithoutFactsSaysNoneFoundAndNeighboursCappedAtFour() {
         let bare = Self.place("osm:node/9", "Bare", "k", north: 40, tier: .good)
         let b = Buzz(id: UUID(), place: bare, distance: 40, bearing: 0, title: "Bare", detail: "40 m ahead", usedOverride: false)
         let many = (0..<7).map { Self.place("osm:node/1\($0)", "P\($0)", "k", north: Double(100 + $0 * 10), tier: .good) }
         let s = Self.buzzInput(b, nearby: [bare] + many, applePlaces: nil)
-        #expect(!s.contains("Facts about") && !s.contains("Also on Apple Maps"))
+        #expect(s.contains("\nSubject: Bare (k), 40 m, ahead\nFacts about Bare: none found\nNearby:\n"))
+        #expect(!s.contains("Also on Apple Maps"))
         // Seven .good places 100…160 m: the nearest four, 100–130 m. P3 is 130 m north (bearing 0), walking north:
         // r = 0 → ahead; 130 rounds to 130.
         #expect(Self.lines(s).filter { $0.hasPrefix("- P") }.count == 4)
         #expect(s.contains("- P3 (k), 130 m, ahead") && !s.contains("- P4 "))
-        // .good subject: 60 words; 60 · 60 / 150 = 24 s.
-        #expect(s.contains("\nLength: about 60 words (24 seconds spoken), 2–3 points\n"))
+        // .good subject but no facts: the no-tier length, 40 words; 40 · 60 / 150 = 16 s (not 60 words, 24 s).
+        #expect(s.contains("\nLength: about 40 words (16 seconds spoken), 2–3 points\n"))
         // Alone: no Nearby field at all.
         #expect(!Self.buzzInput(b, nearby: [bare], applePlaces: nil).contains("Nearby"))
+    }
+    @Test func buzzLengthFollowsTheTierOnlyWhenThereAreFacts() {
+        // .top with facts (the gate's start_date and summary): 75 words; 75 · 60 / 150 = 30 s.
+        #expect(Self.buzzInput().contains("\nLength: about 75 words (30 seconds spoken), 2–3 points\n"))
+        // .top with no tags, no summary and no article: 40 words; 40 · 60 / 150 = 16 s.
+        let bareTop = Self.place("osm:node/9", "Bare", "k", north: 40, tier: .top)
+        let b = Buzz(id: UUID(), place: bareTop, distance: 40, bearing: 0, title: "Bare", detail: "40 m ahead", usedOverride: false)
+        #expect(Self.buzzInput(b).contains("\nLength: about 40 words (16 seconds spoken), 2–3 points\n"))
+        // Blank summary and blank article text count as no facts.
+        let blankTop = Self.place("osm:node/9", "Bare", "k", north: 40, tier: .top, summary: " \n ")
+        let blank = Buzz(id: UUID(), place: blankTop, distance: 40, bearing: 0, title: "Bare", detail: "40 m ahead", usedOverride: false)
+        let sBlank = Self.buzzInput(blank, articleText: "  ")
+        #expect(sBlank.contains("\nFacts about Bare: none found\n") && sBlank.contains("about 40 words"))
+        // An article alone is facts: .top keeps 75 words.
+        #expect(Self.buzzInput(b, articleText: "Built 1700.").contains("about 75 words"))
+    }
+    @Test func articleTextIsCollapsedToOneLine() {
+        // Newlines, blank lines, tabs and runs of spaces become single spaces; ends are trimmed.
+        let s = Self.buzzInput(articleText: "  First para.\n\nSecond  para.\tEnd.\n")
+        #expect(s.contains("\n  Wikipedia: First para. Second para. End.\nNearby:\n"))
+        // The summary standing in is collapsed too.
+        let multi = Self.place("osm:node/9", "Multi", "k", north: 40, tier: .top, summary: "One.\nTwo.")
+        let b = Buzz(id: UUID(), place: multi, distance: 40, bearing: 0, title: "Multi", detail: "40 m ahead", usedOverride: false)
+        #expect(Self.buzzInput(b).contains("\n  Wikipedia: One. Two.\n"))
+        // Stop and continuation facts go through the same line.
+        let stop = Self.continuation(Self.story(.stop, course: 0), articleText: "A\nB")
+        #expect(stop.contains("\n  Wikipedia: A B\n"))
     }
     @Test func buzzArticleTextReplacesTheSummary() {
         let s = Self.buzzInput(articleText: "FULL TEXT")
@@ -341,8 +369,28 @@ import Testing
         // One detour place: Facts about only, no Worth the detour field. Nothing within 500 m: neither.
         let one = Self.continuation(Self.story(.stop, course: 0), nearby: [Self.detourGood])
         #expect(one.contains("\nFacts about Good (historic=church), 300 m, north:\n") && !one.contains("Worth the detour"))
-        let none = Self.continuation(Self.story(.stop, course: 0), nearby: [])
+    }
+    @Test func stopContinuationWithNoPlacesLeftSaysSoAndStopsShort() {
+        // Nothing within 500 m of the story's position any more (the feed moved on).
+        let none = Self.continuation(Self.story(.stop, course: 0), nearby: [], applePlaces: [Self.library])
+        #expect(Self.fields(none) == ["Story", "Position", "Time", "Standing still", "Facts", "Also on Apple Maps",
+                                      "Told so far", "Told in the last 3 hours", "Told here before", "Length", "Answer in", "Task"])
+        #expect(none.contains("\nStanding still; walked in heading north along Kirkegata\nFacts: none found\n"))
+        // The first level's Apple Maps places stay (compass side: bearing 90 → east).
+        #expect(none.contains("\nAlso on Apple Maps:\n- Deichman (library), 120 m, east\nTold so far:\n"))
         #expect(!none.contains("Facts about") && !none.contains("Worth the detour") && !none.contains("Nearby"))
+        #expect(Self.lines(none).last == "Task: Continue only with what you genuinely know about this spot; if you know little, say so in a sentence and stop short.")
+        #expect(!none.contains(PromptBuilder.continuationTask))
+        // Level 2 length stays: 200 words; 200 · 60 / 150 = 80 s.
+        #expect(none.contains("\nLength: about 200 words (80 seconds spoken), 3–4 points\n"))
+    }
+    @Test func buzzContinuationWithoutFactsSaysNoneFound() {
+        var story = Self.story(.buzz)
+        story.place = Self.place("osm:node/9", "Bare", "k", north: 40, tier: .top).candidate
+        let s = Self.continuation(story)
+        // Bare 40 m north, stored course 90: r = 0 − 90 = −90 → to your left.
+        #expect(s.contains("\nSubject: Bare (k), 40 m, to your left\nFacts about Bare: none found\n"))
+        #expect(Self.lines(s).last == PromptBuilder.continuationTask)
     }
     @Test func continuationWithoutAddressOrCourse() {
         let s = Self.continuation(Self.story(.buzz, course: nil, address: nil))

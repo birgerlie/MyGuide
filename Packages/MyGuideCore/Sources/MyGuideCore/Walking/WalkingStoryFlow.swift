@@ -92,7 +92,7 @@ public struct WalkingStoryFlow: Sendable {
 
     /// Adds the next level, up to three. `nearby` are the places walking mode has now; a stop story runs its ladder over
     /// those around its own position again. The first level's Apple Maps places are reused, or searched again when it
-    /// has none (never for a detour, which lists none).
+    /// has none (never for a detour, which lists none, nor for a stop with no places left, which has nothing to tell).
     public func continueStory(_ story: WalkStory, nearby: [WalkingPlace]) async throws -> (WalkStory, [UsageEntry]) {
         guard let level = story.nextLevel else { throw PhotoStoryError.noFurtherLevel }
         // The places listed, decided once here so the priors lookup and the request agree. `subject` is the one
@@ -110,12 +110,12 @@ public struct WalkingStoryFlow: Sendable {
             subject = stop?.places.first?.candidate
             ids = stop?.places.map(\.candidate.id) ?? []
         }
-        let showsApplePlaces = switch stop {
-        case .detour: false
-        case .here, nil: true
+        let searchesApplePlaces = switch (story.kind, stop) {
+        case (.buzz, _), (.stop, .here): true
+        case (.stop, .detour), (.stop, nil): false
         }
         let stored = story.applePlaces
-        async let searched: [ApplePlace]? = stored == nil && showsApplePlaces
+        async let searched: [ApplePlace]? = stored == nil && searchesApplePlaces
             ? ApplePlaces.fetch(pointsOfInterest, around: story.position, radius: ApplePlaces.walkingRadius)
             : nil
         async let articleText = fetchArticle(subject?.wikipediaTitle)

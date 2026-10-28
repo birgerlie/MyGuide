@@ -197,6 +197,12 @@ import Foundation
         #expect(s.contains("Facing: north (0°), compass ±10°"))
         #expect(!s.contains("360"))
     }
+    @Test func candidateSummaryIsCollapsedToOneLine() {
+        var gate = Self.gate
+        gate.candidate.summary = "Gate of\n the  palace.\n"
+        let s = Self.first(grounding: Grounding(candidates: [gate], address: Self.address, failedSources: []))
+        #expect(s.contains("\n  Summary: Gate of the palace.\n"))
+    }
     @Test func candidateWithoutSummaryOrFactsHasNoIndentedLines() {
         var bare = Self.gate
         bare.candidate.summary = ""

@@ -256,6 +256,19 @@ import Testing
         #expect(input.contains("\nTold so far:\nLevel 1: S\n") && !input.contains("Came from"))
         #expect(seen.value?.ids == ["osm:node/1", "osm:node/2", "osm:node/3"] && seen.value?.session == story.id)
     }
+    @Test func stopContinuationWithNoPlacesLeftDoesNotSearchAppleMaps() async throws {
+        let http = Self.http()
+        let places = Places(result: [WalkPromptTests.library])
+        let flow = Self.flow(http, pointsOfInterest: places)
+        let stop = WalkStory(id: UUID(), kind: .stop, place: nil, position: Self.here, course: 0, language: .english,
+                             title: "T", levels: ["S"], createdAt: Self.now, address: WalkPromptTests.address)
+        let (more, _) = try await flow.continueStory(stop, nearby: [])
+        #expect(places.calls.value.isEmpty && more.applePlaces == nil && more.levels == ["S", "S"])
+        #expect(try Self.inputText(http).contains("\nFacts: none found\n"))
+        // With places around again, the search runs.
+        _ = try await flow.continueStory(stop, nearby: Self.facts)
+        #expect(places.calls.value.count == 1)
+    }
     @Test func continuationReusesApplePlaces() async throws {
         let http = Self.http()
         let places = Places(result: [WalkPromptTests.library])

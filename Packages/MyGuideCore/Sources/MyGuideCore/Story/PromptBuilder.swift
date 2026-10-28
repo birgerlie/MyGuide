@@ -81,9 +81,7 @@ public enum PromptBuilder {
         let listed = factCandidates(for: session)
         if let matched = session.matchedCandidate {
             let c = matched.candidate
-            let facts = factLines(c, articleText: articleText)
-            lines.append(facts.isEmpty ? "Facts about \(c.name): none found" : "Facts about \(c.name):")
-            lines.append(contentsOf: facts)
+            lines.append(contentsOf: factsAboutLines(c.name, facts: factLines(c, articleText: articleText)))
         } else if listed.isEmpty {
             lines.append("Facts: none found")
         } else {
@@ -141,7 +139,7 @@ public enum PromptBuilder {
             line += inView ? ", in view" : ", out of view"
         }
         var lines = [line]
-        if let summary = c.summary, !isBlank(summary) { lines.append("  Summary: \(summary)") }
+        if let summary = c.summary.map(GuideText.oneLine), !summary.isEmpty { lines.append("  Summary: \(summary)") }
         if let osm = GuideText.osmFacts(c.tags) { lines.append("  \(osm)") }
         return lines
     }
@@ -153,14 +151,19 @@ public enum PromptBuilder {
     }
 
     /// The indented facts under `Facts about`: the OSM fact tags, then `Wikipedia:` with the fuller article text or,
-    /// when it is missing or blank, the summary. Empty when there is neither.
+    /// when it is missing or blank, the summary, collapsed to one line. Empty when there is neither.
     private static func factLines(_ c: Candidate, articleText: String?) -> [String] {
         var facts: [String] = []
         if let osm = GuideText.osmFacts(c.tags) { facts.append("  \(osm)") }
-        if let text = [articleText, c.summary].compactMap({ $0 }).first(where: { !isBlank($0) }) {
+        if let text = [articleText, c.summary].compactMap({ $0.map(GuideText.oneLine) }).first(where: { !$0.isEmpty }) {
             facts.append("  Wikipedia: \(text)")
         }
         return facts
+    }
+
+    /// `Facts about Name:` and its `facts` (`factLines`), or `Facts about Name: none found`.
+    private static func factsAboutLines(_ name: String, facts: [String]) -> [String] {
+        [facts.isEmpty ? "Facts about \(name): none found" : "Facts about \(name):"] + facts
     }
 
     /// `Also on Apple Maps:` with the selected places (nearest first, none repeating a name listed in the request), or
@@ -295,13 +298,13 @@ public enum PromptBuilder {
         lines.append("Subject: \(place.name) (\(place.kind)), "
                      + GuideText.distanceAndSide(distance: buzz.distance, bearing: buzz.bearing, direction: direction))
         let facts = factLines(place, articleText: articleText)
-        if !facts.isEmpty { lines.append("Facts about \(place.name):") }
-        lines.append(contentsOf: facts)
+        lines.append(contentsOf: factsAboutLines(place.name, facts: facts))
         lines.append(contentsOf: walkPlaceLines("Nearby:", neighbours, from: position, direction: direction, facts: osmLines))
         lines.append(contentsOf: appleMapsLines(applePlaces, from: position, direction: direction,
                                                 knownNames: [place.name] + neighbours.map(\.candidate.name)))
         lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
-        lines.append(StoryLength.of(kind: .buzz, level: .first, tier: buzz.place.tier).line)
+        // With nothing known about the place, the shortest length whatever its tier: less to say, less to invent.
+        lines.append(StoryLength.of(kind: .buzz, level: .first, tier: facts.isEmpty ? nil : buzz.place.tier).line)
         lines.append("Answer in: \(language.promptName)")
         lines.append("Task: Tell the user about the subject they are passing.")
         return lines.joined(separator: "\n")
@@ -342,8 +345,9 @@ public enum PromptBuilder {
     /// A walking story's level 2 or 3. Position, address and direction are the stored story's (the flow has no fresher
     /// position on "More"); no came-from. A buzz keeps its subject and facts. A stop keeps its first level's structure
     /// over `stop` (the ladder around the story's position): the first place under `Facts about` (with `articleText`),
-    /// the rest as `Nearby:` or `Worth the detour:`; a detour gets no Apple Maps places. `applePlaces` are the first
-    /// level's, or a fresh search's when those are missing.
+    /// the rest as `Nearby:` or `Worth the detour:`; a detour gets no Apple Maps places. With no place left (`stop` nil)
+    /// it says `Facts: none found` and asks for a short level from what the model genuinely knows. `applePlaces` are
+    /// the first level's, or a fresh search's when those are missing.
     static func walkContinuationInput(story: WalkStory, level: StoryLevel, stop: WalkStop?, articleText: String?,
                                       applePlaces: [ApplePlace]?, recent: [RecentStory], priors: [PriorStory],
                                       now: Date, timeZone: TimeZone) -> String {
@@ -353,6 +357,7 @@ public enum PromptBuilder {
         case .buzz: "walking buzz"
         case .stop: "stop"
         }
+        var task = continuationTask
         var lines = ["Story: \(name), level \(level.rawValue)"]
         lines.append(contentsOf: walkPositionLines(story.address, position: story.position,
                                                    lookedUp: story.addressLookedUp))
@@ -363,9 +368,7 @@ public enum PromptBuilder {
             if let place = story.place {
                 lines.append("Subject: \(place.name) (\(place.kind)), "
                              + distanceAndSide(from: story.position, to: place.coordinate, direction: direction))
-                let facts = factLines(place, articleText: articleText)
-                if !facts.isEmpty { lines.append("Facts about \(place.name):") }
-                lines.append(contentsOf: facts)
+                lines.append(contentsOf: factsAboutLines(place.name, facts: factLines(place, articleText: articleText)))
             }
             lines.append(contentsOf: appleMapsLines(applePlaces, from: story.position, direction: direction,
                                                     knownNames: story.place.map { [$0.name] } ?? []))
@@ -383,16 +386,22 @@ public enum PromptBuilder {
                 lines.append(contentsOf: walkPlaceLines("Worth the detour:", Array(places.dropFirst()), from: story.position,
                                                         direction: nil, facts: { factLines($0, articleText: nil) }))
             case nil:
-                break
+                // Nothing within reach of the story's position any more: no facts to continue from.
+                lines.append("Facts: none found")
+                lines.append(contentsOf: appleMapsLines(applePlaces, from: story.position, direction: nil, knownNames: []))
+                task = noFactsContinuationTask
             }
         }
         lines.append(contentsOf: toldSoFarLines(story.levels))
         lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
         lines.append(StoryLength.of(kind: storyKind(story.kind), level: level, tier: nil).line)
         lines.append("Answer in: \(story.language.promptName)")
-        lines.append(continuationTask)
+        lines.append(task)
         return lines.joined(separator: "\n")
     }
+
+    /// The task of a stop story's level 2 or 3 when no place is left to tell from.
+    static let noFactsContinuationTask = "Task: Continue only with what you genuinely know about this spot; if you know little, say so in a sentence and stop short."
 
     /// The best place under `Facts about`, the rest as `Nearby:` with their OSM facts; compass sides.
     private static func stopHereLines(_ listed: [WalkingPlace], from: Coordinate, articleText: String?) -> [String] {
