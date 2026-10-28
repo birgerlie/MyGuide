@@ -108,6 +108,11 @@ struct HomeScreen: View {
             if path.contains(.camera), !old.contains(.camera) { services.camera.setZoom(1) }
             // The story screen is being dropped (navigated back): stop its work silently.
             if !path.contains(.photoStory) { setPushedModel(nil) }
+            // Likewise for the diary's work. A screen pushed over the diary or a day story keeps it running.
+            if !path.contains(.diary) { services.diary.cancelImport() }
+            services.diary.keepDayStories(Set(path.compactMap { route in
+                if case .dayStory(let dayKey) = route { dayKey } else { nil }
+            }))
             if path.isEmpty {
                 Task { await refreshCard() }
             } else {
@@ -290,7 +295,7 @@ struct HomeScreen: View {
             WalkStoryView(stories: services.walking.stories, id: id)
                 .id(id)
         case .dayStory(let dayKey):
-            DayStoryScreen(dayKey: dayKey, services: services)
+            DayStoryScreen(model: services.diary.dayStory(dayKey, services: services))
                 .id(dayKey)
         }
     }

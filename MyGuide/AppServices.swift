@@ -22,6 +22,8 @@ final class AppServices {
     let walkingCheck = WalkingCheckModel()
     /// The one WatchConnectivity link. Messages from the watch reach the Walking check through it.
     let watchLink = WatchLink()
+    /// The diary's import and day story writes, kept here so they survive a walk story pushed over their screens.
+    let diary = DiaryWork()
     private let http: HTTPClient = URLSessionHTTPClient()
     /// The one Wikipedia article text cache, for the app's lifetime: photo and walking stories share it.
     private let articles: ArticleTextCache

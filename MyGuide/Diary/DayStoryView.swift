@@ -4,21 +4,15 @@ import UIKit
 
 /// The day's story, full screen (spec 5.4): the summary over the first photo, then one page per photo still kept.
 /// A stored story shows at once; with none, one is written while a progress view shows. Close, Share and Write
-/// again sit at the top; nothing that would start a second write or share works while one runs, and leaving the
-/// screen stops the running one.
+/// again sit at the top; nothing that would start a second write or share works while one runs. The model belongs to
+/// `DiaryWork`: a screen pushed on top leaves a running write going, and going back from this screen stops it.
 struct DayStoryScreen: View {
-    let dayKey: String
-    let services: AppServices
+    let model: DayStoryModel
 
-    @State private var model: DayStoryModel
     @State private var selection = 0
+    /// False while another screen covers this one: its alert and share sheet wait until it is back on top.
+    @State private var visible = false
     @Environment(\.dismiss) private var dismiss
-
-    init(dayKey: String, services: AppServices) {
-        self.dayKey = dayKey
-        self.services = services
-        _model = State(initialValue: DayStoryModel(dayKey: dayKey, services: services))
-    }
 
     var body: some View {
         ZStack {
@@ -39,8 +33,11 @@ struct DayStoryScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden()
-        .onAppear { model.open() }
-        .onDisappear { model.cancel() }
+        .onAppear {
+            visible = true
+            model.open()
+        }
+        .onDisappear { visible = false }
         .onChange(of: model.pages) { selection = 0 }
         .alert(model.alert?.title ?? "", isPresented: alertPresented, presenting: model.alert) { alert in
             switch alert {
@@ -114,7 +111,7 @@ struct DayStoryScreen: View {
                 controlButton("Write again", systemImage: "arrow.clockwise") { model.requestRewrite() }
                     .disabled(model.busy)
             }
-            // Always available: leaving stops a running write or share.
+            // Always available: going back stops a running write or share.
             controlButton("Close", systemImage: "xmark") { dismiss() }
         }
         .padding()
@@ -134,11 +131,11 @@ struct DayStoryScreen: View {
     // MARK: - Bindings
 
     private var alertPresented: Binding<Bool> {
-        Binding(get: { model.alert != nil }, set: { if !$0 { model.alert = nil } })
+        Binding(get: { visible && model.alert != nil }, set: { if !$0, visible { model.alert = nil } })
     }
 
     private var shareSet: Binding<DayStoryModel.ShareSet?> {
-        Binding(get: { model.shareSet }, set: { model.shareSet = $0 })
+        Binding(get: { visible ? model.shareSet : nil }, set: { if visible { model.shareSet = $0 } })
     }
 }
 

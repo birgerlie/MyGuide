@@ -22,8 +22,9 @@ struct DiaryView: View {
     @State private var story: StoryViewModel?
     @State private var fullScreenPhoto: FullScreenPhoto?
     @State private var pickerItems: [PhotosPickerItem] = []
-    /// The running import; cancelled if the screen goes away, so it never outlives the diary.
-    @State private var importTask: Task<Void, Never>?
+    /// False while another screen covers the diary. The import (owned by `DiaryWork`) runs on meanwhile; its
+    /// summary waits until the diary is back on top.
+    @State private var visible = false
     /// The screen's one alert, so an error and an import summary never compete.
     @State private var alert: DiaryAlert?
 
@@ -68,16 +69,19 @@ struct DiaryView: View {
         } message: { alert in
             Text(alert.message)
         }
-        .onAppear(perform: reload)
-        .onDisappear {
-            importTask?.cancel()
-            importTask = nil
+        .onAppear {
+            visible = true
+            let summary = services.diary.takeImportSummary()
+            reload()
+            if let summary { showSummary(summary) }
         }
+        .onDisappear { visible = false }
         .onChange(of: pickerItems) { _, items in
-            guard !items.isEmpty, importTask == nil else { return }
+            guard !items.isEmpty, !isImporting else { return }
             pickerItems = []
-            importTask = Task { await importPhotos(items) }
+            services.diary.startImport(items, memory: services.memory)
         }
+        .onChange(of: services.diary.importSummary) { importFinished() }
     }
 
     @ViewBuilder
@@ -211,14 +215,16 @@ struct DiaryView: View {
         reload()
     }
 
-    private var isImporting: Bool { importTask != nil }
+    private var isImporting: Bool { services.diary.isImporting }
 
-    private func importPhotos(_ items: [PhotosPickerItem]) async {
-        let summary = await LibraryImport.run(items, memory: services.memory)
-        // Cancelled: the screen is gone, and onDisappear has already cleared the task.
-        guard !Task.isCancelled else { return }
-        importTask = nil
+    /// The import finished: shown now if the diary is on top, else when it comes back (`onAppear`).
+    private func importFinished() {
+        guard visible, let summary = services.diary.takeImportSummary() else { return }
         reload()
+        showSummary(summary)
+    }
+
+    private func showSummary(_ summary: LibraryImport.Summary) {
         // A load failure from the reload is the more urgent message.
         if alert == nil { alert = .summary(summary) }
     }

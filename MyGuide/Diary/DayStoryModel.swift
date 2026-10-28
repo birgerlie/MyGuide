@@ -5,7 +5,8 @@ import SwiftUI
 import UIKit
 
 /// One day's story (spec 5.4–5.6): opens the stored story or writes one, writes it again on request, and renders
-/// its pages for sharing. At most one write or share runs at a time; `cancel()` stops both.
+/// its pages for sharing. At most one write or share runs at a time; `cancel()` stops both. Owned by `DiaryWork`, so
+/// it outlives its screen while another screen covers it.
 @MainActor
 @Observable
 final class DayStoryModel {
@@ -112,7 +113,7 @@ final class DayStoryModel {
         writeTask = Task { [services] in
             do {
                 let (written, usage) = try await flow.write(day: day, language: language)
-                // Paid for, so counted and kept even when the screen has gone away meanwhile.
+                // Paid for, so counted and kept even when the day left the stack meanwhile.
                 services.recordUsage(usage)
                 var saved = true
                 do {
@@ -121,7 +122,7 @@ final class DayStoryModel {
                     AppServices.logMemoryFailure("day story save failed", error)
                     saved = false
                 }
-                // Cancelled: the screen is gone, and `cancel()` has already cleared the task.
+                // Cancelled: the day left the stack, and `cancel()` has already cleared the task.
                 guard !Task.isCancelled else { return }
                 writeTask = nil
                 unreadable = unreadable && !saved
