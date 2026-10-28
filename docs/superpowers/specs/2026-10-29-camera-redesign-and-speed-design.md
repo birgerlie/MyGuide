@@ -246,3 +246,13 @@ The story screen opens at once and shows steps in order. Each step replaces the 
     - Turning the "Prepare places in the background" setting on asks for Always when it is missing.
     - Library photos have no heading, so they never get a guess card.
     - The old "Looking around…" text is replaced by the bilingual steps.
+
+## 15. Owner's answers (2026-10-29)
+
+1. **Fonts:** download Playfair Display and Inter (owner: "laste ned Playfair Display og Inter").
+   - Static font files come from the projects' official GitHub releases.
+   - The OFL licence texts are included.
+2. **Article text in the first story:**
+   - Owner: "vi må jobbe med akkurat dette". The facts given to the first story are a topic for the content work that follows.
+   - This part builds the plumbing and, as a starting point, sends the top candidate's article text cut to **1 500 characters** with the first story, taken from the list when it is there *(Claude's call)*.
+   - The timings record whether it was sent and its length, so the content work can judge speed against quality.
