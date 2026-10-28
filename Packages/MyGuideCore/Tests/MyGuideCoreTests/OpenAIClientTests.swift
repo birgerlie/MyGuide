@@ -15,6 +15,19 @@ import Testing
                                  imageJPEG: image, schemaName: "s", schema: Self.schema)
     }
 
+    @Test func sentBodyKeepsOrderedSchemaAndIsDeterministic() async throws {
+        let schema: JSONValue = .ordered([JSONMember(key: "z", value: 1), JSONMember(key: "a", value: 2)])
+        var bodies: [String] = []
+        for _ in 0..<5 {
+            let http = StubHTTPClient { _ in (200, Self.okBody) }
+            _ = try await OpenAIClient(apiKey: "k", http: http).respond(model: "m", reasoningEffort: "low", instructions: "sys", text: "hello",
+                                                                       imageJPEG: nil, schemaName: "s", schema: schema)
+            bodies.append(String(decoding: try #require(http.requests.first?.httpBody), as: UTF8.self))
+        }
+        #expect(bodies[0].contains(#""schema":{"z":1,"a":2}"#))
+        #expect(Set(bodies).count == 1)
+    }
+
     @Test func buildsResponsesRequest() async throws {
         let http = StubHTTPClient { _ in (200, Self.okBody) }
         _ = try await call(OpenAIClient(apiKey: "sk-test", http: http))

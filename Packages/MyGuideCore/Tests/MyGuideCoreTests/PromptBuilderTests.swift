@@ -271,9 +271,19 @@ import Foundation
         #expect(req.count == 6 && o["additionalProperties"] == .bool(false))
     }
     @Test func eraDescribesWhenTheSubjectIsBestKnownFrom() throws {
-        guard case .object(let o) = PromptBuilder.firstStorySchema, case .object(let props) = try #require(o["properties"]),
-              case .object(let era) = try #require(props["era"]) else { Issue.record(); return }
+        guard case .object(let o) = PromptBuilder.firstStorySchema, case .ordered(let props) = try #require(o["properties"]),
+              case .object(let era) = try #require(props.first { $0.key == "era" }?.value) else { Issue.record(); return }
         #expect(era["description"] == .string("The era the subject is best known from, e.g. 'built 1697' or 'around 1780'"))
+    }
+    @Test func firstStorySchemaPutsStoryLast() throws {
+        let json = String(decoding: try PromptBuilder.firstStorySchema.jsonData(), as: UTF8.self)
+        let props = try #require(json.range(of: #""properties":"#)).upperBound
+        let eraAt = try #require(json[props...].range(of: #""era":"#)).lowerBound
+        let storyAt = try #require(json[props...].range(of: #""story":"#)).lowerBound
+        #expect(storyAt > eraAt)
+        #expect(json.contains(#""required":["subject","confidence","matchedCandidateID","title","era","story"]"#))
+        // Byte-identical on every encoding, so the prompt cache is not broken.
+        for _ in 0..<20 { #expect(String(decoding: try PromptBuilder.firstStorySchema.jsonData(), as: UTF8.self) == json) }
     }
     @Test func continuationSchemaRequiresOnlyStory() throws {
         guard case .object(let o) = PromptBuilder.continuationSchema, case .array(let req) = try #require(o["required"]) else { Issue.record(); return }

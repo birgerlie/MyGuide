@@ -205,15 +205,15 @@ public enum PromptBuilder {
         "type": "object",
         "additionalProperties": false,
         "required": ["subject", "confidence", "matchedCandidateID", "title", "era", "story"],
-        "properties": .object([
-            "subject": .object(["type": "string",
-                                "description": "What the photo shows, e.g. 'St. Michael's Church, main portal'"]),
-            "confidence": .object(["type": "string", "enum": ["certain", "likely", "unsure"]]),
-            "matchedCandidateID": .object(["type": ["string", "null"]]),
-            "title": .object(["type": "string", "description": "3–8 word title"]),
-            "era": .object(["type": "string",
-                            "description": "The era the subject is best known from, e.g. 'built 1697' or 'around 1780'"]),
-            "story": .object(["type": "string"]),
+        "properties": .ordered([
+            JSONMember(key: "subject", value: .object(["type": "string",
+                                "description": "What the photo shows, e.g. 'St. Michael's Church, main portal'"])),
+            JSONMember(key: "confidence", value: .object(["type": "string", "enum": ["certain", "likely", "unsure"]])),
+            JSONMember(key: "matchedCandidateID", value: .object(["type": ["string", "null"]])),
+            JSONMember(key: "title", value: .object(["type": "string", "description": "3–8 word title"])),
+            JSONMember(key: "era", value: .object(["type": "string",
+                            "description": "The era the subject is best known from, e.g. 'built 1697' or 'around 1780'"])),
+            JSONMember(key: "story", value: .object(["type": "string"])),
         ]),
     ])
 

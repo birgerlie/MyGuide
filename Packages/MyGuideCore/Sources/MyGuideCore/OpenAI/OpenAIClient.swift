@@ -150,7 +150,7 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         request.timeoutInterval = timeout
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
+        request.httpBody = try body.jsonData()
 
         let data: Data
         let response: HTTPURLResponse
