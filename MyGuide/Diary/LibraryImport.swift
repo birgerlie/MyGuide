@@ -64,6 +64,13 @@ enum LibraryImport {
     private static func importPhoto(_ item: PhotosPickerItem, memory: MemoryStore) async -> Outcome {
         // The identifier is what makes a second import of the same photo a no-op; without it the photo is not kept.
         guard let identifier = item.itemIdentifier else { return .failed }
+        // Checked before anything is loaded, so a photo added before costs no work and never asks for access.
+        do {
+            if try memory.hasLibraryPhoto(assetIdentifier: identifier) { return .alreadyAdded }
+        } catch {
+            AppServices.logMemoryFailure("library photo lookup failed", error)
+            return .failed
+        }
         let loaded: Data?
         do {
             loaded = try await item.loadTransferable(type: Data.self)
