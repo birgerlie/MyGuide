@@ -53,6 +53,7 @@
 		B8D753A876BD7F2DBBED7DE1 /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */; };
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
 		BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */; };
+		CDFAD1A0883E09219D87E2AD /* BackgroundTaskHold.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB62877340E610053D66495A /* BackgroundTaskHold.swift */; };
 		CE4081054052B226778217DA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB976060B732B94CFFDBA0D /* AppDelegate.swift */; };
 		CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262854964F0668D9EA23A15A /* TellMeIntent.swift */; };
 		D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -169,6 +170,7 @@
 		F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingActivityAttributes.swift; sourceTree = "<group>"; };
 		F878CC395772D74A4E843693 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FA60F0A75E58FC553F167C80 /* MyGuideCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MyGuideCore; path = Packages/MyGuideCore; sourceTree = SOURCE_ROOT; };
+		FB62877340E610053D66495A /* BackgroundTaskHold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskHold.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -278,6 +280,7 @@
 		65FCED6406B373ED5C73E009 /* Platform */ = {
 			isa = PBXGroup;
 			children = (
+				FB62877340E610053D66495A /* BackgroundTaskHold.swift */,
 				C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */,
 				B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */,
 			);
@@ -541,6 +544,7 @@
 				CE4081054052B226778217DA /* AppDelegate.swift in Sources */,
 				6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */,
 				B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */,
+				CDFAD1A0883E09219D87E2AD /* BackgroundTaskHold.swift in Sources */,
 				E8032EFCA466ECD13CCB7000 /* BuzzLogView.swift in Sources */,
 				6C3FDF42EAD1B48C0D631C87 /* BuzzNotifier.swift in Sources */,
 				4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */,

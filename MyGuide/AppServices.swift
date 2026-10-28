@@ -96,7 +96,12 @@ final class AppServices {
             starting.phase = .starting
             // The start clears the last start's problem; the reply must not show it again.
             starting.problem = nil
+            // The phone may be in the background: without background time iOS can suspend the app in one of the
+            // start's awaits, before location updates begin, and the walk hangs in `starting`. Held until the start
+            // returns.
+            let hold = BackgroundTaskHold.begin(name: "guided walk start")
             Task { @MainActor in
+                defer { hold.end() }
                 if let problem = await walking.start(source: .watch, interactive: false) {
                     watchLink.pushState(GuidedWalkState.off(sentAt: .now, problem: problem).message)
                 }
