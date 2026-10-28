@@ -32,7 +32,8 @@ public struct PartialFirstStory: Sendable, Equatable {
 ///   wrong type, are skipped. `matchedCandidateID: null` gives nil.
 /// - Never throws. Malformed input freezes the state it had reached.
 ///
-/// Each scalar is processed exactly once, so feeding is linear in the total input.
+/// Each scalar is processed exactly once; the only extra work is one copy of the growing story
+/// per `append` call (O(story length) per chunk), never per scalar.
 public struct PartialStoryParser: Sendable {
     private enum Field { case subject, confidence, matchedCandidateID, title, era, story }
 
@@ -55,6 +56,7 @@ public struct PartialStoryParser: Sendable {
     private var string = JSONStringDecoder()
     private var key: Field?          // the field the current value belongs to, if known
     private var bareText = ""
+    private var storyOpen = false   // the story string has begun and not yet closed
     // Skipping state.
     private var depth = 0
     private var skipInString = false
@@ -65,6 +67,9 @@ public struct PartialStoryParser: Sendable {
     /// Feeds the next piece of the stream and returns the state after all chunks so far.
     public mutating func append(_ chunk: String) -> PartialFirstStory {
         for scalar in chunk.unicodeScalars { consume(scalar) }
+        // Publish the growing story once per chunk, not per scalar: handing out the buffer
+        // while still appending to it would force a full copy on every scalar.
+        if storyOpen { result.story = string.text }
         return result
     }
 
@@ -115,9 +120,10 @@ public struct PartialStoryParser: Sendable {
         case .inField(let field):
             switch string.feed(c) {
             case .more:
-                if field == .story { result.story = string.text }
+                break
             case .closed:
                 store(field, string.text)
+                if field == .story { storyOpen = false }
                 state = .afterValue
             case .malformed: fail()
             }
@@ -145,7 +151,7 @@ public struct PartialStoryParser: Sendable {
             if let key {
                 string.reset()
                 state = .inField(key)
-                if key == .story { result.story = "" }
+                if key == .story { result.story = ""; storyOpen = true }
             } else {
                 beginSkipping(opening: c)
             }
@@ -242,8 +248,14 @@ private struct JSONStringDecoder: Sendable {
             }
             return .more
         case .hex(let digits, let value):
-            guard let nibble = Character(c).hexDigitValue else { return .malformed }
-            let next = value << 4 | UInt32(nibble)
+            let nibble: UInt32
+            switch c.value {
+            case 0x30...0x39: nibble = c.value - 0x30
+            case 0x41...0x46: nibble = c.value - 0x41 + 10
+            case 0x61...0x66: nibble = c.value - 0x61 + 10
+            default: return .malformed
+            }
+            let next = value << 4 | nibble
             if digits + 1 < 4 {
                 escape = .hex(digits: digits + 1, value: next)
             } else {

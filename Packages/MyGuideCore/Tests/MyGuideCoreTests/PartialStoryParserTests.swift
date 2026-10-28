@@ -72,7 +72,7 @@ import Testing
 
     @Test func surrogatePairSplitEverywhere() {
         // U+1F600 = D83D DE00.
-        let text = #"{"story":"a😀b"}"#
+        let text = #"{"story":"a\ud83d\ude00b"}"#
         for size in 1...text.count {
             let s = Self.feed(Self.chunks(text, size: size))
             #expect(s.story == "a😀b", "chunk size \(size)")
@@ -154,8 +154,12 @@ import Testing
     }
 
     @Test func keyWithEscapeStillMatches() {
-        // "subject" is "subject".
-        #expect(Self.feed([#"{"subject":"S"}"#]).subject == "S")
+        // \u0073 is "s", so the key reads "subject" only once decoded.
+        let text = #"{"\u0073ubject":"S"}"#
+        #expect(Self.feed([text]).subject == "S")
+        for size in [1, 2, 4, 7] {
+            #expect(Self.feed(Self.chunks(text, size: size)).subject == "S", "size \(size)")
+        }
     }
 
     @Test func nonStringValueForStringFieldIsIgnored() {
@@ -192,7 +196,28 @@ import Testing
         #expect(Self.feed([#"{"story":""}"#]).story == "")
     }
 
-    @Test func longStoryIsLinear() {
+    @Test func fullwidthDigitsAreNotHex() {
+        // U+FF10 FULLWIDTH DIGIT ZERO must not be accepted inside \u escapes.
+        #expect(Self.feed(["{\"story\":\"ok\\u\u{FF10}\u{FF10}\u{FF10}\u{FF10}\"}"]).story == "ok")
+    }
+
+    @Test func matchesJSONDecoderOnAnEscapeHeavyDocument() throws {
+        struct Doc: Decodable {
+            var subject, confidence, title, era, story: String
+            var matchedCandidateID: String?
+        }
+        let json = #"{"subject":"Caf\u00e9 \"X\"","confidence":"likely","matchedCandidateID":null,"title":"Line\nbreak æ","era":"\ud83d\ude00 \/ \\","story":"a\nb \"q\" æ \ud83d\ude00 \t."}"#
+        let doc = try JSONDecoder().decode(Doc.self, from: Data(json.utf8))
+        let expected = PartialFirstStory(
+            subject: doc.subject, confidence: doc.confidence, matchedCandidateID: doc.matchedCandidateID,
+            title: doc.title, era: doc.era, story: doc.story)
+        #expect(Self.feed([json]) == expected)
+        for size in 1...json.count {
+            #expect(Self.feed(Self.chunks(json, size: size)) == expected, "chunk size \(size)")
+        }
+    }
+
+    @Test func longStoryOneCharacterAtATime() {
         let body = String(repeating: "abcdefghij", count: 200)   // 2 000 characters
         var parser = PartialStoryParser()
         _ = parser.append(#"{"story":""#)
