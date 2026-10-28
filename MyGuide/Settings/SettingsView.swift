@@ -53,6 +53,7 @@ struct SettingsView: View {
                     Text("Buzzes per hour: \(buzzesPerHour)")
                 }
                 NavigationLink("Buzz log") { BuzzLogView(services: services) }
+                NavigationLink("Walk log") { WalkLogListView(services: services) }
             } header: {
                 Text("Walking")
             } footer: {

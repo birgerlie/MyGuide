@@ -18,7 +18,9 @@
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
 		2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */; };
 		357BDDD00F40A1DF41E20DC6 /* WalkingStories.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC982992B37C30453C7F88D8 /* WalkingStories.swift */; };
+		3AF03156542508C7009B121A /* WalkLogListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962FB606403221C1C07B5A34 /* WalkLogListView.swift */; };
 		3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */; };
+		4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */; };
 		4A41F0BABB7371E08C5F20E8 /* MyGuideWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */; };
 		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
 		56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */; };
@@ -38,6 +40,7 @@
 		97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */; };
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
 		9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
+		A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */; };
 		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
 		B8D753A876BD7F2DBBED7DE1 /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */; };
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
@@ -103,6 +106,7 @@
 		218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCheckView.swift; sourceTree = "<group>"; };
 		23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzNotifier.swift; sourceTree = "<group>"; };
 		262854964F0668D9EA23A15A /* TellMeIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TellMeIntent.swift; sourceTree = "<group>"; };
+		281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogRunView.swift; sourceTree = "<group>"; };
 		2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWidgetsBundle.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
 		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
@@ -114,6 +118,7 @@
 		58D59629C52B71A28FA9DCBB /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
 		593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingStatusPill.swift; sourceTree = "<group>"; };
 		5E7A49C840514706DE718EF1 /* WalkStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkStoryView.swift; sourceTree = "<group>"; };
+		60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogFormat.swift; sourceTree = "<group>"; };
 		6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuideWatch.entitlements; sourceTree = "<group>"; };
 		6FB5929240699451326DF1BD /* PhotoImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoImport.swift; sourceTree = "<group>"; };
 		728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLocation.swift; sourceTree = "<group>"; };
@@ -126,6 +131,7 @@
 		8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyGuideWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		90746D6CA8E40DE76B97D622 /* WalkingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingController.swift; sourceTree = "<group>"; };
 		9399C561071230F13BDD5526 /* WalkingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingPanel.swift; sourceTree = "<group>"; };
+		962FB606403221C1C07B5A34 /* WalkLogListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogListView.swift; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		A1937BD8CD114DE987914DC8 /* WalkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLog.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
@@ -216,6 +222,9 @@
 			children = (
 				F2EC60C12EF6858FD501AD51 /* BuzzLogView.swift */,
 				3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */,
+				60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */,
+				962FB606403221C1C07B5A34 /* WalkLogListView.swift */,
+				281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -498,6 +507,9 @@
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
 				581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */,
+				A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */,
+				3AF03156542508C7009B121A /* WalkLogListView.swift in Sources */,
+				4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */,
 				5FA86F274E41178B17735956 /* WalkStoryView.swift in Sources */,
 				9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */,
 				3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */,
