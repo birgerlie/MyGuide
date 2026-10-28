@@ -354,6 +354,22 @@ import Testing
         #expect(stop.contains("\nStanding still\n"))
     }
 
+    @Test func continuationOfAStoryNeverLookedUpSaysPositionUnknown() {
+        // A buzz story saved before buzz stories looked up an address: unknown, not "lookup failed".
+        var old = Self.story(.buzz, address: nil)
+        old.addressLookedUp = false
+        let s = Self.continuation(old)
+        #expect(s.contains("\nPosition: unknown\nCoordinates: 0.000000, 0.000000\n"))
+        #expect(!s.contains("lookup failed"))
+        var oldStop = Self.story(.stop, address: nil)
+        oldStop.addressLookedUp = false
+        #expect(Self.continuation(oldStop).contains("\nPosition: unknown\n"))
+        // An address that is there is used whatever the flag says.
+        var withAddress = Self.story(.buzz)
+        withAddress.addressLookedUp = false
+        #expect(Self.continuation(withAddress).contains("\nPosition: Kirkegata 15, Oslo\n"))
+    }
+
     @Test func schemaIsStrictWithTitleAndStory() throws {
         let data = try JSONEncoder().encode(PromptBuilder.walkStorySchema)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])

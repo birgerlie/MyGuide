@@ -197,7 +197,8 @@ import SwiftData
     public var placeID: String?
     /// JSON of the buzzed `Candidate`; nil for stop stories.
     public var placeJSON: Data?
-    /// JSON of the stop story's `Address`; nil when there is none.
+    /// JSON of the walker's `Address` when the story was made (buzz and stop stories); JSON null when the lookup
+    /// failed; nil when none was stored (a buzz story from before buzz stories looked one up): unknown.
     public var addressJSON: Data?
     /// The buzz direction line; nil for stop stories.
     public var detail: String?

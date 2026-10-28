@@ -354,7 +354,8 @@ public enum PromptBuilder {
         case .stop: "stop"
         }
         var lines = ["Story: \(name), level \(level.rawValue)"]
-        lines.append(contentsOf: walkPositionLines(story.address, position: story.position))
+        lines.append(contentsOf: walkPositionLines(story.address, position: story.position,
+                                                   lookedUp: story.addressLookedUp))
         lines.append("Time: \(GuideText.time(now, timeZone: timeZone))")
         switch story.kind {
         case .buzz:
@@ -466,11 +467,12 @@ public enum PromptBuilder {
         return Array(sorted.prefix(limit).map(\.element))
     }
 
-    /// `Position:` with the address, or that its lookup failed plus the coordinates.
-    private static func walkPositionLines(_ address: Address?, position: Coordinate) -> [String] {
+    /// `Position:` with the address, or else that its lookup failed (`unknown` when it was never looked up) plus the
+    /// coordinates.
+    private static func walkPositionLines(_ address: Address?, position: Coordinate, lookedUp: Bool = true) -> [String] {
         let display = address?.display ?? ""
         guard display.isEmpty else { return ["Position: \(display)"] }
-        return ["Position: address lookup failed",
+        return [lookedUp ? "Position: address lookup failed" : "Position: unknown",
                 String(format: "Coordinates: %.6f, %.6f", position.latitude, position.longitude)]
     }
 

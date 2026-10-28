@@ -190,7 +190,8 @@ extension MemoryStore {
     public func saveWalkStory(_ story: WalkStory, tripID: UUID) throws {
         let encoder = JSONEncoder()
         let placeJSON = try story.place.map { try encoder.encode($0) }
-        let addressJSON = try story.address.map { try encoder.encode($0) }
+        // JSON null for a failed lookup; no data for a story whose address was never looked up.
+        let addressJSON = story.addressLookedUp ? try encoder.encode(story.address) : nil
         let placeID = story.place?.id
         let existing = try walkStoryRecord(id: story.id)
 
@@ -249,7 +250,7 @@ extension MemoryStore {
         let address: Address?
         do {
             place = try record.placeJSON.map { try decoder.decode(Candidate.self, from: $0) }
-            address = try record.addressJSON.map { try decoder.decode(Address.self, from: $0) }
+            address = try record.addressJSON.flatMap { try decoder.decode(Address?.self, from: $0) }
         } catch {
             throw MemoryError.corruptRecord
         }
@@ -259,7 +260,7 @@ extension MemoryStore {
                          position: Coordinate(latitude: record.latitude, longitude: record.longitude),
                          course: record.course, language: language, title: record.title,
                          levels: stories.map(\.text), createdAt: record.createdAt, address: address,
-                         detail: record.detail)
+                         addressLookedUp: record.addressJSON != nil, detail: record.detail)
     }
 
     /// Stores each sample as a `TrackPoint` of the trip.

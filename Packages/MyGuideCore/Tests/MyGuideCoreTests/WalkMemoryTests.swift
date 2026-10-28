@@ -461,6 +461,34 @@ import Testing
         #expect(r.nextLevel == .more)
         #expect(r == s)
     }
+    @Test func failedAddressLookupRoundTripsAsLookedUp() throws {
+        // The buzz helper has address nil: a lookup that failed. It reads back as failed, not unknown.
+        let s = Self.buzzStory("osm:node/1", levels: ["one"])
+        try store.saveWalkStory(s, tripID: Self.trip)
+        let r = try #require(try store.walkStory(id: s.id))
+        #expect(r.address == nil && r.addressLookedUp)
+        #expect(r == s)
+    }
+    @Test func storySavedBeforeAddressLookupsReadsAsNeverLookedUp() throws {
+        // A record from before this change: no address JSON at all.
+        let s = Self.stopStory(north: 0, levels: ["one"])
+        try store.saveWalkStory(s, tripID: Self.trip)
+        try #require(try store.context.fetch(FetchDescriptor<WalkStoryRecord>()).first).addressJSON = nil
+        let r = try #require(try store.walkStory(id: s.id))
+        #expect(r.address == nil && !r.addressLookedUp)
+        // Saved again (a level appended on "More"), it stays unknown.
+        var next = r
+        next.levels.append("two")
+        try store.saveWalkStory(next, tripID: Self.trip)
+        let again = try #require(try store.walkStory(id: s.id))
+        #expect(again.address == nil && !again.addressLookedUp && again.levels == ["one", "two"])
+    }
+    @Test func walkStoryWithBadAddressJSONIsCorrupt() throws {
+        let s = Self.stopStory(north: 0, levels: ["one"])
+        try store.saveWalkStory(s, tripID: Self.trip)
+        try #require(try store.context.fetch(FetchDescriptor<WalkStoryRecord>()).first).addressJSON = Data("x".utf8)
+        #expect(throws: MemoryError.corruptRecord) { try store.walkStory(id: s.id) }
+    }
     @Test func unknownWalkStoryIsNil() throws {
         #expect(try store.walkStory(id: UUID()) == nil)
     }
