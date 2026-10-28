@@ -37,7 +37,8 @@ final class WorkoutKeeper: NSObject {
         case failed
     }
 
-    private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide.watchkitapp", category: "workout")
+    /// Nonisolated: the delegate methods log from HealthKit's queue.
+    nonisolated private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide.watchkitapp", category: "workout")
 
     /// Shorter workouts are discarded: a mis-tap leaves no entry in Fitness. Compared with `builder.elapsedTime`,
     /// which excludes pauses.
@@ -246,7 +247,13 @@ extension WorkoutKeeper: HKWorkoutSessionDelegate {
         }
     }
 
+    /// A failure ends the workout only when it left the session ended or stopped. Otherwise the session goes on, so
+    /// the workout is kept and the error logged; if the session ends later, `didChangeTo` reports it.
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
+        let state = workoutSession.state
+        let ns = error as NSError
+        Self.log.error("workout session failed in state \(state.rawValue, privacy: .public): \(ns.domain, privacy: .public) \(ns.code, privacy: .public)")
+        guard state == .ended || state == .stopped else { return }
         let id = ObjectIdentifier(workoutSession)
         Task { @MainActor in await self.sessionEndedOutside(id) }
     }
