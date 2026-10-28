@@ -34,7 +34,7 @@ final class WalkingActivityController {
     private var staleDate: Date?
     private var pushedStaleDate: Date?
     private var buzzCount = 0
-    /// True while the activity shows a stop story. Status changes leave it up until the next buzz.
+    /// True while the activity shows a stop story. Status changes leave it up until the next buzz, a pause or a resume.
     private var showingStop = false
     private var stopBuzzCount = 0
     private var lastPush: Task<Void, Never>?
@@ -74,7 +74,7 @@ final class WalkingActivityController {
 
     /// Shows the status line when its text changed (a buzz, or GPS found or lost), not on every fix; and pushes what
     /// is shown again when `staleDate` has moved on enough (`WalkingStatus.needsStaleRefresh`). A stop story on show
-    /// stays up until the next buzz.
+    /// stays up until the next buzz (or `clearStop()`).
     func updateStatus(_ text: String, buzzCount count: Int, staleDate stale: Date) {
         buzzCount = count
         staleDate = stale
@@ -90,6 +90,12 @@ final class WalkingActivityController {
         if let shown, WalkingStatus.needsStaleRefresh(pushed: pushedStaleDate, next: stale) {
             push(shown, alert: nil)
         }
+    }
+
+    /// Lets the next status change replace a stop story on show: a pause and a resume always show their status
+    /// ("Paused · N buzzes", then the walking text), since a stop story always comes before the pause it led to.
+    func clearStop() {
+        showingStop = false
     }
 
     /// Puts the stop story on the lock screen; `quiet` leaves out the alert (sound, screen on) while another story

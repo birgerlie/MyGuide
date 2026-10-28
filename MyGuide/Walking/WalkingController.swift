@@ -69,6 +69,9 @@ final class WalkingController {
     /// fixes or motion readings.
     @ObservationIgnored private var timerTask: Task<Void, Never>?
     @ObservationIgnored private var startedAt: Date?
+    /// When the last pause ended; nil until one has. With `startedAt` the floor of the Live Activity's stale date, as
+    /// `lastFixAt` stood still through the pause.
+    @ObservationIgnored private var resumedAt: Date?
     @ObservationIgnored private var tripID: UUID?
     @ObservationIgnored private var track: [TrackSample] = []
     /// The last sample kept for the track (flushed or not), so `TrackSample.isWorthStoring` thins across flushes.
@@ -215,6 +218,7 @@ final class WalkingController {
         buzzCount = 0
         lastFixAt = nil
         startedAt = now
+        resumedAt = nil
         UIDevice.current.isBatteryMonitoringEnabled = true
         isOn = true
         walkLog.log(.started(startFields(state)), at: now)
@@ -240,6 +244,7 @@ final class WalkingController {
         timerTask?.cancel()
         timerTask = nil
         startedAt = nil
+        resumedAt = nil
         UIDevice.current.isBatteryMonitoringEnabled = false
         motion.stop()
         location.setPaused(false)
@@ -401,20 +406,24 @@ final class WalkingController {
         }
     }
 
-    /// The one way into a pause: coarse location, the `paused` line, and "Paused" on the Live Activity with a stale
-    /// date the 60 s push keeps moving on. A story playing or preparing goes on.
+    /// The one way into a pause: coarse location, the track saved (nothing is held through a pause of up to an
+    /// hour), the `paused` line, and "Paused" on the Live Activity (also over a stop story) with a stale date the 60 s
+    /// push keeps moving on. A story playing or preparing goes on.
     private func enterPause(trigger: PauseTrigger, anchor: Coordinate?, now: Date) {
         guard !isPaused else { return }
         isPaused = true
         pausedSince = now
         location.setPaused(true)
+        flushTrack()
         walkLog.log(.paused(trigger, at: anchor), at: now)
         walkLog.resetQuiet()
+        activity.clearStop()
         refreshActivity(now: now)
     }
 
     /// The one way out of a pause: best location again, and the route, stop detector (with the run's stop spots),
-    /// track thinning and GPS state start afresh, so the next fix is judged as usual (spec 5.4).
+    /// track thinning and GPS state start afresh, so the next fix is judged as usual (spec 5.4). The Live Activity
+    /// shows the walking status again, with a stale date counted from now.
     private func leavePause(trigger: PauseTrigger, now: Date) {
         guard isPaused else { return }
         let paused = pausedSince.map { max(0, now.timeIntervalSince($0)) } ?? 0
@@ -426,8 +435,10 @@ final class WalkingController {
         stopDetector = StopDetector(previousStops: stopSpots)
         lastTrackSample = nil
         loggedGPS = nil
+        resumedAt = now
         walkLog.log(.resumed(trigger, pausedSeconds: paused), at: now)
         walkLog.resetQuiet()
+        activity.clearStop()
         refreshActivity(now: now)
     }
 
@@ -445,12 +456,16 @@ final class WalkingController {
         }
         let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
         // While paused a fix only goes to the resume rule and the log: no engine, feed, stop detector, track, route
-        // or `lastFixAt` (spec 9.3).
+        // or `lastFixAt` (spec 9.3). A fix that resumes is used at once: it goes on through the active path below.
         if isPaused {
             let change = pauseDetector?.fix(position: position, accuracy: fix.horizontalAccuracy, at: now)
-            logFix(fix, dropped: nil, at: now)
+            guard case .resume = change else {
+                logFix(fix, dropped: nil, at: now)
+                applyPause(change, now: now)
+                return
+            }
             applyPause(change, now: now)
-            return
+            guard isOn, !isPaused, engine != nil else { return }
         }
         // The status says "waiting for GPS" until a fix the engine can use arrives.
         if WalkingFix.isUsable(accuracy: fix.horizontalAccuracy) { lastFixAt = fix.timestamp }
@@ -528,13 +543,15 @@ final class WalkingController {
     }
 
     /// Shows the status on the Live Activity; it only changes with the buzz count, the GPS state or a pause, and is
-    /// pushed again now and then to move its stale date on. While paused the stale date is now + 120 s.
+    /// pushed again now and then to move its stale date on. While paused the stale date is now + 120 s; after a
+    /// resume it counts from the resume at the earliest, as `lastFixAt` stood still through the pause.
     private func refreshActivity(now: Date) {
         guard isOn, let startedAt,
               let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: isPaused)
         else { return }
+        let floor = max(startedAt, resumedAt ?? startedAt)
         let stale = isPaused ? WalkingStatus.pausedStaleDate(now: now)
-                             : WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: startedAt)
+                             : WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: floor)
         activity.updateStatus(text, buzzCount: buzzCount, staleDate: stale)
     }
 
