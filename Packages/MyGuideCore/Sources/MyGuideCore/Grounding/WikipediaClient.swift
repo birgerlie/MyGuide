@@ -128,6 +128,63 @@ public struct WikipediaClient: Sendable {
     }
 }
 
+extension WikipediaClient {
+    public static let articleTextLimit = 4_000
+
+    /// Whole-article plain-text request (no `exintro`); the text is cut locally. `title` may hold spaces and non-ASCII.
+    static func articleTextURL(code: String, title: String) -> URL {
+        // Only unreserved characters stay literal, so "&", "+", "=" and "#" in a title cannot leak into the query.
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let encoded = title.addingPercentEncoding(withAllowedCharacters: unreserved) ?? title
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "\(code).wikipedia.org"
+        components.path = "/w/api.php"
+        components.percentEncodedQuery = [
+            "action=query", "format=json", "formatversion=2", "prop=extracts", "explaintext=1",
+            "exsectionformat=plain", "redirects=1", "titles=\(encoded)",
+        ].joined(separator: "&")
+        return components.url!
+    }
+
+    /// Plain text of the article (intro plus following sections), cut to `articleTextLimit` with TextTrim.truncate.
+    /// `wikipediaTitle` is "code:Title" (Candidate.wikipediaTitle). Throws on HTTP/API/malformed errors and on a
+    /// missing page; throws GroundingFetchError.malformed for a title without a "code:" prefix.
+    public func articleText(wikipediaTitle: String) async throws -> String {
+        guard let colon = wikipediaTitle.firstIndex(of: ":") else { throw GroundingFetchError.malformed }
+        let code = String(wikipediaTitle[..<colon])
+        let title = String(wikipediaTitle[wikipediaTitle.index(after: colon)...])
+        // The code becomes a host name: letters and hyphens only (e.g. "no", "zh-min-nan").
+        guard !code.isEmpty, !title.isEmpty,
+              code.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "-") }) else { throw GroundingFetchError.malformed }
+
+        var request = URLRequest(url: Self.articleTextURL(code: code, title: title))
+        request.timeoutInterval = 10
+        request.setValue(OverpassClient.userAgent, forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await http.send(request)
+        guard (200..<300).contains(response.statusCode) else { throw GroundingFetchError.http(response.statusCode) }
+        guard let decoded = try? JSONDecoder().decode(ArticleResponse.self, from: data) else { throw GroundingFetchError.malformed }
+        if let error = decoded.error { throw GroundingFetchError.apiError(error.code ?? "unknown") }
+        guard let page = decoded.query?.pages?.first, page.missing != true,
+              let text = page.extract?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
+        else { throw GroundingFetchError.malformed }
+        return TextTrim.truncate(text, maxCharacters: Self.articleTextLimit)
+    }
+}
+
+private struct ArticleResponse: Decodable {
+    var query: Query?
+    var error: APIError?
+
+    struct APIError: Decodable { var code: String? }
+    struct Query: Decodable { var pages: [Page]? }
+    struct Page: Decodable {
+        var missing: Bool?
+        var extract: String?
+    }
+}
+
 public enum TextTrim {
     /// Cuts at the last whitespace at or before `maxCharacters` and appends `…`; hard-cuts when there is none.
     public static func truncate(_ s: String, maxCharacters: Int) -> String {

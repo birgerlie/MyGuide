@@ -175,4 +175,98 @@ import Foundation
         #expect(TextTrim.truncate("abc", maxCharacters: -1) == "…")  // negative clamps to 0
         #expect(TextTrim.truncate("exactly9!", maxCharacters: 9) == "exactly9!")
     }
+
+    // MARK: articleText
+
+    static func articleBody(_ extract: String) -> Data {
+        Data(#"{"query":{"pages":[{"pageid":7,"title":"Michaelertor","extract":"\#(extract)"}]}}"#.utf8)
+    }
+
+    @Test func articleTextRequestIsWholeArticleInTheTitleLanguage() async throws {
+        let http = StubHTTPClient { _ in (200, Self.articleBody("Das Tor.")) }
+        let text = try await WikipediaClient(http: http).articleText(wikipediaTitle: "de:Michaelertor")
+        #expect(text == "Das Tor.")
+        let request = try #require(http.requests.first)
+        let url = try #require(request.url).absoluteString
+        #expect(url.contains("de.wikipedia.org"))
+        #expect(url.contains("titles=Michaelertor"))
+        #expect(url.contains("explaintext=1") && url.contains("redirects=1") && url.contains("exsectionformat=plain"))
+        #expect(!url.contains("exintro"))
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
+        #expect(request.timeoutInterval == 10)
+    }
+
+    @Test func articleTextIsCutToTheLimit() async throws {
+        // 5,000 "word " repeats of 5 characters: cut at the last space at or before 4,000 -> 3,999 chars + "…" = 4,000.
+        // A single 5,000-character word hard-cuts to 4,000 + "…" = 4,001 (the upper bound).
+        let words = String(repeating: "word ", count: 1_000)
+        let http = StubHTTPClient { _ in (200, Self.articleBody(words)) }
+        let cut = try await WikipediaClient(http: http).articleText(wikipediaTitle: "en:X")
+        #expect(cut.count == 3_999 + 1 && cut.hasSuffix("word…"))
+
+        let blob = StubHTTPClient { _ in (200, Self.articleBody(String(repeating: "a", count: 5_000))) }
+        let hard = try await WikipediaClient(http: blob).articleText(wikipediaTitle: "en:X")
+        #expect(hard.count == 4_001 && hard.hasSuffix("…"))
+    }
+
+    @Test func articleTextAtTheLimitIsUntouched() async throws {
+        let exact = String(repeating: "a", count: WikipediaClient.articleTextLimit)
+        let http = StubHTTPClient { _ in (200, Self.articleBody(exact)) }
+        #expect(try await WikipediaClient(http: http).articleText(wikipediaTitle: "en:X") == exact)
+    }
+
+    @Test func articleTextPercentEncodesSpacesAndNonASCII() async throws {
+        let http = StubHTTPClient { _ in (200, Self.articleBody("Tekst.")) }
+        let client = WikipediaClient(http: http)
+        _ = try await client.articleText(wikipediaTitle: "no:Oslo domkirke")
+        _ = try await client.articleText(wikipediaTitle: "no:Ålesund")
+        _ = try await client.articleText(wikipediaTitle: "en:AT&T: A+B")  // only the first colon splits code from title
+        let urls = http.requests.compactMap { $0.url?.absoluteString }
+        #expect(urls[0].hasSuffix("titles=Oslo%20domkirke"))
+        #expect(urls[1].hasSuffix("titles=%C3%85lesund"))
+        #expect(urls[2].hasSuffix("titles=AT%26T%3A%20A%2BB"))
+        let decoded = URLComponents(string: urls[0])?.queryItems?.first { $0.name == "titles" }?.value
+        #expect(decoded == "Oslo domkirke")
+    }
+
+    @Test func articleTextThrowsForMissingPage() async {
+        let http = StubHTTPClient { _ in (200, Data(#"{"query":{"pages":[{"title":"Nope","missing":true}]}}"#.utf8)) }
+        await #expect(throws: GroundingFetchError.malformed) {
+            _ = try await WikipediaClient(http: http).articleText(wikipediaTitle: "en:Nope")
+        }
+    }
+
+    @Test func articleTextThrowsForEmptyExtractAndNoPages() async {
+        for body in [#"{"query":{"pages":[{"pageid":1,"title":"T","extract":"  "}]}}"#, #"{"query":{"pages":[]}}"#, #"{}"#] {
+            let http = StubHTTPClient { _ in (200, Data(body.utf8)) }
+            await #expect(throws: GroundingFetchError.malformed) {
+                _ = try await WikipediaClient(http: http).articleText(wikipediaTitle: "en:T")
+            }
+        }
+    }
+
+    @Test func articleTextThrowsOnHttpApiAndGarbage() async {
+        let http500 = StubHTTPClient { _ in (500, Data()) }
+        await #expect(throws: GroundingFetchError.http(500)) {
+            _ = try await WikipediaClient(http: http500).articleText(wikipediaTitle: "en:T")
+        }
+        let api = StubHTTPClient { _ in (200, Data(#"{"error":{"code":"badvalue"}}"#.utf8)) }
+        await #expect(throws: GroundingFetchError.apiError("badvalue")) {
+            _ = try await WikipediaClient(http: api).articleText(wikipediaTitle: "en:T")
+        }
+        let junk = StubHTTPClient { _ in (200, Data("<html>".utf8)) }
+        await #expect(throws: GroundingFetchError.malformed) {
+            _ = try await WikipediaClient(http: junk).articleText(wikipediaTitle: "en:T")
+        }
+    }
+
+    @Test func articleTextThrowsMalformedForBadTitleWithoutRequest() async {
+        for bad in ["Michaelertor", ":Michaelertor", "de:", "d/e:X", "de.evil.com/x:Y"] {
+            let http = StubHTTPClient { _ in (200, Self.articleBody("x")) }
+            await #expect(throws: GroundingFetchError.malformed) {
+                _ = try await WikipediaClient(http: http).articleText(wikipediaTitle: bad)
+            }
+            #expect(http.requests.isEmpty)
+        }
+    }
 }
