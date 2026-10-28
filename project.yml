@@ -44,6 +44,8 @@ targets:
         NSPhotoLibraryUsageDescription: "MyGuide reads when and where a picked photo was taken, to tell its story and to place it in your diary."
         NSPhotoLibraryAddUsageDescription: "MyGuide saves the day story pages you choose to save to your photo library."
         NSMotionUsageDescription: "MyGuide notices when you stop and start walking, so walking mode can pause itself and save battery."
+        NSHealthShareUsageDescription: "MyGuide starts the guided walk on your Apple Watch, where it is recorded as a walking workout. The iPhone app reads no health data."
+        NSHealthUpdateUsageDescription: "MyGuide starts the guided walk on your Apple Watch, which saves it to Health as a walking workout. The iPhone app writes no health data."
     entitlements:
       path: MyGuide/MyGuide.entitlements
       properties:

@@ -37,6 +37,10 @@
 	<string>$(OPENAI_BUNDLED_KEY)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>MyGuide uses the camera to photograph what you want a story about.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>MyGuide starts the guided walk on your Apple Watch, where it is recorded as a walking workout. The iPhone app reads no health data.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>MyGuide starts the guided walk on your Apple Watch, which saves it to Health as a walking workout. The iPhone app writes no health data.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
