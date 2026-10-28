@@ -44,7 +44,7 @@ public struct WalkLogSummary: Sendable, Equatable {
     public init(events: [WalkLogEvent], unreadable: Int) {
         start = events.first?.at
         end = events.last?.at
-        duration = (start != nil && end != nil) ? end!.timeIntervalSince(start!) : 0
+        if let start, let end { duration = max(0, end.timeIntervalSince(start)) } else { duration = 0 }
         distance = segments(events).reduce(0) { total, segment in
             total + zip(segment, segment.dropFirst()).reduce(0) { $0 + GeoMath.distance($1.0, $1.1) }
         }
@@ -53,7 +53,8 @@ public struct WalkLogSummary: Sendable, Equatable {
         var stop: WalkStopReason?
         for event in events {
             switch event.kind {
-            case .fetched(_, _, _, _, let listed): fetches += 1; placeIDs.formUnion(listed.map(\.id))
+            case .fetchStarted: fetches += 1
+            case .fetched(_, _, _, _, let listed): placeIDs.formUnion(listed.map(\.id))
             case .fetchFailed: fetchFailures += 1; failures += 1
             case .buzz: buzzes += 1
             case .notified: notifications += 1

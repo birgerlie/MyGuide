@@ -70,8 +70,9 @@ import Testing
         let a = Self.place("a"), b = Self.place("b"), c = Self.place("c"), d = Self.place("d")
         let id = UUID()
         let events = [
-            Self.ev(Self.fetched([a, b, c])), Self.ev(Self.fetched([c, d])),
-            Self.ev(.fetchFailed(error: "x")),
+            Self.ev(.fetchStarted(.at())), Self.ev(Self.fetched([a, b, c])),
+            Self.ev(.fetchStarted(.at())), Self.ev(Self.fetched([c, d])),
+            Self.ev(.fetchStarted(.at())), Self.ev(.fetchFailed(error: "x")),
             Self.ev(.buzz(WalkLogBuzz(id: id, placeID: "a", name: "A", tier: .top, distance: 5, override: false, detail: ""))),
             Self.ev(.notified(id: id, kind: .buzz, settings: WalkLogEventTests.settings)),
             Self.ev(.failure(context: "c", error: "e")), Self.ev(.notifyFailed(id: nil, kind: .stop, error: "e")),
@@ -81,7 +82,8 @@ import Testing
         let s = WalkLogSummary(events: events, unreadable: 3)
         // Hand: places 3 + 2 - 1 shared (c) = 4.
         #expect(s.places == 4)
-        #expect(s.fetches == 2)
+        // Hand: 3 fetchStarted events (attempts), 2 fetched, 1 fetchFailed -> fetches 3.
+        #expect(s.fetches == 3)
         #expect(s.fetchFailures == 1)
         #expect(s.buzzes == 1)
         #expect(s.notifications == 1)
@@ -139,5 +141,18 @@ import Testing
         let m = WalkLogMapData(events: events)
         #expect(m.buzzedPlaceIDs == ["p1"])
         #expect(m.pauses == [at])
+    }
+
+    @Test func durationNeverNegative() {
+        // Hand: last event is 50 s before the first (clock stepped back): -50 -> clamped to 0.
+        let events = [Self.ev(.gps(found: true), at: 100), Self.ev(.gps(found: false), at: 50)]
+        #expect(WalkLogSummary(events: events, unreadable: 0).duration == 0)
+    }
+
+    @Test func latestDetectedStopPairsWithToldStory() {
+        let a = Coordinate.at(north: 1), b = Coordinate.at(north: 2)
+        let events = [Self.ev(.stopDetected(a)), Self.ev(.stopDetected(b)),
+                      Self.ev(.stopStory(outcome: .told, title: "t", error: nil))]
+        #expect(WalkLogMapData(events: events).stops == [b])
     }
 }

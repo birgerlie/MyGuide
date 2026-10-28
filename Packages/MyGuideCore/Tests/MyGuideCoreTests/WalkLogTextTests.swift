@@ -39,4 +39,27 @@ import Testing
             #expect(!WalkLogText.line(kind).isEmpty, "\(kind)")
         }
     }
+
+    @Test func nonFiniteAndHugeNumbersDoNotCrash() {
+        for value in [1e30, -1e30, Double.nan, Double.infinity] {
+            let buzz = WalkLogBuzz(id: UUID(), placeID: "a", name: "A", tier: .top, distance: value, override: false, detail: "")
+            #expect(!WalkLogText.line(.buzz(buzz)).isEmpty)
+            let due = DuePlace(id: "a", name: "A", tier: .top, distance: value, excluded: false)
+            #expect(!WalkLogText.line(.quiet(.busy, due: [due])).isEmpty)
+            #expect(!WalkLogText.line(.resumed(.gps, pausedSeconds: value)).isEmpty)
+            let fix = WalkLogFix(coordinate: .at(), accuracy: value, speed: nil, course: nil, paused: false, dropped: nil)
+            #expect(!WalkLogText.line(.fix(fix)).isEmpty)
+        }
+        let nan = DuePlace(id: "a", name: "A", tier: .top, distance: .nan, excluded: false)
+        #expect(WalkLogText.line(.quiet(.busy, due: [nan])) == "Quiet: busy · A ? m")
+    }
+
+    @Test func fixLineShowsPausedAndDroppedFlags() {
+        let fix = WalkLogFix(coordinate: .at(), accuracy: 12.4, speed: nil, course: nil, paused: true, dropped: .stale)
+        // Hand: 12.4 rounds to 12.
+        #expect(WalkLogText.line(.fix(fix)) == "Fix ±12 m (paused, dropped stale)")
+        let plain = WalkLogFix(coordinate: .at(), accuracy: 12.6, speed: nil, course: nil, paused: false, dropped: nil)
+        // Hand: 12.6 rounds to 13.
+        #expect(WalkLogText.line(.fix(plain)) == "Fix ±13 m")
+    }
 }
