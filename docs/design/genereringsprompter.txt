@@ -1,0 +1,19 @@
+Verktøy: innebygd image_gen
+
+APP-IKON
+Use case: logo-brand
+Asset type: finished standalone iOS app icon for MyGuide, square edge-to-edge artwork.
+Primary request: A distinctive premium icon for a personal walking audio guide that identifies landmarks through camera, position and compass and tells factual local stories. Create a beautifully simple ivory compass needle with a subtle doorway-shaped negative space, evoking discovery and entering a city's stories. One bold unified symbol, excellent at small sizes. Deep forest teal background #123D38, warm ivory mark #FFF8E9, a small restrained coral #EC795D accent at the north-facing needle tip. Flat vector-like precision, balanced geometry, gently human curves, sophisticated Scandinavian travel identity. Symbol centered with generous optical padding.
+Constraints: full square opaque background all the way to edges; no rounded outer container, no device mockup, no lettering, no gradients, no shadows, no tiny map details, no watermark.
+
+DESIGNARK
+Use case: ui-mockup
+Asset type: high-end visual identity and app UI presentation board for MyGuide, wide landscape 3:2 composition, exceptionally polished editorial design.
+Input image 1: brand symbol reference, preserve this ivory doorway compass needle with coral tip on forest teal, use as the MyGuide icon consistently.
+Primary request: A coherent visual design package for a Norwegian personal walking audio guide. Warm sophisticated Scandinavian editorial travel design, spacious ivory canvas, forest teal #123D38, warm ivory #FFF8E9, coral #EC795D and muted stone #DDD8CD. Large MyGuide wordmark upper left with small compass icon. Exact headline "Historiene er rundt deg." Small subtitle "Din personlige guide i lomma."
+Layout: left 24% identity column containing icon, elegant wordmark, four labeled color swatches with hex codes, typographic sample with serif editorial headline and clean sans-serif UI. Right 76% three beautiful legible iPhone screens and a compact Apple Watch interface below. Flat front-facing screens with subtle device frames and restrained shadows. Refined composition, generous gutters, no overlapping content.
+First screen camera discovery: beautiful architectural photograph of a Roman piazza, simple focus corners, heading "Hva ser du på?", bottom primary button "Finn stedet", clear camera control.
+Second screen walk mode: light uncluttered map with a small teal walking route, position dot and nearby landmarks, title "På oppdagelse", status "Gåmodus er på", bottom nearby landmark card "Pantheon", "120 m · mot nordøst", strong "Lytt" play button. Secondary pause control.
+Third screen journal: title "Min dagbok", subtitle "En dag i Roma", beautiful photos of Roman architecture arranged as a clean story journal with a warm serif article heading, small primary button "Lag dagsfortelling" and share icon.
+Below the phones a compact landscape detail card showing audio playback "Pantheon", progress bar, "0:24 / 1:10", primary pause button and secondary "Mer", small factual provenance link "Kilder". Beside this a large readable Apple Watch screen with title "Pantheon", direction arrow, "120 m", large play control; small separate walk controls for pause and stop.
+Constraints: exact readable Norwegian text as specified; no invented historical claims, no fake citations; UI must feel calm, useful outside, touch-friendly, factual and privacy-conscious. No purple, no neon, no excessive gradients, no ornamental charts. This is a concept presentation, strong hierarchy and beautiful consistent typography.

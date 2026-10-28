@@ -1,0 +1,51 @@
+MYGUIDE — VISUELL DESIGNPAKKE
+Konsept: Historiene er rundt deg.
+En personlig guide som er rolig, nysgjerrig og konkret.
+
+LEVERANSE
+myguide-appikon.png: separat rasterikon med heldekkende bakgrunn.
+myguide-designpakke.png: visuelt konseptark for identitet, iPhone og Apple Watch.
+genereringsprompter.txt: de to endelige promptene, laget med innebygd image_gen.
+Bildene er konseptmateriale. Kart, bilder, datoer og skjermtekst er illustrasjoner, ikke verifiserte appdata. Dette er ikke implementerte skjermer eller en ferdig App Store-eksport.
+
+IDENTITET
+Kompassnålen viser retning. Døråpningen inviterer inn i stedets historie.
+Bruk ikonet uten tekst. La plattformen legge på hjørneformen.
+Bevar tydelig silhuett ved små størrelser; forenkle om nødvendig ved produksjon.
+
+FARGER
+Skoggrønn #123D38: primærmerke, tekst, navigasjon, primærknapper.
+Elfenben #FFF8E9: hovedbakgrunn og lys tekst på grønt.
+Korall #EC795D: markeringer, aktive lydkontroller, små aksenter.
+Stein #DDD8CD: skillelinjer og sekundære flater.
+Bruk mørk tekst på korall ved små skriftstørrelser. Hvit tekst på korall i konseptarket skal erstattes med mørk tekst eller mørkere knapp i produksjon. Kontroller faktisk kontrast og alle tilstander før implementering.
+
+TYPOGRAFI
+Playfair Display Semibold til korte, redaksjonelle overskrifter.
+Inter Regular/Medium til løpende tekst og grensesnitt.
+På Apple Watch brukes systemskrift for lesbarhet.
+Forslag: brødtekst 17 pt, støttetekst minst 13 pt, overskrift 28–34 pt.
+Støtt dynamisk tekst og systemets tilgjengelighetsinnstillinger.
+
+KOMPONENTER
+8-punkts avstandsrytme. 16–24 pt sidemarg. Korthjørner 16–20 pt.
+Minst 44 × 44 pt trykkflate på telefon. Store, tydelige avspillingskontroller.
+Et stedskort viser navn, retning, avstand og Lytt.
+Lydspilleren viser spill/pause, fremdrift, Mer og Kilder.
+Bruk tekst eller symbol sammen med farger for status.
+
+SKJERMER OG ATFERD
+Oppdag: kamera, Finn stedet, bekreftet sted og kort fortelling.
+Vis usikkerhet tydelig: «Jeg er ikke sikker på hvilket sted dette er.»
+Gåmodus: start, pause og stopp. Prioriter varsler og lyd fremfor skjermbruk.
+Klokke: stedsnavn, retning, avstand, Lytt og separat kontroll av turen.
+Ikke vis spill og pause som samtidige aktive handlinger i ferdig grensesnitt.
+Dagbok: bilder, fortellinger og dagsfortelling med bildetekster, sammendrag og deling.
+Vis kilder ved faktapåstander. Ikke fyll manglende fakta med antakelser.
+Be om nødvendige tilganger til posisjon, varsler og Helse når funksjonen tas i bruk.
+Lagring av tur i Helse må ha tydelig samtykke og bekreftet status.
+
+SPRÅK
+Kort og vennlig: «Hva ser du på?», «Finn stedet», «Lytt», «Mer».
+Skill mellom funnet fakta og usikker identifikasjon.
+
