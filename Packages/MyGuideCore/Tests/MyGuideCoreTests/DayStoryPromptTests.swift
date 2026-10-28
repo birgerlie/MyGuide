@@ -30,7 +30,7 @@ import Testing
             - 12:40 photo story: Oslo Cathedral — "Consecrated in 1697."
             - 14:00 stop: Stortorvet
             Photos (in the order the images are attached):
-            - [p1] 12:03, matches 11:58 Akershus Fortress
+            - [p1] 12:03, taken near 11:58 Akershus Fortress
             - [p2] 12:40, photo story: Oslo Cathedral
             - [p3] 13:10, no matching event
             Answer in: Norwegian Bokmål
@@ -71,12 +71,17 @@ import Testing
         for rule in [
             "Write a caption for each photo: what is in the frame first, then the matched event's facts. At most 40 words, warm and specific, no greetings.",
             "Then write a 2–3 sentence summary of the day as a walk the user took.",
-            "Never state facts that are not in the event list or clearly visible in a photo.",
-            "The event list and what is clearly visible in the photos are the only facts you may use; leave out anything you know about a place from elsewhere.",
-            "This request has no \"Told in the last 3 hours\" or \"Told here before\" lists and no nearby places: the HONESTY rules about them do not apply, and never suggest a detour.",
+            "\"Taken near\" an event means only that the photo was taken close by in time and place; say the photo shows that place only if it is clearly visible, otherwise caption what is visible and mention the event as where the walk was.",
+            "Use only facts from the event list and what is clearly visible in a photo. Where this is stricter than HONESTY below, this wins: never add facts from your own knowledge, even hedged with \"I believe\".",
+            "The HONESTY bullets about \"Told in the last 3 hours\", \"Told here before\" and \"worth the detour\" do not apply; every other HONESTY rule does. Never suggest a detour.",
             "Answer in the language the request names.",
         ] {
             #expect(s.contains(rule))
+        }
+        // The two rules the merged facts rule replaced are gone, so no weaker duplicate competes with it.
+        for removed in ["Never state facts that are not in the event list", "only facts you may use",
+                        "the HONESTY rules about them do not apply"] {
+            #expect(!s.contains(removed))
         }
         // One constant for both languages, so the prefix caches.
         for banned in ["English", "Norwegian"] { #expect(!s.contains(banned)) }
