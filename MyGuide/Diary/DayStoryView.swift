@@ -139,7 +139,8 @@ struct DayStoryScreen: View {
     }
 }
 
-/// A page in the pager: loads its photo when it comes into view.
+/// A page in the pager: loads its photo when it comes into view, and drops it when the page's photo changes or goes
+/// (the summary page shows the first photo, which a rewrite or a deletion can change).
 private struct DayStoryPageSlot: View {
     let model: DayStoryModel
     let imageID: String?
@@ -147,6 +148,8 @@ private struct DayStoryPageSlot: View {
     let insets: EdgeInsets
 
     @State private var image: UIImage?
+    /// The photo `image` was loaded for.
+    @State private var imageFor: String?
 
     var body: some View {
         // Clear of the page dots (about 26 pt) and the controls row (44 pt plus padding).
@@ -155,8 +158,15 @@ private struct DayStoryPageSlot: View {
                                             bottom: insets.bottom + 36, trailing: insets.trailing))
             .ignoresSafeArea()
             .task(id: imageID) {
+                // Coming back into view with its photo already shown: nothing to do.
+                if imageFor == imageID, image != nil { return }
+                image = nil
+                imageFor = imageID
                 guard let imageID else { return }
-                image = await model.displayImage(id: imageID)
+                let loaded = await model.displayImage(id: imageID)
+                // Superseded by a newer photo or gone from view: a late result must not overwrite the newer one.
+                guard !Task.isCancelled else { return }
+                image = loaded
             }
     }
 }
