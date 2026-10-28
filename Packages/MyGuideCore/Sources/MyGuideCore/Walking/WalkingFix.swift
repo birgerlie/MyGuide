@@ -15,4 +15,15 @@ public enum WalkingFix {
     public static func isUsable(accuracy: Double) -> Bool {
         accuracy.isFinite && accuracy >= 0 && accuracy <= BuzzEngine.maxFixAccuracy
     }
+
+    /// Slowest speed (m/s) at which a fix counts as walking for `RouteMemory`.
+    public static let routeMinSpeed = 0.5
+    /// Worst horizontal accuracy (metres) a fix may have to go into `RouteMemory`.
+    public static let routeMaxAccuracy = 20.0
+
+    /// True for a fix that may go into `RouteMemory`: moving (speed at least `routeMinSpeed`; CoreLocation's unknown −1
+    /// is not) and accurate (0…`routeMaxAccuracy`), so GPS jitter while standing still makes no path, bearing or lookup.
+    public static func isRouteFix(speed: Double, accuracy: Double) -> Bool {
+        speed.isFinite && speed >= routeMinSpeed && accuracy.isFinite && accuracy >= 0 && accuracy <= routeMaxAccuracy
+    }
 }

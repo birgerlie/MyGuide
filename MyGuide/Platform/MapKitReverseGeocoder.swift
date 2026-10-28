@@ -26,6 +26,8 @@ struct MapKitReverseGeocoder: ReverseGeocoding {
         // for it on cancellation or after its geocoder timeout, and checks for cancellation afterwards.
         let items = try await request.mapItems
         guard let item = items.first else { throw ReverseGeocodingFailure.noResult }
+        // No district: neither `MKAddress` nor `MKAddressRepresentations` has a neighbourhood field (iOS 26 SDK).
+        // The only one is the deprecated `placemark.subLocality`.
         return Address(line: nonEmpty(item.address?.shortAddress),
                        city: nonEmpty(item.addressRepresentations?.cityName),
                        country: nonEmpty(item.addressRepresentations?.regionName))

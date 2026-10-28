@@ -25,4 +25,20 @@ import Testing
         #expect(!WalkingFix.isUsable(accuracy: .nan))
         #expect(!WalkingFix.isUsable(accuracy: .infinity))
     }
+    @Test func routeFixIsMovingAndAccurate() {
+        // Moving: speed ≥ 0.5 m/s (0.5 and 1.4, a walking pace, pass; 0.49 and CoreLocation's unknown −1 do not).
+        // Accurate: 0…20 m (0 and 20 pass; 20.01 and the invalid −1 do not).
+        #expect(WalkingFix.isRouteFix(speed: 0.5, accuracy: 20))
+        #expect(WalkingFix.isRouteFix(speed: 1.4, accuracy: 0))
+        #expect(!WalkingFix.isRouteFix(speed: 0.49, accuracy: 5))
+        #expect(!WalkingFix.isRouteFix(speed: -1, accuracy: 5))
+        #expect(!WalkingFix.isRouteFix(speed: 1.4, accuracy: 20.01))
+        #expect(!WalkingFix.isRouteFix(speed: 1.4, accuracy: -1))
+    }
+    @Test func routeFixRejectsNonFiniteValues() {
+        #expect(!WalkingFix.isRouteFix(speed: .nan, accuracy: 5))
+        #expect(!WalkingFix.isRouteFix(speed: .infinity, accuracy: 5))
+        #expect(!WalkingFix.isRouteFix(speed: 1.4, accuracy: .nan))
+        #expect(!WalkingFix.isRouteFix(speed: 1.4, accuracy: .infinity))
+    }
 }

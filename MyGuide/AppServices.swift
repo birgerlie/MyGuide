@@ -23,6 +23,8 @@ final class AppServices {
     /// The one WatchConnectivity link. Messages from the watch reach the Walking check through it.
     let watchLink = WatchLink()
     private let http: HTTPClient = URLSessionHTTPClient()
+    /// The one Wikipedia article text cache, for the app's lifetime: photo and walking stories share it.
+    private let articles: ArticleTextCache
     /// The one camera. It lives here, not in the camera screen, so exactly one capture session exists however
     /// often SwiftUI rebuilds the pushed screen, and the preview always shows the session that runs. Home starts
     /// and stops it by what is on top of its stack.
@@ -40,9 +42,14 @@ final class AppServices {
         self.memoryIsPersistent = memoryIsPersistent
         let http = http
         let keychain = keychain
+        let articles = ArticleTextCache(client: WikipediaClient(http: http))
+        self.articles = articles
         let stories = WalkingStories(
             memory: memory,
-            makeFlow: { try Self.walkingFlow(openAI: Self.openAI(keychain: keychain, http: http), memory: memory) },
+            makeFlow: {
+                try Self.walkingFlow(openAI: Self.openAI(keychain: keychain, http: http), memory: memory,
+                                     articles: articles)
+            },
             makeSpeech: { try Self.speech(openAI: Self.openAI(keychain: keychain, http: http)) },
             recordUsage: { Self.recordUsage($0, memory: memory) })
         walking = WalkingController(
@@ -100,12 +107,14 @@ final class AppServices {
 
     /// Throws `OpenAIError.missingAPIKey` when no key is stored.
     func makeWalkingFlow() throws -> WalkingStoryFlow {
-        Self.walkingFlow(openAI: try makeOpenAI(), memory: memory)
+        Self.walkingFlow(openAI: try makeOpenAI(), memory: memory, articles: articles)
     }
 
-    /// Walking stories get the same memory priors as photo stories.
-    private static func walkingFlow(openAI: OpenAIClient, memory: MemoryStore) -> WalkingStoryFlow {
-        WalkingStoryFlow(openAI: openAI, priors: priorLookup(memory: memory))
+    /// Walking stories get the same memory, Apple Maps places and article texts as photo stories.
+    private static func walkingFlow(openAI: OpenAIClient, memory: MemoryStore,
+                                    articles: ArticleTextCache) -> WalkingStoryFlow {
+        WalkingStoryFlow(openAI: openAI, priors: priorLookup(memory: memory), recent: recentLookup(memory: memory),
+                         pointsOfInterest: MapKitPointsOfInterest(), articles: articles)
     }
 
     /// Throws `OpenAIError.missingAPIKey` when no key is stored.
@@ -114,7 +123,9 @@ final class AppServices {
         let grounding = GroundingService(overpass: OverpassClient(http: http),
                                          wikipedia: WikipediaClient(http: http),
                                          geocoder: MapKitReverseGeocoder())
-        return PhotoStoryFlow(grounding: grounding, openAI: openAI, priors: Self.priorLookup(memory: memory))
+        return PhotoStoryFlow(grounding: grounding, openAI: openAI, priors: Self.priorLookup(memory: memory),
+                              recent: Self.recentLookup(memory: memory), pointsOfInterest: MapKitPointsOfInterest(),
+                              articles: articles)
     }
 
     /// A memory failure must never block a story: it is logged and the flow is told there are no priors.
@@ -125,6 +136,20 @@ final class AppServices {
                     return try memory.priorStories(placeIDs: placeIDs, near: near, excludingSession: excluding)
                 } catch {
                     AppServices.logMemoryFailure("priors lookup failed", error)
+                    return []
+                }
+            }
+        }
+    }
+
+    /// Likewise for the stories told lately: a memory failure is logged and the flow is told there are none.
+    private static func recentLookup(memory: MemoryStore) -> RecentStoryLookup {
+        { since, excluding in
+            await MainActor.run {
+                do {
+                    return try memory.recentStories(since: since, excludingSession: excluding)
+                } catch {
+                    AppServices.logMemoryFailure("recent stories lookup failed", error)
                     return []
                 }
             }

@@ -23,7 +23,7 @@ Status: phase 1 (photo story) is implemented and in device testing; phase 2 walk
 
 Walking mode follows you with the phone locked and buzzes when you pass something worth a story: buzzes with Tell me, More and Skip, a stop story when you stand still, a buzz log, a buzzes-per-hour setting and auto-off.
 
-- **Start it:** on the camera screen, tap the walking-figure button (it turns yellow while walking mode runs). Tap it again to stop. An OpenAI API key must be saved in Settings first.
+- **Start it:** on the Home screen, tap the walking-figure button next to the camera button (it fills with the accent colour while walking mode runs). Tap it again to stop. An OpenAI API key must be saved in Settings first.
 - **Location "Always":** iOS first asks for "While Using"; allow "Always" when it offers the upgrade, or walking mode stops following you when the phone is locked.
 - **Focus:** buzzes arrive as ordinary notifications, so a Focus can hold them back. Time Sensitive notifications need the paid developer account (the free account cannot sign that entitlement); until then buzzes do not break through a Focus.
 - **A buzz:** a notification with the place name. Tell me plays the short story in your headphones, More continues to the next level, Skip drops the place for good. Tapping the notification opens the story in the app. Audio from other apps (music, podcasts) is ducked while a story plays, not stopped.

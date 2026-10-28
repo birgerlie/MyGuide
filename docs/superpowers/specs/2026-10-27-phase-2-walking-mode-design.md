@@ -99,7 +99,7 @@ The list lives in one place in the code, with its own tests, so changing it is a
 
 ### 7.5 The walking story
 
-- Same story style, levels and memory priors as phase 1, but made from position, walking direction and the chosen place instead of a photo.
+- Same story style, levels and memory priors as phase 1, but made from position, walking direction and the chosen place instead of a photo. Style, lengths and the request's contents (address, walking direction, where the walker came from, stories told lately, Apple Maps places): see the guide-voice design (`2026-10-28-guide-voice-design.md`, sections 4–7).
 - **Prepared when the buzz goes out:** the 20-second text and its speech are fetched as soon as the place is chosen, so a tap plays within a second or two *(Claude's call)*. An ignored buzz therefore costs one small text request and one short speech request (roughly a cent or less; the cost counter shows the real figure). If the owner taps before it is ready, it plays as soon as it is.
 - "More" fetches the next level the same way as phase 1's "Tell me more".
 - Audio plays through the phone to the AirPods (or the phone speaker if none are connected), with the phase-1 audio session handling.
@@ -107,8 +107,9 @@ The list lives in one place in the code, with its own tests, so changing it is a
 ### 7.6 Stop story
 
 - **Stopped:** speed below walking pace and within **25 m** of one point for **60 s** *(Claude's call)*.
-- The phone makes a **short text story about the spot** (about 50 words, the 20-second level) from position and nearby places, and puts it on the lock screen: by updating the Live Activity started with walking mode if step 0 shows that works, otherwise as a time-sensitive notification. One tap opens the full story in the app, where "Tell me more" and speech work as in phase 1.
+- The phone makes a **short text story about the spot** (at most 50 words; see below) from position and nearby places, and puts it on the lock screen: by updating the Live Activity started with walking mode if step 0 shows that works, otherwise as a time-sensitive notification. One tap opens the full story in the app, where "Tell me more" and speech work as in phase 1.
 - At most one stop story per spot: not again within 100 m in the same trip *(Claude's call)*.
+- Length (at most 50 words), what the request holds and what happens when there is little or nothing nearby ("worth the detour", or no stop story at all): see the guide-voice design (`2026-10-28-guide-voice-design.md`, sections 5, 6 and 9).
 - The stop story is about the spot. Places already heard this trip go into the request as memory priors, so it takes a new angle and doesn't repeat them. Places it mentions are **not** retired, since the app can't know whether the lock-screen text was read; the story itself is saved, so a later buzz about the same place gets it as a prior and takes a different angle *(Claude's call)*.
 
 ### 7.7 Trips, memory and the buzz log

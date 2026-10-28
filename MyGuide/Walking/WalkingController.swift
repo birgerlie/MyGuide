@@ -54,6 +54,11 @@ final class WalkingController {
     @ObservationIgnored private var track: [TrackSample] = []
     /// The last sample kept for the track (flushed or not), so `TrackSample.isWorthStoring` thins across flushes.
     @ObservationIgnored private var lastTrackSample: TrackSample?
+    /// The recent walk and its street lookups, for the stories' direction, position and "came from" (spec 6.4–6.5).
+    /// In memory only; reset after a stop story and when walking mode stops.
+    @ObservationIgnored private var route = RouteMemory()
+    /// True while a street lookup runs: `RouteMemory.needsStreetLookup` stays true until it is recorded.
+    @ObservationIgnored private var streetLookupInFlight = false
     /// The candidate of every buzz posted this run, so a skip still retires the place when its buzz was never logged.
     @ObservationIgnored private var postedCandidates: [UUID: Candidate] = [:]
     /// Identifies the start in progress; `stop()` clears it so a start that is waiting on a prompt gives up.
@@ -72,6 +77,7 @@ final class WalkingController {
         stories.onHeard = { [weak self] placeID in self?.noteHeard(placeID: placeID) }
         stories.onRetire = { [weak self] id, candidate, level in self?.retire(id, candidate: candidate, deepestLevel: level) }
         stories.currentTripID = { [weak self] in self?.tripID }
+        stories.currentPlaces = { [weak self] in self?.feed.places ?? [] }
         location.onLocation = { [weak self] fix in self?.handle(fix) }
         location.onDenied = { [weak self] in
             guard let self, isOn else { return }
@@ -157,6 +163,8 @@ final class WalkingController {
         postedCandidates = [:]
         track = []
         lastTrackSample = nil
+        route.reset()
+        streetLookupInFlight = false
         buzzCount = 0
         lastFixAt = nil
         startedAt = now
@@ -177,6 +185,8 @@ final class WalkingController {
         UIDevice.current.isBatteryMonitoringEnabled = false
         location.stop()
         flushTrack()
+        route.reset()
+        streetLookupInFlight = false
         do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
         fetchTask?.cancel()
         fetchTask = nil
@@ -277,12 +287,17 @@ final class WalkingController {
         if WalkingFix.isUsable(accuracy: fix.horizontalAccuracy) { lastFixAt = fix.timestamp }
         let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
 
-        // Every fix arrives (no distance filter); the stored track keeps one per 5 m or per minute.
+        // Every fix arrives (no distance filter); the stored track keeps one per 5 m or per minute. The route gets
+        // those of them taken while walking with a good fix, so standing still makes no path, bearing or lookup.
         let sample = TrackSample(at: fix.timestamp, coordinate: position)
         if TrackSample.isWorthStoring(sample, after: lastTrackSample) {
             lastTrackSample = sample
             track.append(sample)
             if track.count >= Self.trackFlushCount { flushTrack() }
+            if WalkingFix.isRouteFix(speed: fix.speed, accuracy: fix.horizontalAccuracy) {
+                route.add(sample)
+                if route.needsStreetLookup, !streetLookupInFlight { lookUpStreet(at: position) }
+            }
         }
 
         if feed.shouldFetch(at: position, now: now) { fetch(around: position, now: now) }
@@ -315,19 +330,52 @@ final class WalkingController {
                               staleDate: WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: startedAt))
     }
 
+    // MARK: - Route
+
+    /// Looks up the street at the newest route sample (8 s limit) and records it, a failure as nil (skipped, not
+    /// retried). A lookup that returns in a later run records nothing and leaves that run's flag alone.
+    private func lookUpStreet(at position: Coordinate) {
+        let run = runToken
+        streetLookupInFlight = true
+        Task { [weak self] in
+            let address = await Self.address(at: position)
+            guard let self, self.runToken == run else { return }
+            self.streetLookupInFlight = false
+            self.route.recordLookup(address, at: .now)
+        }
+    }
+
+    /// The walk context for a story at `position`: the remembered address when one is within 50 m, else a fresh
+    /// lookup (nil after a failure or 8 s), with the route's direction (else `course`) and where the walker came from.
+    private func walkContext(at position: Coordinate, course: Double?) async -> WalkContext {
+        let address: Address?
+        if let remembered = route.recentAddress(near: position) {
+            address = remembered
+        } else {
+            address = await Self.address(at: position)
+        }
+        return route.context(address: address, course: course, now: .now)
+    }
+
     // MARK: - Stops
 
-    /// The owner has stayed put: tell a short story about the spot (design 7.6).
+    /// The owner has stayed put: tell a short story about the spot (design 7.6). No GPS course while standing still:
+    /// the direction is the one walked in, from the route.
     private func tellStop(at spot: Coordinate) {
         let run = runToken
         stories.prepareStop(position: spot, nearby: feed.places, language: Self.storyLanguage(),
-                            address: { await Self.address(at: spot) },
+                            context: { [weak self] in
+                                await self?.walkContext(at: spot, course: nil)
+                                    ?? WalkContext(address: nil, bearing: nil, street: nil, cameFrom: nil)
+                            },
                             ready: { [weak self] story in self?.deliverStop(story, run: run) })
     }
 
-    /// Live Activity first (it can be updated from the background); a notification only when that fails.
+    /// Live Activity first (it can be updated from the background); a notification only when that fails. The route
+    /// starts afresh: after a stop story, "came from" is left out until the walker has walked on (spec 6.5).
     private func deliverStop(_ story: WalkStory, run: UUID?) {
         guard isOn, runToken == run else { return }
+        route.reset()
         // No sound over a story that is playing.
         let quiet = stories.listening != nil
         Task { [weak self] in
@@ -355,7 +403,11 @@ final class WalkingController {
             if !self.isOn || self.runToken != run { BuzzNotifier.removeNotifications(for: buzz.id) }
         }
         // Prepared at once, so a tap plays within a second or two (design 7.5). This makes the engine busy.
-        stories.prepare(buzz, position: position, course: course, nearby: feed.places, language: Self.storyLanguage())
+        stories.prepare(buzz, position: position, nearby: feed.places, language: Self.storyLanguage(),
+                        context: { [weak self] in
+                            await self?.walkContext(at: position, course: course)
+                                ?? WalkContext(address: nil, bearing: course, street: nil, cameFrom: nil)
+                        })
     }
 
     private func fetch(around position: Coordinate, now: Date) {

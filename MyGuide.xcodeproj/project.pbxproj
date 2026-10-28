@@ -33,6 +33,7 @@
 		6CAFAF4562FB87C72F4F72F4 /* WalkingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9399C561071230F13BDD5526 /* WalkingPanel.swift */; };
 		7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AC3F6758B70A451EA067EB /* SelfCheckView.swift */; };
 		905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */; };
+		97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */; };
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
 		9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
 		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
@@ -125,6 +126,7 @@
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
+		C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitPointsOfInterest.swift; sourceTree = "<group>"; };
 		CEB5D94A78BCC8888CEB0790 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D4F54BE4CD7C5098E4E6DACF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DC982992B37C30453C7F88D8 /* WalkingStories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingStories.swift; sourceTree = "<group>"; };
@@ -217,6 +219,7 @@
 		65FCED6406B373ED5C73E009 /* Platform */ = {
 			isa = PBXGroup;
 			children = (
+				C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */,
 				B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */,
 			);
 			path = Platform;
@@ -480,6 +483,7 @@
 				1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */,
 				BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */,
 				6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */,
+				97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */,
 				0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */,
 				6AF2350B859D194A378A3A70 /* MyGuideApp.swift in Sources */,
 				1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */,

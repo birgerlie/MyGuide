@@ -43,7 +43,12 @@ The best human guides tell stories about people, not dates and buildings, and th
 
 - **Made-up history presented as fact.** The worst outcome. Legend and uncertainty must be labelled ("legend has it ..."). Prefer a less colourful true story over an invented one.
 - **Nagging.** Repeating the same place or story, or buzzing every 30 metres in a dense old town.
-- **Guidebook voice.** Lists of dates, architects and styles instead of people and scenes.
+- **Invented details.** Names, dates, numbers or quotes the facts do not carry; a detail stated with confidence that belongs to a similar building elsewhere.
+- **Scene painting as the content.** "Imagine the smell of …" instead of points the listener can see and check.
+- **Tour-guide filler.** Greetings, "welcome to", restating the address back to the listener.
+- **Text written for the eye.** Lists, headings or emojis in a story that is read aloud.
+- **Padding a dull spot.** Filling it instead of pointing to something nearby worth the detour, or staying silent.
+- **Repeating a point** the listener heard earlier the same day.
 - **Commercial noise.** Shops and restaurants interrupting a walk.
 - **AI images passing as real photos.** Every generated image is clearly labelled as an AI reconstruction.
 
@@ -56,8 +61,8 @@ The best human guides tell stories about people, not dates and buildings, and th
 | Distribution | Personal use first; free Apple developer account until the app works, then possibly the paid $99/year account |
 | Source | Public open-source GitHub repo under the owner's personal account, MIT license |
 | Story output | Spoken audio **and** text on screen |
-| Story lengths | Three levels: first story **20 seconds** (≈50 words); "tell me more" **+30 seconds** (≈75 words); "even more" **+2 minutes** (≈300 words). Word counts assume ≈150 spoken words per minute. |
-| Story style | About people who were here; paints the scene back then (sounds, smells, who walked past); dates and architecture only in support |
+| Story lengths | By story kind, level and place tier (guide-voice design, section 5): app-triggered first level (walking buzz, stop story) **75 / 60 / 40 words** for tier 1 / 2 / 3 or none, stop stories at most **50**; owner-triggered (photo first level, any "tell me more") **200 words**; "even more" **300 words**. Word counts assume ≈150 spoken words per minute. |
+| Story style | Private guide: most striking thing first, specific checkable points across history, architecture, food and science, one nudge at the end; see the guide-voice design (`2026-10-28-guide-voice-design.md`) |
 | Language | English by default; Norwegian as a setting |
 | Walking buzzes | Famous historic sites and hidden stories only; never shops or restaurants |
 | Restaurants | Separate on-request search in the vicinity |

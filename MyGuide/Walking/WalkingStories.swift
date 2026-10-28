@@ -47,6 +47,8 @@ final class WalkingStories {
     @ObservationIgnored var onRetire: ((UUID, Candidate?, Int) -> Void)?
     /// The trip new stories are saved in.
     @ObservationIgnored var currentTripID: (() -> UUID?)?
+    /// The places walking mode has now, given to a continuation ("More").
+    @ObservationIgnored var currentPlaces: (@MainActor () -> [WalkingPlace])?
 
     @ObservationIgnored private let memory: MemoryStore
     @ObservationIgnored private let makeFlow: @MainActor () throws -> WalkingStoryFlow
@@ -112,9 +114,11 @@ final class WalkingStories {
 
     // MARK: - Commands
 
-    /// Prepares the story for a buzz that was just posted: text, then speech for level 1, under a background task.
+    /// Prepares the story for a buzz that was just posted: the walk context (`context` looks up the address, so it may
+    /// take up to the lookup's limit), text, then speech for level 1, under a background task.
     /// Always ends with `storyReady` or `storyFailed`, also when cancelled.
-    func prepare(_ buzz: Buzz, position: Coordinate, course: Double?, nearby: [WalkingPlace], language: StoryLanguage) {
+    func prepare(_ buzz: Buzz, position: Coordinate, nearby: [WalkingPlace], language: StoryLanguage,
+                 context: @escaping @MainActor () async -> WalkContext) {
         let id = buzz.id
         let tripID = currentTripID?()
         feed(.buzzSent(id))
@@ -123,7 +127,9 @@ final class WalkingStories {
             guard let self else { return }
             do {
                 let flow = try makeFlow()
-                let (story, usage) = try await flow.buzzStory(buzz, position: position, course: course,
+                let walk = await context()
+                try Task.checkCancellation()
+                let (story, usage) = try await flow.buzzStory(buzz, position: position, context: walk,
                                                               nearby: nearby, language: language)
                 // Paid calls are counted even when the story is no longer wanted.
                 recordUsage(usage)
@@ -143,11 +149,13 @@ final class WalkingStories {
         }
     }
 
-    /// Tells the story for the spot where the walker has stopped: looks up the address (`address` returns nil on a
-    /// failure or timeout), writes the text, records the usage and saves the story. `ready` is called with the saved
-    /// story. A failure is only logged: a stop story is a lock-screen extra, nobody asked for it.
+    /// Tells the story for the spot where the walker has stopped: gets the walk context (its address is nil on a
+    /// failed or timed-out lookup), writes the text, records the usage and saves the story. `ready` is called with the
+    /// saved story. When the flow finds nothing worth telling (spec 9 step 4) it ends silently: no `ready`, nothing
+    /// saved, no usage (none was spent). A failure is only logged: a stop story is a lock-screen extra, nobody asked
+    /// for it.
     func prepareStop(position: Coordinate, nearby: [WalkingPlace], language: StoryLanguage,
-                     address: @escaping @MainActor () async -> Address?,
+                     context: @escaping @MainActor () async -> WalkContext,
                      ready: @escaping @MainActor (WalkStory) -> Void) {
         let tripID = currentTripID?()
         let token = UUID()
@@ -155,11 +163,12 @@ final class WalkingStories {
             guard let self else { return }
             defer { stopTasks[token] = nil }
             do {
-                let found = await address()
-                try Task.checkCancellation()
                 let flow = try makeFlow()
-                let (story, usage) = try await flow.stopStory(position: position, address: found, nearby: nearby,
-                                                              language: language)
+                let walk = await context()
+                try Task.checkCancellation()
+                guard let told = try await flow.stopStory(position: position, context: walk, nearby: nearby,
+                                                          language: language) else { return }
+                let (story, usage) = told
                 // Paid calls are counted even when the story is no longer wanted.
                 recordUsage(usage)
                 try Task.checkCancellation()
@@ -346,7 +355,7 @@ final class WalkingStories {
                 guard var story = prepared.story(id) ?? storedStory(id) else { throw StoryGone() }
                 if story.levels.count < target {
                     let flow = try makeFlow()
-                    let (next, usage) = try await flow.continueStory(story)
+                    let (next, usage) = try await flow.continueStory(story, nearby: currentPlaces?() ?? [])
                     recordUsage(usage)
                     try Task.checkCancellation()
                     story = next
