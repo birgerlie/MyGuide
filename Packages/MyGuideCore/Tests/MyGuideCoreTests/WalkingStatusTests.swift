@@ -19,6 +19,18 @@ import Testing
         // A clock that stepped back makes the age negative (-5 s), which is not older than 120 s.
         #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0 + 5, buzzCount: 2, now: Self.t0) == "Walking · 2 buzzes")
     }
+
+    @Test func pausedTextWinsOverWaiting() {
+        // No fix at all, yet paused wins over "waiting for GPS"; 1 → "buzz", 2 → "buzzes".
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 1, now: Self.t0, paused: true) == "Paused · 1 buzz")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 2, now: Self.t0, paused: true) == "Paused · 2 buzzes")
+        #expect(WalkingStatus.text(isOn: false, lastFixAt: nil, buzzCount: 2, now: Self.t0, paused: true) == nil)
+    }
+
+    @Test func pausedStaleDate() {
+        // Hand: t0 + 120.
+        #expect(WalkingStatus.pausedStaleDate(now: Self.t0) == Self.t0 + 120)
+    }
 }
 
 @Suite struct WalkingActivityStalenessTests {

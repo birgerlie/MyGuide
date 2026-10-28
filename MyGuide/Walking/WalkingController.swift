@@ -268,7 +268,8 @@ final class WalkingController {
     /// Turns walking mode off after 4 hours or when the battery runs low, and says why in a notification.
     private func checkAutoOff(now: Date) {
         guard isOn, let startedAt,
-              let reason = AutoOff.reason(startedAt: startedAt, now: now, batteryLevel: UIDevice.current.batteryLevel)
+              let reason = AutoOff.reason(activeTime: AutoOff.activeTime(startedAt: startedAt, now: now, pausedTotal: 0, pausedSince: nil),
+                                          pausedFor: nil, batteryLevel: UIDevice.current.batteryLevel)
         else { return }
         stop()
         let message = AutoOff.message(reason)
@@ -329,7 +330,7 @@ final class WalkingController {
     /// again now and then to move its stale date on.
     private func refreshActivity(now: Date) {
         guard isOn, let startedAt,
-              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now) else { return }
+              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: false) else { return }
         activity.updateStatus(text, buzzCount: buzzCount,
                               staleDate: WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: startedAt))
     }
