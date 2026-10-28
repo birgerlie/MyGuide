@@ -79,9 +79,10 @@ final class AppServices {
             guard let command = GuidedWalkCommand(message: message) else { return [:] }
             return Self.handle(command, walking: walking, watchLink: watchLink)
         }
+        // Pushed, freshly stamped, on every activation (launch, and again after a watch switch): the watch finds the
+        // phone's state at once.
+        watchLink.currentState = { walking.guidedWalkState.message }
         watchLink.activate()
-        // Remembered until the session is activated, then pushed: the watch finds the phone's state at once.
-        watchLink.pushState(walking.guidedWalkState.message)
     }
 
     /// A guided walk command from the watch, by the action table of spec 4. Returns the reply: the walk state after

@@ -19,7 +19,10 @@ final class WatchLink: NSObject {
     /// Handles a message from the watch other than `ping` and returns the reply (an empty dictionary when none is
     /// due). The reply is sent when it returns.
     @ObservationIgnored var onCommand: (@MainActor ([String: Any]) async -> [String: Any])?
-    /// The newest state pushed before the session was activated; sent on activation.
+    /// The walk state now, freshly stamped. Pushed on every activation of the session, so the watch has it after a
+    /// launch and again after a watch switch (the old session deactivates and a new one activates).
+    @ObservationIgnored var currentState: (@MainActor () -> [String: Any])?
+    /// The newest state pushed before the session was activated; sent on activation when `currentState` is not set.
     @ObservationIgnored private var pendingState: Box?
 
     private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "watch")
@@ -72,9 +75,16 @@ final class WatchLink: NSObject {
         isInstalled = state.isInstalled
         isReachable = state.isReachable
         activated = state.activated
-        if state.activated, let pending = pendingState, let session {
-            pendingState = nil
-            update(session, context: pending.value)
+    }
+
+    /// The session finished activating. When it is activated the current state is pushed, else the remembered one.
+    fileprivate func activationCompleted(_ state: State) {
+        refresh(state)
+        guard state.activated, let session else { return }
+        let pending = pendingState
+        pendingState = nil
+        if let context = currentState?() ?? pending?.value {
+            update(session, context: context)
         }
     }
 
@@ -114,7 +124,7 @@ extension WatchLink: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
                              error: Error?) {
         let state = State(session)
-        Task { @MainActor in self.refresh(state) }
+        Task { @MainActor in self.activationCompleted(state) }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {
