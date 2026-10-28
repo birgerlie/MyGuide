@@ -9,10 +9,13 @@ import UIKit
 enum HomeRoute: Hashable {
     case camera
     case history
+    case diary
     case settings
     /// The story in `HomeScreen.pushedModel`: a fresh photo story, or a stored one opened from the card.
     case photoStory
     case walkStory(UUID)
+    /// The day story of a diary day, by `Diary.dayKey`.
+    case dayStory(String)
 }
 
 /// The app's first screen: the latest story (photo or walk), the walking controls and a button to the camera.
@@ -74,6 +77,10 @@ struct HomeScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: HomeRoute.diary) { Image(systemName: "book") }
+                        .accessibilityLabel("Diary")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: HomeRoute.history) { Image(systemName: "clock.arrow.circlepath") }
                         .accessibilityLabel("History")
                 }
@@ -101,6 +108,11 @@ struct HomeScreen: View {
             if path.contains(.camera), !old.contains(.camera) { services.camera.setZoom(1) }
             // The story screen is being dropped (navigated back): stop its work silently.
             if !path.contains(.photoStory) { setPushedModel(nil) }
+            // Likewise for the diary's work. A screen pushed over the diary or a day story keeps it running.
+            if !path.contains(.diary) { services.diary.cancelImport() }
+            services.diary.keepDayStories(Set(path.compactMap { route in
+                if case .dayStory(let dayKey) = route { dayKey } else { nil }
+            }))
             if path.isEmpty {
                 Task { await refreshCard() }
             } else {
@@ -270,6 +282,9 @@ struct HomeScreen: View {
             CaptureScreen(services: services, location: location, onPhoto: photoReady)
         case .history:
             HistoryView(services: services, location: location)
+        case .diary:
+            DiaryView(services: services, location: location, openWalkStory: openWalkStory,
+                      openDayStory: { path.append(.dayStory($0.id)) })
         case .settings:
             SettingsView(services: services)
         case .photoStory:
@@ -279,6 +294,9 @@ struct HomeScreen: View {
         case .walkStory(let id):
             WalkStoryView(stories: services.walking.stories, id: id)
                 .id(id)
+        case .dayStory(let dayKey):
+            DayStoryScreen(model: services.diary.dayStory(dayKey, services: services))
+                .id(dayKey)
         }
     }
 

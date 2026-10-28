@@ -48,6 +48,11 @@ public enum GuideText {
         format(date, "HH:mm EEEE", timeZone)
     }
 
+    /// "Wednesday 28 October 2026" in `timeZone`, English.
+    public static func longDate(_ date: Date, timeZone: TimeZone) -> String {
+        format(date, "EEEE d MMMM yyyy", timeZone)
+    }
+
     /// "HH:mm" in `timeZone`.
     public static func clock(_ date: Date, timeZone: TimeZone) -> String {
         format(date, "HH:mm", timeZone)

@@ -32,7 +32,8 @@ targets:
         NSCameraUsageDescription: "MyGuide uses the camera to photograph what you want a story about."
         NSLocationWhenInUseUsageDescription: "MyGuide uses your exact position and compass heading to work out what you are looking at."
         NSLocationAlwaysAndWhenInUseUsageDescription: "In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass."
-        NSPhotoLibraryUsageDescription: "MyGuide reads where a picked photo was taken so it can tell its story."
+        NSPhotoLibraryUsageDescription: "MyGuide reads when and where a picked photo was taken, to tell its story and to place it in your diary."
+        NSPhotoLibraryAddUsageDescription: "MyGuide saves the day story pages you choose to save to your photo library."
         NSMotionUsageDescription: "MyGuide notices when you stop and start walking, so walking mode can pause itself and save battery."
     # Time Sensitive notifications need the paid developer account (the free Personal Team cannot sign
     # that entitlement), so buzzes are delivered at the normal "active" level for now.

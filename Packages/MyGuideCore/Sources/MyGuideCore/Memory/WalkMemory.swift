@@ -285,10 +285,8 @@ extension MemoryStore {
         }
     }
 
-    // MARK: - Private
-
     /// Runs `body` and saves; on any error rolls back and rethrows.
-    private func saving<T>(_ body: () throws -> T) throws -> T {
+    func saving<T>(_ body: () throws -> T) throws -> T {
         do {
             let result = try body()
             try context.save()
@@ -298,6 +296,8 @@ extension MemoryStore {
             throw error
         }
     }
+
+    // MARK: - Private
 
     private func buzzRecord(id: UUID) throws -> BuzzRecord? {
         var descriptor = FetchDescriptor<BuzzRecord>(predicate: #Predicate { $0.id == id })

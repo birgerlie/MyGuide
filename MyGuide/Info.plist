@@ -39,8 +39,10 @@
 	<string>MyGuide uses your exact position and compass heading to work out what you are looking at.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>MyGuide notices when you stop and start walking, so walking mode can pause itself and save battery.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MyGuide saves the day story pages you choose to save to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>MyGuide reads where a picked photo was taken so it can tell its story.</string>
+	<string>MyGuide reads when and where a picked photo was taken, to tell its story and to place it in your diary.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

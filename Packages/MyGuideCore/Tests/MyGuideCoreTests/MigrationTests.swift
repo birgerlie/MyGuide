@@ -40,9 +40,9 @@ import Testing
     }
 
     static func expectMigrated(at url: URL) throws {
-        let v2 = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV2.self), migrationPlan: MemoryMigrationPlan.self,
+        let v3 = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV3.self), migrationPlan: MemoryMigrationPlan.self,
                                     configurations: ModelConfiguration(url: url))
-        let context = v2.mainContext
+        let context = v3.mainContext
         let places = try context.fetch(FetchDescriptor<PlaceRecord>())
         #expect(places.count == 1)
         let place = try #require(places.first)
@@ -72,7 +72,7 @@ import Testing
         #expect(try context.fetchCount(FetchDescriptor<TripRecord>()) == 1 && trip.city == "Wien")
     }
 
-    @Test func v1StoreOpensAsV2() throws {
+    @Test func v1StoreOpensAsV3() throws {
         try Self.withStoreURL { url in
             try Self.writeV1Store(at: url, schema: Schema(versionedSchema: MemorySchemaV1.self))
             try Self.expectMigrated(at: url)
@@ -80,7 +80,7 @@ import Testing
     }
 
     /// Phase 1 device builds before the versioned schema wrote an unversioned store of the same four models.
-    @Test func unversionedPhase1StoreOpensAsV2() throws {
+    @Test func unversionedPhase1StoreOpensAsV3() throws {
         try Self.withStoreURL { url in
             try Self.writeV1Store(at: url, schema: Schema(MemorySchemaV1.models))
             try Self.expectMigrated(at: url)
@@ -92,14 +92,14 @@ import Testing
     /// fails if the frozen `MemorySchemaV1` copies drift from what phase 1 shipped: SwiftData then reports
     /// "Cannot use staged migration with an unknown model version". The other tests write through the frozen copies
     /// and cannot catch that.
-    @Test func storeWrittenByPhase1CodeOpensAsV2() throws {
+    @Test func storeWrittenByPhase1CodeOpensAsV3() throws {
         let fixture = try #require(Bundle.module.url(forResource: "phase1-memory", withExtension: "store",
                                                      subdirectory: "Fixtures"))
         try Self.withStoreURL { url in
             try FileManager.default.copyItem(at: fixture, to: url)
-            let v2 = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV2.self),
+            let v3 = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV3.self),
                                         migrationPlan: MemoryMigrationPlan.self, configurations: ModelConfiguration(url: url))
-            let store = MemoryStore(context: v2.mainContext)
+            let store = MemoryStore(context: v3.mainContext)
             let captures = try store.context.fetch(FetchDescriptor<CaptureRecord>())
             #expect(captures.count == 1)
             let session = try store.session(for: try #require(captures.first))
@@ -121,7 +121,7 @@ import Testing
         try Self.withStoreURL { url in
             try Self.writeV1Store(at: url, schema: Schema(versionedSchema: MemorySchemaV1.self))
             try Self.expectMigrated(at: url)
-            let again = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV2.self),
+            let again = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV3.self),
                                            migrationPlan: MemoryMigrationPlan.self, configurations: ModelConfiguration(url: url))
             #expect(try again.mainContext.fetchCount(FetchDescriptor<TripRecord>()) == 1)
             #expect(try again.mainContext.fetchCount(FetchDescriptor<CaptureRecord>()) == 1)
@@ -135,20 +135,24 @@ import Testing
             ObjectIdentifier(MemorySchemaV1.CaptureRecord.self), ObjectIdentifier(MemorySchemaV1.StoryRecord.self),
             ObjectIdentifier(MemorySchemaV1.PlaceRecord.self), ObjectIdentifier(MemorySchemaV1.UsageRecord.self),
         ])
-        #expect(MemorySchemaV2.models.map { ObjectIdentifier($0) } == MemorySchema.models.map { ObjectIdentifier($0) })
         let live: [any PersistentModel.Type] = [
             CaptureRecord.self, StoryRecord.self, PlaceRecord.self, UsageRecord.self,
             TripRecord.self, BuzzRecord.self, TrackPoint.self, WalkStoryRecord.self,
         ]
-        #expect(MemorySchema.models.map { ObjectIdentifier($0) } == live.map { ObjectIdentifier($0) })
+        #expect(MemorySchema.models.map { ObjectIdentifier($0) } == MemorySchemaV3.models.map { ObjectIdentifier($0) })
+        #expect(MemorySchemaV3.versionIdentifier == Schema.Version(3, 0, 0))
+        #expect(MemorySchemaV2.models.map { ObjectIdentifier($0) } == live.map { ObjectIdentifier($0) })
+        #expect(MemorySchemaV3.models.map { ObjectIdentifier($0) }
+                == (live + [LibraryPhotoRecord.self, DayStoryRecord.self]).map { ObjectIdentifier($0) })
         #expect(MemoryMigrationPlan.schemas.map { ObjectIdentifier($0) }
-                == [ObjectIdentifier(MemorySchemaV1.self), ObjectIdentifier(MemorySchemaV2.self)])
-        #expect(MemoryMigrationPlan.stages.count == 1)
+                == [ObjectIdentifier(MemorySchemaV1.self), ObjectIdentifier(MemorySchemaV2.self),
+                    ObjectIdentifier(MemorySchemaV3.self)])
+        #expect(MemoryMigrationPlan.stages.count == 2)
     }
 
-    /// The app's fallback: V2 with the plan, in memory.
-    @Test func v2WithPlanWorksInMemory() throws {
-        let c = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV2.self), migrationPlan: MemoryMigrationPlan.self,
+    /// The app's fallback: V3 with the plan, in memory.
+    @Test func v3WithPlanWorksInMemory() throws {
+        let c = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV3.self), migrationPlan: MemoryMigrationPlan.self,
                                    configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let store = MemoryStore(context: c.mainContext)
         let s = MemoryStoreTests.session(placeID: "osm:node/1", levels: ["one"])
