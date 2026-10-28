@@ -7,7 +7,7 @@ struct WalkLogListView: View {
     private struct Row: Identifiable, Sendable {
         let url: URL
         let isCurrent: Bool
-        /// nil when the file could not be read.
+        /// nil when the file could not be read, or holds no readable event but unreadable lines.
         let summary: WalkLogSummary?
         var id: URL { url }
     }
@@ -86,8 +86,10 @@ struct WalkLogListView: View {
                 do {
                     let urls = try WalkLogStore.runFiles(in: WalkLog.directory)
                     return .success(urls.map { url in
-                        let summary = (try? Data(contentsOf: url)).map { data -> WalkLogSummary in
+                        // A file with lines but not one readable event cannot be parsed at all (spec 6): "Unreadable".
+                        let summary = (try? Data(contentsOf: url)).flatMap { data -> WalkLogSummary? in
                             let read = WalkLogReader.read(data)
+                            if read.events.isEmpty, read.unreadable > 0 { return nil }
                             return WalkLogSummary(events: read.events, unreadable: read.unreadable)
                         }
                         return Row(url: url, isCurrent: url == current, summary: summary)
