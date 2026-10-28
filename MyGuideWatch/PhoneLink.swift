@@ -46,12 +46,20 @@ final class PhoneLink: NSObject {
         }
         guard session.activationState == .activated else { throw PhoneLinkError.notActivated }
         guard session.isReachable else { throw PhoneLinkError.notReachable }
-        let reply = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UncheckedBox, Error>) in
-            nonisolated(unsafe) let message = message
-            session.sendMessage(message, replyHandler: { continuation.resume(returning: UncheckedBox(value: $0)) },
-                                errorHandler: { continuation.resume(throwing: $0) })
+        return try await Self.sendMessage(UncheckedBox(value: message)).value
+    }
+
+    /// WatchConnectivity calls the reply and error handlers on its own queue. Handlers written inside this main-actor
+    /// class would inherit its isolation and trap there (Swift 6 checks it at run time), so they are made here, off
+    /// the actor, as `@Sendable` closures.
+    private nonisolated static func sendMessage(_ message: UncheckedBox) async throws -> UncheckedBox {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UncheckedBox, Error>) in
+            WCSession.default.sendMessage(message.value,
+                                          replyHandler: { @Sendable reply in
+                                              continuation.resume(returning: UncheckedBox(value: reply))
+                                          },
+                                          errorHandler: { @Sendable error in continuation.resume(throwing: error) })
         }
-        return reply.value
     }
 
     /// Fire-and-forget form for callers that do not show a result.

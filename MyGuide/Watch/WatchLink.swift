@@ -30,7 +30,9 @@ final class WatchLink: NSObject {
     func send(_ message: [String: Any]) {
         guard let session, session.activationState == .activated else { return }
         if session.isReachable {
-            session.sendMessage(message, replyHandler: nil, errorHandler: { _ in })
+            // `@Sendable`: WatchConnectivity calls the handler on its own queue, where a handler inheriting this class's
+            // main-actor isolation would trap.
+            session.sendMessage(message, replyHandler: nil, errorHandler: { @Sendable _ in })
         } else {
             session.transferUserInfo(message)
         }
