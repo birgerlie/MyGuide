@@ -209,6 +209,42 @@ import Testing
         #expect(d.tick(now: Self.t0 + 380) == .pause(.motion, anchor: nil))
     }
 
+    @Test func motionDuringHoldIsTrackedForRelease() {
+        // (A) Held while stationary, walking reported at t0+10 (during the hold), released at t0+100. walkingSince = 10
+        // is kept, so no pause can follow while the walking report stands: ticks at 100 + 179, 100 + 180 and 100 + 1000 → nil.
+        var d = Self.make()
+        d.hold()
+        #expect(d.motion(isWalking: true, at: Self.t0 + 10) == nil)
+        d.release(now: Self.t0 + 100)
+        #expect(d.tick(now: Self.t0 + 279) == nil)
+        #expect(d.tick(now: Self.t0 + 280) == nil)
+        #expect(d.tick(now: Self.t0 + 1_100) == nil)
+        #expect(!d.isPaused)
+    }
+
+    @Test func stillnessDuringHoldThenReleaseStartsAtRelease() {
+        // (B) Walking from t0+1, held, "not walking" reported at T = t0+50 (clears walkingSince, stillStart = 50),
+        // released at R = t0+100 (stillStart = R). Hand: R+179 = 279 → 279 − 100 = 179 < 180 → nil;
+        // R+180 = 280 → 280 − 100 = 180 ≥ 180 → pause. (Were stillStart left at 50, 279 − 50 = 229 would already pause.)
+        var d = Self.make()
+        #expect(d.motion(isWalking: true, at: Self.t0 + 1) == nil)
+        d.hold()
+        #expect(d.motion(isWalking: false, at: Self.t0 + 50) == nil)
+        d.release(now: Self.t0 + 100)
+        #expect(d.tick(now: Self.t0 + 279) == nil)
+        #expect(d.tick(now: Self.t0 + 280) == .pause(.motion, anchor: nil))
+    }
+
+    @Test func motionDuringHoldChangesNoPauseState() {
+        // A held auto pause: walking reported at t0+181 and a not-walking report keep isPaused and pausedSince as they were.
+        var d = Self.paused(anchorFix: true)
+        d.hold()
+        #expect(d.motion(isWalking: true, at: Self.t0 + 181) == nil)
+        #expect(d.motion(isWalking: false, at: Self.t0 + 190) == nil)
+        #expect(d.isPaused)
+        #expect(d.pausedSince == Self.t0 + 180)
+    }
+
     @Test func isWalkingConfidence() {
         let at = Self.t0
         #expect(!MotionReading(activity: .walking, confidence: .low, at: at).isWalking)

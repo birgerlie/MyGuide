@@ -93,7 +93,7 @@ final class WalkingActivityController {
     }
 
     /// Lets the next status change replace a stop story on show: a pause and a resume always show their status
-    /// ("Paused · N buzzes", then the walking text), since a stop story always comes before the pause it led to.
+    /// ("Paused · not moving · N buzzes" for an auto-pause, "Paused · N buzzes" for a manual one, then the walking text), since a stop story always comes before the pause it led to.
     func clearStop() {
         showingStop = false
     }

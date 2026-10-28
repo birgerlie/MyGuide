@@ -55,8 +55,9 @@ public struct PauseDetector: Sendable {
         self.motionAvailable = motionAvailable
     }
 
-    /// Freezes the detector for a manual pause: motion, fixes and ticks give nil and change nothing, so walking
-    /// or moving cannot end the pause. The state (`isPaused`, `pausedSince`) stays as it was.
+    /// Freezes the detector for a manual pause: motion, fixes and ticks give nil, so walking or moving cannot end the
+    /// pause. `isPaused` and `pausedSince` stay as they were; motion reports still update the walking state, so
+    /// `release(now:)` starts from the truth.
     public mutating func hold() { isHeld = true }
 
     /// Ends a hold or a pause by command: not held, not paused, a new still stretch from `now`, anchors cleared.
@@ -70,7 +71,17 @@ public struct PauseDetector: Sendable {
     }
 
     public mutating func motion(isWalking: Bool, at: Date) -> PauseChange? {
-        guard !isHeld else { return nil }
+        if isHeld {
+            // Held: only the motion state is tracked (reports arrive on change only, so a missed one would be lost for
+            // good). Nothing else changes and nothing is emitted.
+            if isWalking {
+                if walkingSince == nil { walkingSince = at }
+            } else if walkingSince != nil {
+                walkingSince = nil
+                stillStart = at
+            }
+            return nil
+        }
         if isWalking {
             if walkingSince == nil { walkingSince = at }
         } else if walkingSince != nil {

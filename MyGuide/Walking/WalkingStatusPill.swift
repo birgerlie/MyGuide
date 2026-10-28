@@ -1,7 +1,7 @@
 import MyGuideCore
 import SwiftUI
 
-/// The walking status line ("Paused · N buzzes" while walking mode is paused), refreshed every second so a stale fix
+/// The walking status line ("Paused · N buzzes" for a manual pause, "Paused · not moving · N buzzes" for an auto-pause), refreshed every second so a stale fix
 /// turns into "waiting for GPS", and the first thing that keeps walking mode from starting, in orange.
 struct WalkingStatusPill: View {
     let controller: WalkingController
