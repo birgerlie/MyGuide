@@ -288,7 +288,7 @@ extension MemoryStore {
     // MARK: - Private
 
     /// Runs `body` and saves; on any error rolls back and rethrows.
-    private func saving<T>(_ body: () throws -> T) throws -> T {
+    func saving<T>(_ body: () throws -> T) throws -> T {
         do {
             let result = try body()
             try context.save()

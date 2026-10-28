@@ -233,27 +233,93 @@ import SwiftData
     }
 }
 
+/// A photo imported from the phone's photo library (spec 4.3). Nothing is sent anywhere on import.
+@Model public final class LibraryPhotoRecord {
+    @Attribute(.unique) public var id: UUID
+    /// The library asset's local identifier; an asset is stored once.
+    @Attribute(.unique) public var assetIdentifier: String
+    public var takenAt: Date
+    public var latitude: Double?
+    public var longitude: Double?
+    @Attribute(.externalStorage) public var photoJPEG: Data
+    @Attribute(.externalStorage) public var thumbnailJPEG: Data
+    public var importedAt: Date
+
+    public init(id: UUID, assetIdentifier: String, takenAt: Date, latitude: Double?, longitude: Double?,
+                photoJPEG: Data, thumbnailJPEG: Data, importedAt: Date) {
+        self.id = id
+        self.assetIdentifier = assetIdentifier
+        self.takenAt = takenAt
+        self.latitude = latitude
+        self.longitude = longitude
+        self.photoJPEG = photoJPEG
+        self.thumbnailJPEG = thumbnailJPEG
+        self.importedAt = importedAt
+    }
+}
+
+/// The story of one day: a summary and a caption per photo (spec 3). Rebuilt as a `DayStory` by `MemoryStore`.
+@Model public final class DayStoryRecord {
+    /// `yyyy-MM-dd` in the phone's time zone.
+    @Attribute(.unique) public var dayKey: String
+    public var createdAt: Date
+    /// `StoryLanguage.rawValue`.
+    public var language: String
+    public var summary: String
+    /// JSON of `[String: String]`: photo id (`capture:<uuid>` / `library:<uuid>`) to caption.
+    public var captionsJSON: Data
+    /// Photo ids in page order.
+    public var photoIDs: [String]
+    /// All photos of the day, including any not sent for captions.
+    public var totalPhotos: Int
+
+    public init(dayKey: String, createdAt: Date, language: String, summary: String, captionsJSON: Data,
+                photoIDs: [String], totalPhotos: Int) {
+        self.dayKey = dayKey
+        self.createdAt = createdAt
+        self.language = language
+        self.summary = summary
+        self.captionsJSON = captionsJSON
+        self.photoIDs = photoIDs
+        self.totalPhotos = totalPhotos
+    }
+}
+
 public enum MemorySchema {
-    /// Every live persistent model (`MemorySchemaV2`). The app opens the store through `MemorySchemaV2` and
+    /// Every live persistent model (`MemorySchemaV3`). The app opens the store through `MemorySchemaV3` and
     /// `MemoryMigrationPlan`; tests may use this list directly.
-    public static let models: [any PersistentModel.Type] = [
-        CaptureRecord.self, StoryRecord.self, PlaceRecord.self, UsageRecord.self,
-        TripRecord.self, BuzzRecord.self, TrackPoint.self, WalkStoryRecord.self,
-    ]
+    public static let models: [any PersistentModel.Type] = MemorySchemaV3.models
 }
 
 /// Version 2 of the store: phase 2's trips, buzz log, track, walk stories and place flags. Every attribute it adds
 /// to a version 1 entity is optional or defaulted, so the step from version 1 is lightweight.
-/// Before a version 3 changes the live models, freeze this version into nested copies like `MemorySchemaV1`.
+/// Version 3 only adds entities, so the eight classes are shared with it rather than frozen into copies; the list
+/// is explicit so adding a model to the live schema cannot change what version 2 means. Before a later version
+/// changes any of these eight, freeze version 2 into nested copies like `MemorySchemaV1`.
 public enum MemorySchemaV2: VersionedSchema {
     public static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
-    public static var models: [any PersistentModel.Type] { MemorySchema.models }
+    public static var models: [any PersistentModel.Type] {
+        [CaptureRecord.self, StoryRecord.self, PlaceRecord.self, UsageRecord.self,
+         TripRecord.self, BuzzRecord.self, TrackPoint.self, WalkStoryRecord.self]
+    }
+}
+
+/// Version 3 of the store: version 2 plus library photos and day stories. Only entities are added, so the step
+/// from version 2 is lightweight.
+public enum MemorySchemaV3: VersionedSchema {
+    public static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
+    public static var models: [any PersistentModel.Type] {
+        MemorySchemaV2.models + [LibraryPhotoRecord.self, DayStoryRecord.self]
+    }
 }
 
 /// Migration plan for the memory store.
 public enum MemoryMigrationPlan: SchemaMigrationPlan {
-    public static var schemas: [any VersionedSchema.Type] { [MemorySchemaV1.self, MemorySchemaV2.self] }
+    public static var schemas: [any VersionedSchema.Type] {
+        [MemorySchemaV1.self, MemorySchemaV2.self, MemorySchemaV3.self]
+    }
     public static var stages: [MigrationStage] {
-        [.lightweight(fromVersion: MemorySchemaV1.self, toVersion: MemorySchemaV2.self)]
+        [.lightweight(fromVersion: MemorySchemaV1.self, toVersion: MemorySchemaV2.self),
+         .lightweight(fromVersion: MemorySchemaV2.self, toVersion: MemorySchemaV3.self)]
     }
 }
