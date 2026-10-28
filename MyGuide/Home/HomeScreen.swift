@@ -248,6 +248,9 @@ struct HomeScreen: View {
             .accessibilityLabel("Open camera")
             // A picked photo is still loading: opening the camera now would race its story onto the stack.
             .disabled(isBusy)
+            if services.walking.isOn {
+                pauseButton
+            }
             walkButton
         }
         .padding(.horizontal)
@@ -273,6 +276,25 @@ struct HomeScreen: View {
         }
         .accessibilityLabel("Walking mode")
         .accessibilityValue(isOn ? "On" : "Off")
+    }
+
+    /// Pauses or resumes walking mode while it is on: a manual pause holds until Resume (spec 5.2).
+    private var pauseButton: some View {
+        let isPaused = services.walking.isPaused
+        return Button {
+            if isPaused {
+                services.walking.resume(source: .phone)
+            } else {
+                services.walking.pause(source: .phone)
+            }
+        } label: {
+            Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                .font(.title2)
+                .foregroundStyle(Color.primary)
+                .frame(width: 56, height: 56)
+                .background(.quaternary, in: Circle())
+        }
+        .accessibilityLabel(isPaused ? "Resume walk" : "Pause walk")
     }
 
     @ViewBuilder
