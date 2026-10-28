@@ -102,7 +102,65 @@ extension MemoryStore {
                         totalPhotos: record.totalPhotos)
     }
 
+    /// Every capture, stop story, heard buzz story (`BuzzRecord.deepestLevel` >= 1; a buzz story nobody heard, or
+    /// without a log entry, is left out) and library photo, in no particular order: group with `Diary.days`.
+    /// A record whose JSON cannot be decoded keeps its entry but loses that field (no city, or no coordinate for
+    /// a buzz), so one corrupt record never hides the diary.
+    public func diaryEntries() throws -> [DiaryEntry] {
+        let decoder = JSONDecoder()
+        var entries: [DiaryEntry] = []
+
+        for capture in try context.fetch(FetchDescriptor<CaptureRecord>()) {
+            let grounding = try? decoder.decode(Grounding.self, from: capture.groundingJSON)
+            entries.append(DiaryEntry(
+                id: "capture:\(capture.id.uuidString)", kind: .photoStory, time: capture.takenAt,
+                title: capture.title, placeName: capture.subject,
+                coordinate: Coordinate(latitude: capture.latitude, longitude: capture.longitude),
+                firstSentence: Self.firstSentence(of: capture.stories), city: grounding?.address?.city,
+                hasPhoto: true))
+        }
+
+        // Only a simple comparison goes into the predicate; SwiftData's SQL generation rejects richer forms.
+        let heard = try context.fetch(FetchDescriptor<BuzzRecord>(predicate: #Predicate { $0.deepestLevel >= 1 }))
+        let heardBuzzes = Dictionary(heard.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let buzzKind = WalkStory.Kind.buzz.rawValue
+        for walk in try context.fetch(FetchDescriptor<WalkStoryRecord>()) {
+            // JSON null (a failed lookup) decodes to nil, like no data at all.
+            let city = walk.addressJSON.flatMap { try? decoder.decode(Address?.self, from: $0) }?.city
+            if walk.kind == buzzKind {
+                guard let buzz = heardBuzzes[walk.id] else { continue }
+                let place = walk.placeJSON.flatMap { try? decoder.decode(Candidate.self, from: $0) }
+                entries.append(DiaryEntry(
+                    id: "walk:\(walk.id.uuidString)", kind: .buzz, time: walk.createdAt, title: walk.title,
+                    placeName: buzz.placeName, coordinate: place?.coordinate,
+                    firstSentence: Self.firstSentence(of: walk.stories), city: city, hasPhoto: false))
+            } else {
+                entries.append(DiaryEntry(
+                    id: "walk:\(walk.id.uuidString)", kind: .stop, time: walk.createdAt, title: walk.title,
+                    placeName: nil, coordinate: Coordinate(latitude: walk.latitude, longitude: walk.longitude),
+                    firstSentence: Self.firstSentence(of: walk.stories), city: city, hasPhoto: false))
+            }
+        }
+
+        for photo in try context.fetch(FetchDescriptor<LibraryPhotoRecord>()) {
+            let coordinate: Coordinate?
+            if let latitude = photo.latitude, let longitude = photo.longitude {
+                coordinate = Coordinate(latitude: latitude, longitude: longitude)
+            } else {
+                coordinate = nil
+            }
+            entries.append(DiaryEntry(
+                id: "library:\(photo.id.uuidString)", kind: .libraryPhoto, time: photo.takenAt, title: "",
+                placeName: nil, coordinate: coordinate, firstSentence: nil, city: nil, hasPhoto: true))
+        }
+        return entries
+    }
+
     // MARK: - Private
+
+    private static func firstSentence(of stories: [StoryRecord]) -> String? {
+        stories.first { $0.level == 1 }.map { RecentStories.firstSentence($0.text) }
+    }
 
     private func libraryPhotoRecord(assetIdentifier: String) throws -> LibraryPhotoRecord? {
         var descriptor = FetchDescriptor<LibraryPhotoRecord>(predicate: #Predicate { $0.assetIdentifier == assetIdentifier })
