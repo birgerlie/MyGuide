@@ -65,7 +65,7 @@ The watch app today is only the phase 2 test screen. Its "Start guided walk" but
 - `resume` from `pausedAuto` also gives `walking`, as if the walker had moved.
 - `pause` while already `pausedManual`, or `resume` while `walking`, does nothing and replies with the current state.
 - A command while `off` (other than `start`) does nothing and replies `off`.
-- Time limits: a manual pause counts as paused time, like an auto-pause. One hour paused, in total across both kinds, turns walking mode off (reason `pausedTooLong`).
+- Time limits: a manual pause counts as paused time, like an auto-pause. One *continuous* pause of an hour turns walking mode off (reason `pausedTooLong`). An auto pause that becomes a manual one is the same pause: its start time is kept (10.1).
 
 ## 5. Phone
 
@@ -137,3 +137,47 @@ The watch app today is only the phase 2 test screen. Its "Start guided walk" but
 3. Resume, then Stop on the watch. The walk appears in Fitness as an Outdoor Walk, with the pause.
 4. Start on the phone. The watch app opens with the walk running.
 5. Stand still for 4 minutes. The watch shows "Paused · not moving". Walk on, and it resumes by itself.
+
+## 10. Settled during the builder check *(Claude's calls)*
+
+1. **Pause time.** `AutoOff` keeps judging the current pause only. Auto → manual keeps `pausedSince`. A resume ends the pause.
+2. **Start from the watch** is `start(source: .watch, interactive: false)`.
+   - It never awaits a prompt. It checks location, notifications and the key first and returns the problem at once.
+   - It also needs location **Always**. Background location updates cannot start with When In Use, so without Always the problem is "Open MyGuide on your phone to finish setting up."
+   - It skips the Always request and the motion request. Motion stays as granted; if undetermined, the walk is GPS-only.
+   - The phone replies at once with `starting` and pushes the final state through the application context.
+   - `WatchLink` gets an async handler: the reply is sent from a task, and the reply handler is `@Sendable`.
+3. **Core pause detector.** `PauseDetector` gains:
+   - `hold()`: every input then returns nil and changes nothing;
+   - `release(now:)`: not paused, `stillStart = now`, anchors cleared.
+   A manual pause calls `hold()`. A manual resume, and a resume from `pausedAuto` by command, call `release(now:)`. The controller's paused branch never acts on detector output while held.
+4. **Pause kind in the controller.** `pauseKind: PauseKind?` (`auto` or `manual`), observable.
+   - Auto → manual writes one `paused` line with reason `manual`, keeps `pausedSince`, and pushes the activity and the state.
+   - `WalkLogSummary` counts a `paused` that directly follows another `paused` (with no `resumed` between) as the same pause, and does not split the path again.
+5. **Walk-log codec.**
+   - `paused` and `resumed` take a log-side `WalkPauseReason` (`motion`, `gps`, `manual`), separate from `PauseTrigger`.
+   - `started`, `stopped`, `paused` and `resumed` gain an optional `source` (`phone` or `watch`), omitted when automatic.
+   - Old lines without `source` still decode; this is tested. Lines with `manual` are unreadable in older builds. That is accepted: only newer builds read them.
+6. **Phone relaunch.**
+   - At launch, once `WatchLink` is active, the phone always pushes its current state, which is `off` after a relaunch.
+   - Every context carries `seq`, a counter persisted in `UserDefaults` and incremented on each push. The watch ignores a context whose `seq` is not newer than the last one it applied, unless the phone was reinstalled (`seq` lower than 10 behind is treated as a reset).
+   - Simpler rule actually used: the context also carries `sentAt`, and the watch applies the newest `sentAt`. `seq` only makes identical states distinct, so `updateApplicationContext` delivers them.
+7. **One workout owner on the watch** (`GuidedWalkModel`). `WorkoutKeeper` becomes idempotent:
+   - `ensureRunning()` awaits an in-progress start rather than returning early;
+   - `pause()`, `resume()`, and `finish(save:)`.
+8. **Watch app plumbing.**
+   - `@WKApplicationDelegateAdaptor` with `handle(_ workoutConfiguration:)` and `handleActiveWorkoutRecovery()`, which calls `HKHealthStore.recoverActiveWorkoutSession`.
+   - `PhoneLink` handles `didReceiveApplicationContext` and reads `receivedApplicationContext` at activation.
+   - All WC and HK handlers are nonisolated `@Sendable` closures that hop to the main actor.
+9. **iPhone HealthKit.**
+   - `com.apple.developer.healthkit` goes in the phone's entitlements.
+   - `startWatchApp(with:)` is called only for `source == .phone`. Its failure is logged as a walk log `failure`.
+10. **Workout ended by the system or another app.** The phone walk goes on. The watch shows "Workout ended" under the label and does not restart a workout until the next Start.
+11. **Labels.**
+    - The phone keeps "Walking · waiting for GPS".
+    - On the phone, paused texts become "Paused · N buzzes" for manual and "Paused · not moving · N buzzes" for auto. This changes `WalkingStatus` and its tests on purpose.
+    - The watch uses the section 4 labels.
+12. **Observable starting.** `WalkingController.isStarting`.
+13. **The 60 s discard** uses the builder's `elapsedTime`, which excludes pauses.
+14. **Health permission.** Share: workouts. Read: heart rate, active energy and walking distance. "Not saved to Health" keys off the share status for workouts.
+15. **State fields.** `GuidedWalkState` also carries `pausedTotal` (seconds of finished pauses) and `pausedSince`, so the watch computes the active time after a relaunch.
