@@ -271,7 +271,8 @@ final class WalkingController {
         // Preparations and fetches still end with their (silent) failure events, so the machine never stays busy.
         stories.stopAll()
         Task { await BuzzNotifier.removeWalkNotifications() }
-        walkLog.log(.stopped(reason))
+        // Task 3 adds the watch as a source; for now only the user's own stop carries one.
+        walkLog.log(.stopped(reason, source: reason == .user ? .phone : nil))
         if let autoOffMessage {
             walkLog.end(posting: .autoOff, id: nil, { try await BuzzNotifier.postAutoOff(autoOffMessage) },
                         // Memory log only: the run is over, and its `notifyFailed` line already holds the error.
@@ -417,7 +418,7 @@ final class WalkingController {
         pausedSince = now
         location.setPaused(true)
         flushTrack()
-        walkLog.log(.paused(trigger, at: anchor), at: now)
+        walkLog.log(.paused(WalkPauseReason(trigger), at: anchor, source: nil), at: now)
         walkLog.resetQuiet()
         activity.clearStop()
         refreshActivity(now: now)
@@ -438,7 +439,7 @@ final class WalkingController {
         lastTrackSample = nil
         loggedGPS = nil
         resumedAt = now
-        walkLog.log(.resumed(trigger, pausedSeconds: paused), at: now)
+        walkLog.log(.resumed(WalkPauseReason(trigger), pausedSeconds: paused, source: nil), at: now)
         walkLog.resetQuiet()
         activity.clearStop()
         refreshActivity(now: now)
@@ -537,8 +538,8 @@ final class WalkingController {
     /// Writes `gps` when the status changes between waiting for GPS and having GPS. Nothing while paused.
     private func noteGPS(now: Date) {
         guard isOn, !isPaused else { return }
-        let found = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: false)
-            != WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: buzzCount, now: now, paused: false)
+        let found = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now)
+            != WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: buzzCount, now: now)
         guard found != loggedGPS else { return }
         loggedGPS = found
         walkLog.log(.gps(found: found), at: now)
@@ -549,7 +550,7 @@ final class WalkingController {
     /// resume it counts from the resume at the earliest, as `lastFixAt` stood still through the pause.
     private func refreshActivity(now: Date) {
         guard isOn, let startedAt,
-              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: isPaused)
+              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, pause: isPaused ? .auto : nil)
         else { return }
         let floor = max(startedAt, resumedAt ?? startedAt)
         let stale = isPaused ? WalkingStatus.pausedStaleDate(now: now)

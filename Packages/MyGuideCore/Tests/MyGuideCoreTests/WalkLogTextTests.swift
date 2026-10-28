@@ -26,12 +26,20 @@ import Testing
     }
 
     @Test func stoppedAndPausedLines() {
-        #expect(WalkLogText.line(.stopped(.user)) == "Stopped: user")
-        #expect(WalkLogText.line(.paused(.motion, at: nil)) == "Paused (motion)")
+        #expect(WalkLogText.line(.stopped(.user, source: nil)) == "Stopped: user")
+        #expect(WalkLogText.line(.paused(.motion, at: nil, source: nil)) == "Paused (motion)")
         // Hand: 312 / 60 = 5.2, floor 5.
-        #expect(WalkLogText.line(.resumed(.gps, pausedSeconds: 312)) == "Resumed (gps) after 5 min")
+        #expect(WalkLogText.line(.resumed(.gps, pausedSeconds: 312, source: nil)) == "Resumed (gps) after 5 min")
         // Hand: 59 / 60 = 0.98, floor 0.
-        #expect(WalkLogText.line(.resumed(.motion, pausedSeconds: 59)) == "Resumed (motion) after 0 min")
+        #expect(WalkLogText.line(.resumed(.motion, pausedSeconds: 59, source: nil)) == "Resumed (motion) after 0 min")
+    }
+
+    @Test func manualAndSourceLines() {
+        #expect(WalkLogText.line(.paused(.manual, at: nil, source: nil)) == "Paused (manual)")
+        #expect(WalkLogText.line(.paused(.manual, at: nil, source: .watch)) == "Paused (manual, watch)")
+        // Hand: 125 / 60 = 2.08, floor 2.
+        #expect(WalkLogText.line(.resumed(.manual, pausedSeconds: 125, source: .phone)) == "Resumed (manual, phone) after 2 min")
+        #expect(WalkLogText.line(.stopped(.user, source: .watch)) == "Stopped: user (watch)")
     }
 
     @Test func everyKindHasANonEmptyLine() {
@@ -46,7 +54,7 @@ import Testing
             #expect(!WalkLogText.line(.buzz(buzz)).isEmpty)
             let due = DuePlace(id: "a", name: "A", tier: .top, distance: value, excluded: false)
             #expect(!WalkLogText.line(.quiet(.busy, due: [due])).isEmpty)
-            #expect(!WalkLogText.line(.resumed(.gps, pausedSeconds: value)).isEmpty)
+            #expect(!WalkLogText.line(.resumed(.gps, pausedSeconds: value, source: nil)).isEmpty)
             let fix = WalkLogFix(coordinate: .at(), accuracy: value, speed: nil, course: nil, paused: false, dropped: nil)
             #expect(!WalkLogText.line(.fix(fix)).isEmpty)
         }

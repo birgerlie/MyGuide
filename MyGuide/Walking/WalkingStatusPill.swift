@@ -10,7 +10,7 @@ struct WalkingStatusPill: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: 6) {
                 if let text = WalkingStatus.text(isOn: controller.isOn, lastFixAt: controller.lastFixAt,
-                                                 buzzCount: controller.buzzCount, now: context.date, paused: controller.isPaused) {
+                                                 buzzCount: controller.buzzCount, now: context.date, pause: controller.isPaused ? .auto : nil) {
                     pill(text, color: .white)
                 }
                 if let problem = controller.problems.first {

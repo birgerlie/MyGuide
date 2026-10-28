@@ -14,8 +14,9 @@ import Testing
             .started(WalkLogStart(appVersion: "1.2", build: "34", location: .whenInUse, notifications: .allowed,
                                   liveActivities: true, motion: .authorized, perHour: 6, battery: 0.5)),
             .started(WalkLogStart(appVersion: "1.2", build: "34", location: .denied, notifications: .notDetermined,
-                                  liveActivities: false, motion: .unavailable, perHour: 3, battery: nil)),
-            .stopped(.pausedTooLong),
+                                  liveActivities: false, motion: .unavailable, perHour: 3, battery: nil, source: .watch)),
+            .stopped(.pausedTooLong, source: nil),
+            .stopped(.user, source: .phone),
             .app(foreground: true),
             .app(foreground: false),
             .fix(WalkLogFix(coordinate: c, accuracy: 12, speed: 1.4, course: 90, paused: false, dropped: nil)),
@@ -44,9 +45,11 @@ import Testing
             .stopStory(outcome: .failed, title: nil, error: "boom"),
             .stopShown(via: .liveActivity),
             .motion(.walking, confidence: .high),
-            .paused(.motion, at: c),
-            .paused(.gps, at: nil),
-            .resumed(.gps, pausedSeconds: 181.5),
+            .paused(.motion, at: c, source: nil),
+            .paused(.gps, at: nil, source: nil),
+            .paused(.manual, at: c, source: .watch),
+            .resumed(.gps, pausedSeconds: 181.5, source: nil),
+            .resumed(.manual, pausedSeconds: 12, source: .phone),
             .failure(context: "memory", error: "disk full"),
         ]
     }
@@ -68,6 +71,48 @@ import Testing
         #expect(names.count == 23)
     }
 
+    @Test func oldLinesWithoutSourceDecode() {
+        let lines = [
+            #"{"e":"started","t":"2026-01-01T10:00:00.000Z","appVersion":"1","build":"2","location":"always","notifications":"allowed","liveActivities":true,"motion":"authorized","perHour":6,"battery":0.5}"#,
+            #"{"e":"stopped","t":"2026-01-01T10:00:00.000Z","reason":"user"}"#,
+            #"{"e":"paused","t":"2026-01-01T10:00:00.000Z","reason":"motion","lat":59.9,"lon":10.7}"#,
+            #"{"e":"resumed","t":"2026-01-01T10:00:00.000Z","reason":"motion","pausedSeconds":181.5}"#,
+        ]
+        let kinds = lines.compactMap { WalkLogCodec.event(from: Data($0.utf8))?.kind }
+        #expect(kinds.count == 4)
+        guard kinds.count == 4 else { return }
+        guard case .started(let start) = kinds[0] else { Issue.record("not started"); return }
+        #expect(start.source == nil)
+        #expect(kinds[1] == .stopped(.user, source: nil))
+        #expect(kinds[2] == .paused(.motion, at: Coordinate(latitude: 59.9, longitude: 10.7), source: nil))
+        #expect(kinds[3] == .resumed(.motion, pausedSeconds: 181.5, source: nil))
+    }
+
+    @Test func manualReasonAndSourceRoundTrip() {
+        let kinds: [WalkLogEvent.Kind] = [
+            .paused(.manual, at: Self.c, source: .watch), .resumed(.manual, pausedSeconds: 3.5, source: .phone),
+            .stopped(.user, source: .watch),
+        ]
+        for kind in kinds {
+            let event = WalkLogEvent(at: Self.t0, kind: kind)
+            #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event, "\(kind)")
+        }
+        let o = Self.json(WalkLogEvent(at: Self.t0, kind: .paused(.manual, at: nil, source: .watch)))
+        #expect(o["reason"] as? String == "manual")
+        #expect(o["source"] as? String == "watch")
+    }
+
+    @Test func sourceOmittedWhenNil() {
+        let nilSource: [WalkLogEvent.Kind] = [
+            .stopped(.user, source: nil), .paused(.motion, at: nil, source: nil), .resumed(.gps, pausedSeconds: 1, source: nil),
+            .started(WalkLogStart(appVersion: "1", build: "2", location: .always, notifications: .allowed, liveActivities: true,
+                                  motion: .authorized, perHour: 6, battery: nil)),
+        ]
+        for kind in nilSource {
+            #expect(Self.json(WalkLogEvent(at: Self.t0, kind: kind))["source"] == nil, "\(kind)")
+        }
+    }
+
     @Test func rounding() throws {
         // Hand: 59.91234567 * 1e6 = 59912345.67 -> rounded 59912346 -> / 1e6 = 59.912346 (half away from zero).
         let fix = WalkLogFix(coordinate: Coordinate(latitude: 59.91234567, longitude: 10.7500004), accuracy: 52.6,
@@ -86,7 +131,7 @@ import Testing
         #expect(Self.json(WalkLogEvent(at: Self.t0, kind: .storyReady(id: Self.id, seconds: 3.04)))["seconds"] as? Double == 3.0)
         #expect(Self.json(WalkLogEvent(at: Self.t0, kind: .storyReady(id: Self.id, seconds: 3.06)))["seconds"] as? Double == 3.1)
         // Hand: 181.55 would be a tie; 181.52 * 10 = 1815.2 -> 1815 -> 181.5.
-        #expect(Self.json(WalkLogEvent(at: Self.t0, kind: .resumed(.motion, pausedSeconds: 181.52)))["pausedSeconds"] as? Double == 181.5)
+        #expect(Self.json(WalkLogEvent(at: Self.t0, kind: .resumed(.motion, pausedSeconds: 181.52, source: nil)))["pausedSeconds"] as? Double == 181.5)
     }
 
     @Test func roundedValueIsWrittenAsShortDecimal() {

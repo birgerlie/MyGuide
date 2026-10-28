@@ -6,7 +6,7 @@ public enum WalkLogText {
         switch kind {
         case .started(let s):
             return "Started (v\(s.appVersion) build \(s.build), location \(s.location.rawValue), motion \(s.motion.rawValue))"
-        case .stopped(let reason): return "Stopped: \(reason.rawValue)"
+        case .stopped(let reason, let source): return "Stopped: \(reason.rawValue)" + (source.map { " (\($0.rawValue))" } ?? "")
         case .app(let foreground): return foreground ? "App in foreground" : "App in background"
         case .fix(let f):
             let flags = [f.paused ? "paused" : nil, f.dropped.map { "dropped \($0.rawValue)" }].compactMap { $0 }
@@ -35,10 +35,15 @@ public enum WalkLogText {
             }
         case .stopShown(let via): return "Stop story shown (\(via.rawValue))"
         case .motion(let activity, let confidence): return "Motion: \(activity.rawValue) (\(confidence.rawValue))"
-        case .paused(let trigger, _): return "Paused (\(trigger.rawValue))"
-        case .resumed(let trigger, let seconds): return "Resumed (\(trigger.rawValue)) after \(whole((seconds / 60).rounded(.down))) min"
+        case .paused(let reason, _, let source): return "Paused (\(label(reason, source)))"
+        case .resumed(let reason, let seconds, let source): return "Resumed (\(label(reason, source))) after \(whole((seconds / 60).rounded(.down))) min"
         case .failure(let context, let error): return "Failure in \(context): \(error)"
         }
+    }
+
+    /// The reason, then the source after a comma when a command gave it: "manual, watch".
+    private static func label(_ reason: WalkPauseReason, _ source: WalkSource?) -> String {
+        [reason.rawValue, source?.rawValue].compactMap { $0 }.joined(separator: ", ")
     }
 
     /// Whole number as text; "?" for NaN or infinity, clamped to the Int range (a hand-edited log must not crash the timeline).

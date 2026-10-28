@@ -40,7 +40,7 @@ enum WalkLogFormat {
 
     /// The timeline text of an event; a stop reason reads as English instead of its raw value.
     static func timelineText(_ kind: WalkLogEvent.Kind) -> String {
-        if case .stopped(let reason) = kind { return stopReason(reason) }
+        if case .stopped(let reason, let source) = kind { return stopReason(reason) + (source.map { " (\($0.rawValue))" } ?? "") }
         return WalkLogText.line(kind)
     }
 }

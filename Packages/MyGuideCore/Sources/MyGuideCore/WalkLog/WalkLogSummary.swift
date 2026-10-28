@@ -10,6 +10,7 @@ private func countingFix(_ kind: WalkLogEvent.Kind) -> WalkLogFix? {
 private func segments(_ events: [WalkLogEvent]) -> [[Coordinate]] {
     var result: [[Coordinate]] = []
     var current: [Coordinate] = []
+    var inPause = false
     func close() {
         if !current.isEmpty { result.append(current) }
         current = []
@@ -17,7 +18,11 @@ private func segments(_ events: [WalkLogEvent]) -> [[Coordinate]] {
     for event in events {
         switch event.kind {
         case .fix(let f) where f.paused: close()
-        case .paused: close()
+        case .paused:
+            // A paused that follows another paused (auto to manual) is the same pause: the path was split already.
+            if !inPause { close() }
+            inPause = true
+        case .resumed: inPause = false
         default: if let f = countingFix(event.kind) { current.append(f.coordinate) }
         }
     }
@@ -51,6 +56,7 @@ public struct WalkLogSummary: Sendable, Equatable {
         var fetches = 0, fetchFailures = 0, buzzes = 0, notifications = 0, failures = 0, pauses = 0
         var placeIDs = Set<String>()
         var stop: WalkStopReason?
+        var inPause = false
         for event in events {
             switch event.kind {
             case .fetchStarted: fetches += 1
@@ -59,8 +65,12 @@ public struct WalkLogSummary: Sendable, Equatable {
             case .buzz: buzzes += 1
             case .notified: notifications += 1
             case .failure, .notifyFailed, .storyFailed: failures += 1
-            case .paused: pauses += 1
-            case .stopped(let reason): stop = reason
+            case .paused:
+                // A paused directly after another paused (no resumed between) is the same pause.
+                if !inPause { pauses += 1 }
+                inPause = true
+            case .resumed: inPause = false
+            case .stopped(let reason, _): stop = reason
             default: break
             }
         }
@@ -91,6 +101,7 @@ public struct WalkLogMapData: Sendable, Equatable {
         var stops: [Coordinate] = []
         var pauses: [Coordinate] = []
         var pendingStop: Coordinate?
+        var inPause = false
         for event in events {
             switch event.kind {
             case .fetched(_, _, _, _, let listed):
@@ -103,7 +114,10 @@ public struct WalkLogMapData: Sendable, Equatable {
             case .stopStory(let outcome, _, _):
                 if outcome == .told, let c = pendingStop { stops.append(c) }
                 pendingStop = nil
-            case .paused(_, let at): if let at { pauses.append(at) }
+            case .paused(_, let at, _):
+                if !inPause, let at { pauses.append(at) }
+                inPause = true
+            case .resumed: inPause = false
             default: break
             }
         }

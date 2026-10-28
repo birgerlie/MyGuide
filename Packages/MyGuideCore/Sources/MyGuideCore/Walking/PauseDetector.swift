@@ -41,6 +41,8 @@ public struct PauseDetector: Sendable {
 
     public private(set) var isPaused = false
     public private(set) var pausedSince: Date?
+    /// True after `hold()` until `release(now:)`: a manual pause. Every input then returns nil and changes nothing.
+    public private(set) var isHeld = false
 
     private let motionAvailable: Bool
     private var walkingSince: Date?
@@ -53,7 +55,22 @@ public struct PauseDetector: Sendable {
         self.motionAvailable = motionAvailable
     }
 
+    /// Freezes the detector for a manual pause: motion, fixes and ticks give nil and change nothing, so walking
+    /// or moving cannot end the pause. The state (`isPaused`, `pausedSince`) stays as it was.
+    public mutating func hold() { isHeld = true }
+
+    /// Ends a hold or a pause by command: not held, not paused, a new still stretch from `now`, anchors cleared.
+    public mutating func release(now: Date) {
+        isHeld = false
+        isPaused = false
+        pausedSince = nil
+        stillStart = now
+        anchor = nil
+        pauseAnchor = nil
+    }
+
     public mutating func motion(isWalking: Bool, at: Date) -> PauseChange? {
+        guard !isHeld else { return nil }
         if isWalking {
             if walkingSince == nil { walkingSince = at }
         } else if walkingSince != nil {
@@ -65,6 +82,7 @@ public struct PauseDetector: Sendable {
     }
 
     public mutating func fix(position: Coordinate, accuracy: Double, at: Date) -> PauseChange? {
+        guard !isHeld else { return nil }
         if isPaused {
             if accuracy >= 0, accuracy <= Self.maxResumeAccuracy {
                 if let pauseAnchor {
@@ -89,7 +107,8 @@ public struct PauseDetector: Sendable {
     }
 
     public mutating func tick(now: Date) -> PauseChange? {
-        check(now: now)
+        guard !isHeld else { return nil }
+        return check(now: now)
     }
 
     private mutating func check(now: Date) -> PauseChange? {

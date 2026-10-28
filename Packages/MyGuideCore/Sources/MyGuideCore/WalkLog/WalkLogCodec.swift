@@ -59,16 +59,26 @@ public enum WalkLogCodec {
         }
     }
 
+    /// The `source` key is left out when the command was automatic.
+    private static func withSource(_ fields: [String: Any], _ source: WalkSource?) -> [String: Any] {
+        guard let source else { return fields }
+        var o = fields
+        o["source"] = source.rawValue
+        return o
+    }
+
     private static func orNull(_ value: Any?) -> Any { value ?? NSNull() }
 
     private static func fields(of kind: WalkLogEvent.Kind) -> [String: Any] {
         switch kind {
         case .started(let s):
-            return ["appVersion": s.appVersion, "build": s.build, "location": s.location.rawValue,
+            var o: [String: Any] = ["appVersion": s.appVersion, "build": s.build, "location": s.location.rawValue,
                     "notifications": s.notifications.rawValue, "liveActivities": s.liveActivities,
                     "motion": s.motion.rawValue, "perHour": s.perHour, "battery": s.battery.map(number) ?? NSNull()]
-        case .stopped(let reason):
-            return ["reason": reason.rawValue]
+            if let source = s.source { o["source"] = source.rawValue }
+            return o
+        case .stopped(let reason, let source):
+            return withSource(["reason": reason.rawValue], source)
         case .app(let foreground):
             return ["state": foreground ? "foreground" : "background"]
         case .fix(let f):
@@ -121,11 +131,11 @@ public enum WalkLogCodec {
             return ["via": via.rawValue]
         case .motion(let activity, let confidence):
             return ["activity": activity.rawValue, "confidence": confidence.rawValue]
-        case .paused(let trigger, let at):
-            return ["reason": trigger.rawValue,
-                    "lat": at.map { coordinate($0.latitude) } ?? NSNull(), "lon": at.map { coordinate($0.longitude) } ?? NSNull()]
-        case .resumed(let trigger, let pausedSeconds):
-            return ["reason": trigger.rawValue, "pausedSeconds": seconds(pausedSeconds)]
+        case .paused(let reason, let at, let source):
+            return withSource(["reason": reason.rawValue,
+                    "lat": at.map { coordinate($0.latitude) } ?? NSNull(), "lon": at.map { coordinate($0.longitude) } ?? NSNull()], source)
+        case .resumed(let reason, let pausedSeconds, let source):
+            return withSource(["reason": reason.rawValue, "pausedSeconds": seconds(pausedSeconds)], source)
         case .failure(let context, let error):
             return ["context": context, "error": error]
         }
@@ -165,6 +175,12 @@ public enum WalkLogCodec {
         guard let u = uuid(o, k) else { return nil }
         return .some(u)
     }
+    /// Optional source: absent or null is nil (old lines, automatic); a present value that is not a source makes the line unreadable.
+    private static func optionalSource(_ o: [String: Any]) -> WalkSource?? {
+        if o["source"] == nil || o["source"] is NSNull { return .some(nil) }
+        guard let s = raw(o, "source", WalkSource.self) else { return nil }
+        return .some(s)
+    }
     private static func objects(_ o: [String: Any], _ k: String) -> [[String: Any]]? { o[k] as? [[String: Any]] }
 
     private static func kind(named name: String, from o: [String: Any]) -> WalkLogEvent.Kind? {
@@ -175,11 +191,12 @@ public enum WalkLogCodec {
                   let notifications = raw(o, "notifications", NotificationPermission.self),
                   let liveActivities = bool(o, "liveActivities"),
                   let motion = raw(o, "motion", MotionPermission.self),
-                  let perHour = int(o, "perHour") else { return nil }
+                  let perHour = int(o, "perHour"), let source = optionalSource(o) else { return nil }
             return .started(WalkLogStart(appVersion: appVersion, build: build, location: location, notifications: notifications,
-                                         liveActivities: liveActivities, motion: motion, perHour: perHour, battery: double(o, "battery")))
+                                         liveActivities: liveActivities, motion: motion, perHour: perHour, battery: double(o, "battery"), source: source))
         case "stopped":
-            return raw(o, "reason", WalkStopReason.self).map { .stopped($0) }
+            guard let reason = raw(o, "reason", WalkStopReason.self), let source = optionalSource(o) else { return nil }
+            return .stopped(reason, source: source)
         case "app":
             switch string(o, "state") {
             case "foreground": return .app(foreground: true)
@@ -262,11 +279,12 @@ public enum WalkLogCodec {
             guard let a = raw(o, "activity", MotionActivity.self), let c = raw(o, "confidence", MotionConfidence.self) else { return nil }
             return .motion(a, confidence: c)
         case "paused":
-            guard let reason = raw(o, "reason", PauseTrigger.self) else { return nil }
-            return .paused(reason, at: coord(o))
+            guard let reason = raw(o, "reason", WalkPauseReason.self), let source = optionalSource(o) else { return nil }
+            return .paused(reason, at: coord(o), source: source)
         case "resumed":
-            guard let reason = raw(o, "reason", PauseTrigger.self), let secs = double(o, "pausedSeconds") else { return nil }
-            return .resumed(reason, pausedSeconds: secs)
+            guard let reason = raw(o, "reason", WalkPauseReason.self), let secs = double(o, "pausedSeconds"),
+                  let source = optionalSource(o) else { return nil }
+            return .resumed(reason, pausedSeconds: secs, source: source)
         case "failure":
             guard let context = string(o, "context"), let error = string(o, "error") else { return nil }
             return .failure(context: context, error: error)

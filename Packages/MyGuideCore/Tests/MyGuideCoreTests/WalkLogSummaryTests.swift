@@ -52,8 +52,8 @@ import Testing
     }
 
     @Test func pausedEventEndsSegment() {
-        let events = [Self.fix(0), Self.fix(10), Self.ev(.paused(.motion, at: .at(north: 10))),
-                      Self.ev(.resumed(.motion, pausedSeconds: 300)), Self.fix(500), Self.fix(520)]
+        let events = [Self.fix(0), Self.fix(10), Self.ev(.paused(.motion, at: .at(north: 10), source: nil)),
+                      Self.ev(.resumed(.motion, pausedSeconds: 300, source: nil)), Self.fix(500), Self.fix(520)]
         let summary = WalkLogSummary(events: events, unreadable: 0)
         // Hand: 10 in the first segment, 20 in the second, nothing for the 490 m gap -> 30.
         #expect(abs(summary.distance - 30) < 0.01)
@@ -61,9 +61,26 @@ import Testing
         #expect(summary.pauses == 1)
     }
 
+    @Test func pausedThenPausedCountsOnce() {
+        // Review Focus 4. Hand: paused(motion), paused(manual) with no resumed between is one pause: pauses = 1.
+        // Path: fixes 0, 10 (10 m) | pause | fixes 500, 520 (20 m) after the resume = 30 m in 2 segments; the second
+        // paused must not close an (empty) segment, so the count stays 2. A later paused after the resume is a second pause.
+        let events = [Self.fix(0), Self.fix(10), Self.ev(.paused(.motion, at: .at(north: 10), source: nil)),
+                      Self.ev(.paused(.manual, at: .at(north: 11), source: .phone)),
+                      Self.ev(.resumed(.manual, pausedSeconds: 300, source: .phone)), Self.fix(500), Self.fix(520)]
+        let summary = WalkLogSummary(events: events, unreadable: 0)
+        #expect(summary.pauses == 1)
+        #expect(abs(summary.distance - 30) < 0.01)
+        let map = WalkLogMapData(events: events)
+        #expect(map.path.count == 2)
+        #expect(map.pauses == [.at(north: 10)])
+        let again = events + [Self.ev(.paused(.motion, at: nil, source: nil))]
+        #expect(WalkLogSummary(events: again, unreadable: 0).pauses == 2)
+    }
+
     @Test func endedWithoutStop() {
         #expect(WalkLogSummary(events: [Self.fix(0)], unreadable: 0).stopReason == nil)
-        #expect(WalkLogSummary(events: [Self.fix(0), Self.ev(.stopped(.lowBattery))], unreadable: 0).stopReason == .lowBattery)
+        #expect(WalkLogSummary(events: [Self.fix(0), Self.ev(.stopped(.lowBattery, source: nil))], unreadable: 0).stopReason == .lowBattery)
     }
 
     @Test func countsAndPlacesDistinct() {
@@ -77,7 +94,7 @@ import Testing
             Self.ev(.notified(id: id, kind: .buzz, settings: WalkLogEventTests.settings)),
             Self.ev(.failure(context: "c", error: "e")), Self.ev(.notifyFailed(id: nil, kind: .stop, error: "e")),
             Self.ev(.storyFailed(id: id, seconds: 1, error: "e")),
-            Self.ev(.paused(.gps, at: nil)),
+            Self.ev(.paused(.gps, at: nil, source: nil)),
         ]
         let s = WalkLogSummary(events: events, unreadable: 3)
         // Hand: places 3 + 2 - 1 shared (c) = 4.
@@ -137,7 +154,8 @@ import Testing
     @Test func buzzedAndPauses() {
         let id = UUID(), at = Coordinate.at(north: 7)
         let events = [Self.ev(.buzz(WalkLogBuzz(id: id, placeID: "p1", name: "A", tier: .top, distance: 5, override: false, detail: ""))),
-                      Self.ev(.paused(.motion, at: at)), Self.ev(.paused(.gps, at: nil))]
+                      Self.ev(.paused(.motion, at: at, source: nil)), Self.ev(.resumed(.motion, pausedSeconds: 1, source: nil)),
+                      Self.ev(.paused(.gps, at: nil, source: nil))]
         let m = WalkLogMapData(events: events)
         #expect(m.buzzedPlaceIDs == ["p1"])
         #expect(m.pauses == [at])

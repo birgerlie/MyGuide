@@ -7,6 +7,19 @@ public enum WalkStopReason: String, Sendable, Codable { case user, timeLimit, lo
 public enum FixDrop: String, Sendable, Codable { case stale, invalid }
 public enum WalkNotificationKind: String, Sendable, Codable { case buzz, more, stop, storyFailed, autoOff }
 public enum StopStoryOutcome: String, Sendable, Codable { case told, silent, failed }
+/// Why a pause is logged: the detector's triggers, plus the user's command. Log side only; `PauseTrigger` stays the detector's.
+public enum WalkPauseReason: String, Sendable, Codable {
+    case motion, gps, manual
+
+    public init(_ trigger: PauseTrigger) {
+        switch trigger {
+        case .motion: self = .motion
+        case .gps: self = .gps
+        }
+    }
+}
+/// Who gave a command; nil in the log means automatic.
+public enum WalkSource: String, Sendable, Codable { case phone, watch }
 public enum StopShownVia: String, Sendable, Codable { case liveActivity, notification }
 
 public struct WalkLogStart: Sendable, Equatable {
@@ -18,9 +31,11 @@ public struct WalkLogStart: Sendable, Equatable {
     public var motion: MotionPermission
     public var perHour: Int
     public var battery: Double?
+    /// Who started the walk; nil when not known.
+    public var source: WalkSource?
 
     public init(appVersion: String, build: String, location: LocationPermission, notifications: NotificationPermission,
-                liveActivities: Bool, motion: MotionPermission, perHour: Int, battery: Double?) {
+                liveActivities: Bool, motion: MotionPermission, perHour: Int, battery: Double?, source: WalkSource? = nil) {
         self.appVersion = appVersion
         self.build = build
         self.location = location
@@ -29,6 +44,7 @@ public struct WalkLogStart: Sendable, Equatable {
         self.motion = motion
         self.perHour = perHour
         self.battery = battery
+        self.source = source
     }
 }
 
@@ -119,7 +135,7 @@ public struct WalkLogEvent: Sendable, Equatable {
 
     public enum Kind: Sendable, Equatable {
         case started(WalkLogStart)
-        case stopped(WalkStopReason)
+        case stopped(WalkStopReason, source: WalkSource?)
         case app(foreground: Bool)
         case fix(WalkLogFix)
         case gps(found: Bool)
@@ -138,8 +154,8 @@ public struct WalkLogEvent: Sendable, Equatable {
         case stopStory(outcome: StopStoryOutcome, title: String?, error: String?)
         case stopShown(via: StopShownVia)
         case motion(MotionActivity, confidence: MotionConfidence)
-        case paused(PauseTrigger, at: Coordinate?)
-        case resumed(PauseTrigger, pausedSeconds: Double)
+        case paused(WalkPauseReason, at: Coordinate?, source: WalkSource?)
+        case resumed(WalkPauseReason, pausedSeconds: Double, source: WalkSource?)
         case failure(context: String, error: String)
     }
 

@@ -22,9 +22,12 @@ import Testing
 
     @Test func pausedTextWinsOverWaiting() {
         // No fix at all, yet paused wins over "waiting for GPS"; 1 → "buzz", 2 → "buzzes".
-        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 1, now: Self.t0, paused: true) == "Paused · 1 buzz")
-        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 2, now: Self.t0, paused: true) == "Paused · 2 buzzes")
-        #expect(WalkingStatus.text(isOn: false, lastFixAt: nil, buzzCount: 2, now: Self.t0, paused: true) == nil)
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 1, now: Self.t0, pause: .manual) == "Paused · 1 buzz")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 2, now: Self.t0, pause: .manual) == "Paused · 2 buzzes")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 1, now: Self.t0, pause: .auto) == "Paused · not moving · 1 buzz")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 2, now: Self.t0, pause: .auto) == "Paused · not moving · 2 buzzes")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 2, now: Self.t0, pause: nil) == "Walking · 2 buzzes")
+        #expect(WalkingStatus.text(isOn: false, lastFixAt: nil, buzzCount: 2, now: Self.t0, pause: .auto) == nil)
     }
 
     @Test func pausedStaleDate() {

@@ -1,5 +1,8 @@
 import Foundation
 
+/// Why walking mode is paused, for the status text: by the detector (`auto`) or by the user's command (`manual`).
+public enum WalkingPauseKind: Sendable { case auto, manual }
+
 /// The one-line walking status shown on the capture screen.
 public enum WalkingStatus {
     /// A fix older than this no longer counts as "have GPS".
@@ -8,12 +11,17 @@ public enum WalkingStatus {
     /// stale while fixes keep coming, yet is not pushed on every fix.
     public static let staleRefreshStep: TimeInterval = 30
 
-    /// Nil when walking mode is off. Paused wins over waiting for GPS. A missing or stale fix reads as waiting for GPS (120 s is still fresh).
-    public static func text(isOn: Bool, lastFixAt: Date?, buzzCount: Int, now: Date, paused: Bool = false) -> String? {
+    /// Nil when walking mode is off. Paused wins over waiting for GPS: manual reads "Paused · N buzzes", auto "Paused · not moving · N buzzes". A missing or stale fix reads as waiting for GPS (120 s is still fresh).
+    public static func text(isOn: Bool, lastFixAt: Date?, buzzCount: Int, now: Date, pause: WalkingPauseKind? = nil) -> String? {
         guard isOn else { return nil }
-        if paused { return "Paused · \(buzzCount) \(buzzCount == 1 ? "buzz" : "buzzes")" }
+        let buzzes = "\(buzzCount) \(buzzCount == 1 ? "buzz" : "buzzes")"
+        switch pause {
+        case .manual: return "Paused · \(buzzes)"
+        case .auto: return "Paused · not moving · \(buzzes)"
+        case nil: break
+        }
         guard let lastFixAt, now.timeIntervalSince(lastFixAt) <= staleAfter else { return "Walking · waiting for GPS" }
-        return "Walking · \(buzzCount) \(buzzCount == 1 ? "buzz" : "buzzes")"
+        return "Walking · \(buzzes)"
     }
 
     /// When the Live Activity stops claiming "Walking" (the widget then shows that walking is paused): `staleAfter`

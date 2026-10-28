@@ -162,6 +162,53 @@ import Testing
         #expect(d.tick(now: Self.t0 + 480) == .pause(.motion, anchor: nil))
     }
 
+    @Test func heldDetectorIgnoresWalkingAndFarFixes() {
+        // Review Focus 1. A manual pause: held while paused. Walking from t0+201 and 500 s of ticks would resume an
+        // unheld detector (261 − 201 = 60 is not > 60, but 701 − 201 = 500 is); a fix 500 m away would too (500 − 5 > 100).
+        var d = Self.paused(anchorFix: true)
+        d.hold()
+        #expect(d.isHeld)
+        #expect(d.motion(isWalking: true, at: Self.t0 + 201) == nil)
+        #expect(d.tick(now: Self.t0 + 262) == nil)
+        #expect(d.tick(now: Self.t0 + 700) == nil)
+        #expect(d.fix(position: .at(north: 500), accuracy: 5, at: Self.t0 + 701) == nil)
+        #expect(d.isPaused)
+        #expect(d.pausedSince == Self.t0 + 180)
+    }
+
+    @Test func heldNotPausedDetectorNeverPauses() {
+        // Held before any pause: 180 s of stillness would pause an unheld detector (180 − 0 ≥ 180); held gives nil.
+        var d = Self.make()
+        d.hold()
+        #expect(d.tick(now: Self.t0 + 500) == nil)
+        #expect(!d.isPaused)
+    }
+
+    @Test func releaseRestartsStretch() {
+        // Hand: released at t0+100 → stretch starts at 100. At t0+279: 279 − 100 = 179 < 180 → nil;
+        // at t0+280: 280 − 100 = 180 ≥ 180 → pause (100 + 180 = 280).
+        var d = Self.paused(anchorFix: true)
+        d.hold()
+        d.release(now: Self.t0 + 100)
+        #expect(!d.isHeld)
+        #expect(d.tick(now: Self.t0 + 279) == nil)
+        #expect(d.tick(now: Self.t0 + 280) == .pause(.motion, anchor: nil))
+        #expect(d.pausedSince == Self.t0 + 280)
+    }
+
+    @Test func releaseFromAutoPauseClearsPaused() {
+        // A resume by command out of an auto pause (never held): not paused, pausedSince nil, anchors cleared.
+        var d = Self.paused(anchorFix: true)
+        #expect(d.isPaused)
+        d.release(now: Self.t0 + 200)
+        #expect(!d.isPaused)
+        #expect(!d.isHeld)
+        #expect(d.pausedSince == nil)
+        // Hand: stretch restarts at 200; anchor cleared, so the new pause carries nil; 379 → nil, 380 = 200 + 180 → pause.
+        #expect(d.tick(now: Self.t0 + 379) == nil)
+        #expect(d.tick(now: Self.t0 + 380) == .pause(.motion, anchor: nil))
+    }
+
     @Test func isWalkingConfidence() {
         let at = Self.t0
         #expect(!MotionReading(activity: .walking, confidence: .low, at: at).isWalking)
