@@ -39,4 +39,24 @@ import Testing
     @Test func emptyOrderedEncodesEmptyObject() throws {
         #expect(String(decoding: try JSONValue.ordered([]).jsonData(), as: UTF8.self) == "{}")
     }
+    @Test func serializerRoundTripsAwkwardStrings() throws {
+        let strings = ["quote\"", "back\\slash", "line\nbreak", "\u{01}ctl", "é", "😀", "a/b"]
+        let v: JSONValue = .ordered([
+            JSONMember(key: "k\"ey\\\n\u{01}é😀/", value: .array(strings.map { JSONValue.string($0) })),
+            JSONMember(key: "nested", value: .object(["z": "x", "a": [1, 0.5, nil, true]])),
+        ])
+        let back = try JSONDecoder().decode(JSONValue.self, from: v.jsonData())
+        let expected: JSONValue = ["k\"ey\\\n\u{01}é😀/": .array(strings.map { JSONValue.string($0) }),
+                                   "nested": ["z": "x", "a": [1, 0.5, nil, true]]]
+        #expect(back == expected)
+    }
+    @Test func serializerNumberFormats() throws {
+        #expect(String(decoding: try JSONValue.number(3).jsonData(), as: UTF8.self) == "3")
+        #expect(String(decoding: try JSONValue.number(0.5).jsonData(), as: UTF8.self) == "0.5")
+    }
+    @Test func serializerRejectsNonFiniteNumbers() {
+        #expect(throws: (any Error).self) { try JSONValue.number(.nan).jsonData() }
+        #expect(throws: (any Error).self) { try JSONValue.number(.infinity).jsonData() }
+        #expect(throws: (any Error).self) { try JSONValue.array([.number(-.infinity)]).jsonData() }
+    }
 }

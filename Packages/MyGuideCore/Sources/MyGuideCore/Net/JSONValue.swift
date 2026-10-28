@@ -1,13 +1,16 @@
 import Foundation
 
 /// A JSON document value, used to build request bodies and JSON schemas.
+///
+/// Member order (`.ordered`) and sorted keys (`.object`) are guaranteed only by `jsonData()`; every request path
+/// must serialize with it. `encode(to:)` through a `JSONEncoder` gives unspecified key order.
 public enum JSONValue: Sendable, Equatable, Codable {
     case string(String)
     case number(Double)
     case bool(Bool)
     case null
     case array([JSONValue])
-    /// An object whose members keep the given order in `jsonData()`. Decoding never produces this case.
+    /// An object whose members keep the given order in `jsonData()` only (not via `JSONEncoder`). Decoding never produces this case.
     case ordered([JSONMember])
     /// An object that encodes with its keys sorted, so the bytes are the same on every launch.
     case object([String: JSONValue])
@@ -33,10 +36,10 @@ public enum JSONValue: Sendable, Equatable, Codable {
         case .bool(let v): try c.encode(v)
         case .null: try c.encodeNil()
         case .array(let v): try c.encode(v)
-        case .object(let v):
-            try Self.encodeMembers(v.sorted { $0.key < $1.key }.map { JSONMember(key: $0.key, value: $0.value) }, to: encoder)
+        case .object(let v): try c.encode(v)
         case .ordered(let members):
-            try Self.encodeMembers(members, to: encoder)
+            // Order is NOT kept here: JSONEncoder's keyed containers are unordered. Use `jsonData()` for order.
+            try c.encode(Dictionary(members.map { ($0.key, $0.value) }, uniquingKeysWith: { _, last in last }))
         }
     }
 
@@ -76,19 +79,6 @@ public enum JSONValue: Sendable, Equatable, Codable {
             try m.value.write(to: &out)
         }
         out.append(UInt8(ascii: "}"))
-    }
-
-    private static func encodeMembers(_ members: [JSONMember], to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: DynamicKey.self)
-        for m in members { try c.encode(m.value, forKey: DynamicKey(m.key)) }
-    }
-
-    private struct DynamicKey: CodingKey {
-        var stringValue: String
-        var intValue: Int? { nil }
-        init(_ s: String) { stringValue = s }
-        init?(stringValue: String) { self.init(stringValue) }
-        init?(intValue: Int) { nil }
     }
 }
 
