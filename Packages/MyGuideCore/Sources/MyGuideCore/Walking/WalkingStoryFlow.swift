@@ -54,7 +54,7 @@ public struct WalkingStoryFlow: Sendable {
         let lately = await recent(at - RecentStories.window, nil)
         let found = try await applePlaces
         let input = PromptBuilder.walkBuzzInput(
-            buzz: buzz, position: position, context: context, nearby: nearby, articleText: await articleText,
+            buzz: buzz, position: position, context: context, neighbours: facts, articleText: await articleText,
             applePlaces: found, recent: lately, priors: told, language: language, now: at, timeZone: timeZone)
         let (title, text, entry) = try await generate(input)
         let story = WalkStory(id: buzz.id, kind: .buzz, place: place, position: position, course: context.bearing,
@@ -69,10 +69,13 @@ public struct WalkingStoryFlow: Sendable {
                           language: StoryLanguage) async throws -> (WalkStory, [UsageEntry])? {
         // Decided from the places walking mode already has, before any request.
         guard let stop = PromptBuilder.walkStop(nearby, position: position) else { return nil }
-        async let applePlaces = ApplePlaces.fetch(pointsOfInterest, around: position, radius: ApplePlaces.walkingRadius)
-        // Only the place under `Facts about` gets the fuller text; a detour lists no facts.
-        let factsTitle: String? = if case .here(let listed) = stop { listed.first?.candidate.wikipediaTitle } else { nil }
-        async let articleText = fetchArticle(factsTitle)
+        // A detour story lists no Apple Maps places, so it does not search; only a place under `Facts about` gets the
+        // fuller text, and a detour's first level has none.
+        let isHere = if case .here = stop { true } else { false }
+        async let applePlaces = isHere
+            ? ApplePlaces.fetch(pointsOfInterest, around: position, radius: ApplePlaces.walkingRadius)
+            : nil
+        async let articleText = fetchArticle(isHere ? stop.places.first?.candidate.wikipediaTitle : nil)
         let told = await priors(stop.places.map(\.candidate.id), position, nil)
         let at = now()
         let lately = await recent(at - RecentStories.window, nil)
@@ -87,23 +90,42 @@ public struct WalkingStoryFlow: Sendable {
         return (story, [entry])
     }
 
-    /// Adds the next level, up to three. `nearby` are the places walking mode has now; a stop story lists those around
-    /// its own position again. The first level's Apple Maps places are reused, or searched again when it has none.
+    /// Adds the next level, up to three. `nearby` are the places walking mode has now; a stop story runs its ladder over
+    /// those around its own position again. The first level's Apple Maps places are reused, or searched again when it
+    /// has none (never for a detour, which lists none).
     public func continueStory(_ story: WalkStory, nearby: [WalkingPlace]) async throws -> (WalkStory, [UsageEntry]) {
         guard let level = story.nextLevel else { throw PhotoStoryError.noFurtherLevel }
+        // The places listed, decided once here so the priors lookup and the request agree. `subject` is the one
+        // under `Facts about`.
+        let stop: PromptBuilder.WalkStop?
+        let subject: Candidate?
+        let ids: [String]
+        switch story.kind {
+        case .buzz:
+            stop = nil
+            subject = story.place
+            ids = subject.map { [$0.id] } ?? []
+        case .stop:
+            stop = PromptBuilder.walkStop(nearby, position: story.position)
+            subject = stop?.places.first?.candidate
+            ids = stop?.places.map(\.candidate.id) ?? []
+        }
+        let showsApplePlaces = switch stop {
+        case .detour: false
+        case .here, nil: true
+        }
         let stored = story.applePlaces
-        async let searched: [ApplePlace]? = stored == nil
+        async let searched: [ApplePlace]? = stored == nil && showsApplePlaces
             ? ApplePlaces.fetch(pointsOfInterest, around: story.position, radius: ApplePlaces.walkingRadius)
             : nil
-        async let articleText = fetchArticle(story.kind == .buzz ? story.place?.wikipediaTitle : nil)
-        let ids = PromptBuilder.walkContinuationPlaces(story, nearby: nearby).map(\.id)
+        async let articleText = fetchArticle(subject?.wikipediaTitle)
         let told = await priors(ids, story.position, story.id)
         let at = now()
         let lately = await recent(at - RecentStories.window, story.id)
         let applePlaces: [ApplePlace]?
         if let stored { applePlaces = stored } else { applePlaces = try await searched }
         let input = PromptBuilder.walkContinuationInput(
-            story: story, level: level, nearby: nearby, articleText: await articleText, applePlaces: applePlaces,
+            story: story, level: level, stop: stop, articleText: await articleText, applePlaces: applePlaces,
             recent: lately, priors: told, now: at, timeZone: timeZone)
         let (_, text, entry) = try await generate(input)
         var next = story

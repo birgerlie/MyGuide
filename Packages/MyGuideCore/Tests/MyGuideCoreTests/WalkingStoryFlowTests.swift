@@ -183,8 +183,8 @@ import Testing
         _ = try #require(try await Self.flow(http, articles: full)
             .stopStory(position: Self.here, context: Self.context, nearby: Self.facts, language: .english))
         #expect(full.titles.value == ["de:Michaelertor"])
-        // Gate 50 m north, walked in heading 0: r = 0 → ahead.
-        #expect(try Self.inputText(http).contains("\nFacts about Michaelertor (historic=city_gate), 50 m, ahead:\n  OSM: start_date=1725\n  Wikipedia: STOP ARTICLE\n"))
+        // Gate 50 m north: a stop story uses compass words, bearing 0 → north.
+        #expect(try Self.inputText(http).contains("\nFacts about Michaelertor (historic=city_gate), 50 m, north:\n  OSM: start_date=1725\n  Wikipedia: STOP ARTICLE\n"))
     }
     @Test func stopWithPlacesWithin150mIsNormal() async throws {
         let http = Self.http()
@@ -205,16 +205,19 @@ import Testing
         let places = Places(result: [])
         let (story, _) = try #require(try await Self.flow(http, priors: { ids, _, _ in seen.set(ids); return [] }, pointsOfInterest: places)
             .stopStory(position: Self.here, context: Self.context, nearby: [good, tooFar, top], language: .english))
-        #expect(story.kind == .stop && story.applePlaces == [])
+        // A detour story lists no Apple Maps places, so it does not search.
+        #expect(story.kind == .stop && story.applePlaces == nil && places.calls.value.isEmpty)
         let input = try Self.inputText(http)
-        // Top .top 450 m behind (bearing 180, heading 0), then Good .good 300 m ahead; TooFar beyond 500 m.
-        #expect(input.contains("\nWorth the detour:\n- Top (historic=castle), 450 m, behind\n- Good (historic=church), 300 m, ahead\n"))
+        // Top .top 450 m (bearing 180 → south), then Good .good 300 m (bearing 0 → north); TooFar beyond 500 m.
+        #expect(input.contains("\nWorth the detour:\n- Top (historic=castle), 450 m, south\n- Good (historic=church), 300 m, north\n"))
         #expect(!input.contains("TooFar"))
         // No tier: 40 words; 40 · 60 / 150 = 16 s.
         #expect(input.contains("\nLength: about 40 words (16 seconds spoken), 2–3 points\n"))
         #expect(seen.value == ["osm:node/31", "osm:node/30"])
-        // The Apple Maps search runs once a story is going to be written.
-        #expect(places.calls.value.count == 1)
+        // Its "More" does not search either, and gives Top (the first detour place) its facts.
+        _ = try await Self.flow(http, pointsOfInterest: places).continueStory(story, nearby: [good, tooFar, top])
+        #expect(places.calls.value.isEmpty)
+        #expect(try Self.inputText(http, 1).contains("\nFacts about Top (historic=castle), 450 m, south: none found\nWorth the detour:\n- Good (historic=church), 300 m, north\n"))
     }
     @Test func stopWithNothingWithin500mIsSilent() async throws {
         let http = Self.http()
@@ -240,13 +243,16 @@ import Testing
         let (story, _) = try #require(try await flow.stopStory(position: Self.here, context: Self.context,
                                                                  nearby: Self.facts, language: .english))
         let seen = LockedBox<(ids: [String], session: UUID?)?>(nil)
-        let flow2 = Self.flow(http) { ids, _, session in seen.set((ids, session)); return [] }
+        let articles = Articles("GATE TEXT")
+        let flow2 = Self.flow(http, priors: { ids, _, session in seen.set((ids, session)); return [] }, articles: articles)
         _ = try await flow2.continueStory(story, nearby: Self.facts)
         let input = try Self.inputText(http, 1)
-        // Stored course 0 (north); gate 50 m north: r = 0 → ahead.
+        // The best place keeps its Facts about with the article text; compass side, gate bearing 0 → north.
+        #expect(articles.titles.value == ["de:Michaelertor"])
         #expect(input.hasPrefix("Story: stop, level 2\nPosition: Kirkegata 15, Kvadraturen, Oslo\nTime: 13:46 Monday\n"
-                                + "Standing still; walked in heading north along Kirkegata\nNearby:\n"
-                                + "- Michaelertor (historic=city_gate), 50 m, ahead\n"))
+                                + "Standing still; walked in heading north along Kirkegata\n"
+                                + "Facts about Michaelertor (historic=city_gate), 50 m, north:\n  OSM: start_date=1725\n"
+                                + "  Wikipedia: GATE TEXT\nNearby:\n- Peterskirche (amenity=place_of_worship), 80 m, north\n"))
         #expect(input.contains("\nTold so far:\nLevel 1: S\n") && !input.contains("Came from"))
         #expect(seen.value?.ids == ["osm:node/1", "osm:node/2", "osm:node/3"] && seen.value?.session == story.id)
     }

@@ -281,8 +281,8 @@ public enum PromptBuilder {
         return detour.isEmpty ? nil : .detour(detour)
     }
 
-    /// A buzz story's first level (spec 6): the buzzed place as the subject, its neighbours as `Nearby:`.
-    static func walkBuzzInput(buzz: Buzz, position: Coordinate, context: WalkContext, nearby: [WalkingPlace],
+    /// A buzz story's first level (spec 6): the buzzed place as the subject, `neighbours` (`buzzFacts`) as `Nearby:`.
+    static func walkBuzzInput(buzz: Buzz, position: Coordinate, context: WalkContext, neighbours: [WalkingPlace],
                               articleText: String?, applePlaces: [ApplePlace]?, recent: [RecentStory], priors: [PriorStory],
                               language: StoryLanguage, now: Date, timeZone: TimeZone) -> String {
         let place = buzz.place.candidate
@@ -291,16 +291,15 @@ public enum PromptBuilder {
         lines.append(contentsOf: walkPositionLines(context.address, position: position))
         lines.append("Time: \(GuideText.time(now, timeZone: timeZone))")
         lines.append(walkingLine(direction: direction, street: context.street))
-        if let cameFrom = context.cameFrom { lines.append(cameFromLine(cameFrom, direction: direction)) }
+        if let cameFrom = context.cameFrom, let line = cameFromLine(cameFrom, direction: direction) { lines.append(line) }
         lines.append("Subject: \(place.name) (\(place.kind)), "
                      + GuideText.distanceAndSide(distance: buzz.distance, bearing: buzz.bearing, direction: direction))
         let facts = factLines(place, articleText: articleText)
         if !facts.isEmpty { lines.append("Facts about \(place.name):") }
         lines.append(contentsOf: facts)
-        let others = buzzFacts(nearby, excluding: place.id, position: position)
-        lines.append(contentsOf: walkPlaceLines("Nearby:", others, from: position, direction: direction, withFacts: true))
+        lines.append(contentsOf: walkPlaceLines("Nearby:", neighbours, from: position, direction: direction, facts: osmLines))
         lines.append(contentsOf: appleMapsLines(applePlaces, from: position, direction: direction,
-                                                knownNames: [place.name] + others.map(\.candidate.name)))
+                                                knownNames: [place.name] + neighbours.map(\.candidate.name)))
         lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
         lines.append(StoryLength.of(kind: .buzz, level: .first, tier: buzz.place.tier).line)
         lines.append("Answer in: \(language.promptName)")
@@ -309,39 +308,30 @@ public enum PromptBuilder {
     }
 
     /// A stop story's first level: the best place here under `Facts about` and the rest as `Nearby:`, or, with nothing
-    /// here, the places `Worth the detour:` (spec 9 step 2). No came-from: a stop story follows a standstill.
+    /// here, the places `Worth the detour:` with their facts and no Apple Maps places (spec 9 step 2). No came-from: a
+    /// stop story follows a standstill. Sides are compass words: the walker has stopped and may have turned.
     static func walkStopInput(_ stop: WalkStop, position: Coordinate, context: WalkContext, articleText: String?,
                               applePlaces: [ApplePlace]?, recent: [RecentStory], priors: [PriorStory],
                               language: StoryLanguage, now: Date, timeZone: TimeZone) -> String {
-        let direction = usableDirection(context.bearing)
         var lines = ["Story: stop, first level"]
         lines.append(contentsOf: walkPositionLines(context.address, position: position))
         lines.append("Time: \(GuideText.time(now, timeZone: timeZone))")
-        lines.append(standingLine(direction: direction, street: context.street))
+        lines.append(standingLine(direction: usableDirection(context.bearing), street: context.street))
         let tier: PlaceTier?
         let task: String
         switch stop {
         case .here(let listed):
-            if let best = listed.first {
-                // No Subject line on a stop story, so the facts header carries the place's kind, distance and side.
-                let header = "Facts about \(best.candidate.name) (\(best.candidate.kind)), "
-                    + distanceAndSide(from: position, to: best.candidate.coordinate, direction: direction)
-                let facts = factLines(best.candidate, articleText: articleText)
-                lines.append(facts.isEmpty ? header + ": none found" : header + ":")
-                lines.append(contentsOf: facts)
-            }
-            lines.append(contentsOf: walkPlaceLines("Nearby:", Array(listed.dropFirst()), from: position,
-                                                    direction: direction, withFacts: true))
+            lines.append(contentsOf: stopHereLines(listed, from: position, articleText: articleText))
+            lines.append(contentsOf: appleMapsLines(applePlaces, from: position, direction: nil,
+                                                    knownNames: listed.map(\.candidate.name)))
             tier = listed.first?.tier
             task = "Task: Tell the user about the spot where they are standing."
         case .detour(let places):
-            lines.append(contentsOf: walkPlaceLines("Worth the detour:", places, from: position, direction: direction,
-                                                    withFacts: false))
+            lines.append(contentsOf: walkPlaceLines("Worth the detour:", places, from: position, direction: nil,
+                                                    facts: { factLines($0, articleText: nil) }))
             tier = nil
             task = "Task: There is little to tell right here: say so in one sentence, then point them to the place worth the detour."
         }
-        lines.append(contentsOf: appleMapsLines(applePlaces, from: position, direction: direction,
-                                                knownNames: stop.places.map(\.candidate.name)))
         lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
         lines.append(StoryLength.of(kind: .stop, level: .first, tier: tier).line)
         lines.append("Answer in: \(language.promptName)")
@@ -350,9 +340,11 @@ public enum PromptBuilder {
     }
 
     /// A walking story's level 2 or 3. Position, address and direction are the stored story's (the flow has no fresher
-    /// position on "More"); no came-from. A buzz keeps its subject and facts; a stop lists the places around it again.
-    /// `applePlaces` are the first level's, or a fresh search's when those are missing.
-    static func walkContinuationInput(story: WalkStory, level: StoryLevel, nearby: [WalkingPlace], articleText: String?,
+    /// position on "More"); no came-from. A buzz keeps its subject and facts. A stop keeps its first level's structure
+    /// over `stop` (the ladder around the story's position): the first place under `Facts about` (with `articleText`),
+    /// the rest as `Nearby:` or `Worth the detour:`; a detour gets no Apple Maps places. `applePlaces` are the first
+    /// level's, or a fresh search's when those are missing.
+    static func walkContinuationInput(story: WalkStory, level: StoryLevel, stop: WalkStop?, articleText: String?,
                                       applePlaces: [ApplePlace]?, recent: [RecentStory], priors: [PriorStory],
                                       now: Date, timeZone: TimeZone) -> String {
         let direction = usableDirection(story.course)
@@ -374,21 +366,25 @@ public enum PromptBuilder {
                 if !facts.isEmpty { lines.append("Facts about \(place.name):") }
                 lines.append(contentsOf: facts)
             }
+            lines.append(contentsOf: appleMapsLines(applePlaces, from: story.position, direction: direction,
+                                                    knownNames: story.place.map { [$0.name] } ?? []))
         case .stop:
             lines.append(standingLine(direction: direction, street: street))
-            switch walkStop(nearby, position: story.position) {
-            case .here(let places):
-                lines.append(contentsOf: walkPlaceLines("Nearby:", places, from: story.position, direction: direction,
-                                                        withFacts: true))
+            switch stop {
+            case .here(let listed):
+                lines.append(contentsOf: stopHereLines(listed, from: story.position, articleText: articleText))
+                lines.append(contentsOf: appleMapsLines(applePlaces, from: story.position, direction: nil,
+                                                        knownNames: listed.map(\.candidate.name)))
             case .detour(let places):
-                lines.append(contentsOf: walkPlaceLines("Worth the detour:", places, from: story.position,
-                                                        direction: direction, withFacts: false))
+                if let first = places.first {
+                    lines.append(contentsOf: stopFactsAboutLines(first, from: story.position, articleText: articleText))
+                }
+                lines.append(contentsOf: walkPlaceLines("Worth the detour:", Array(places.dropFirst()), from: story.position,
+                                                        direction: nil, facts: { factLines($0, articleText: nil) }))
             case nil:
                 break
             }
         }
-        lines.append(contentsOf: appleMapsLines(applePlaces, from: story.position, direction: direction,
-                                                knownNames: walkContinuationPlaces(story, nearby: nearby).map(\.name)))
         lines.append(contentsOf: toldSoFarLines(story.levels))
         lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
         lines.append(StoryLength.of(kind: storyKind(story.kind), level: level, tier: nil).line)
@@ -397,12 +393,25 @@ public enum PromptBuilder {
         return lines.joined(separator: "\n")
     }
 
-    /// The places a walking continuation lists: a buzz's subject, or the stop ladder's places around the story's position.
-    static func walkContinuationPlaces(_ story: WalkStory, nearby: [WalkingPlace]) -> [Candidate] {
-        switch story.kind {
-        case .buzz: story.place.map { [$0] } ?? []
-        case .stop: walkStop(nearby, position: story.position)?.places.map(\.candidate) ?? []
-        }
+    /// The best place under `Facts about`, the rest as `Nearby:` with their OSM facts; compass sides.
+    private static func stopHereLines(_ listed: [WalkingPlace], from: Coordinate, articleText: String?) -> [String] {
+        guard let best = listed.first else { return [] }
+        return stopFactsAboutLines(best, from: from, articleText: articleText)
+            + walkPlaceLines("Nearby:", Array(listed.dropFirst()), from: from, direction: nil, facts: osmLines)
+    }
+
+    /// `Facts about Name (kind), 50 m, north:` and its facts, or `…: none found`. A stop story has no Subject line, so
+    /// the header carries the place's kind, distance and (compass) side.
+    private static func stopFactsAboutLines(_ place: WalkingPlace, from: Coordinate, articleText: String?) -> [String] {
+        let c = place.candidate
+        let header = "Facts about \(c.name) (\(c.kind)), " + distanceAndSide(from: from, to: c.coordinate, direction: nil)
+        let facts = factLines(c, articleText: articleText)
+        return [facts.isEmpty ? header + ": none found" : header + ":"] + facts
+    }
+
+    /// The `OSM:` line of a place, indented, or nothing.
+    private static func osmLines(_ c: Candidate) -> [String] {
+        GuideText.osmFacts(c.tags).map { ["  \($0)"] } ?? []
     }
 
     static func storyKind(_ kind: WalkStory.Kind) -> StoryKind {
@@ -490,23 +499,23 @@ public enum PromptBuilder {
     }
 
     /// `Came from: Stortorvet, 3 min ago, 220 m, behind, along Kirkegata`; 0 minutes reads `under a minute ago`.
-    private static func cameFromLine(_ cameFrom: CameFrom, direction: Double?) -> String {
+    /// nil for a blank street; a blank `along` is left out.
+    private static func cameFromLine(_ cameFrom: CameFrom, direction: Double?) -> String? {
+        guard !isBlank(cameFrom.street) else { return nil }
         let ago = cameFrom.minutesAgo <= 0 ? "under a minute ago" : "\(cameFrom.minutesAgo) min ago"
+        let along = alongStreet(cameFrom.along)
         return "Came from: \(cameFrom.street), \(ago), "
             + GuideText.distanceAndSide(distance: cameFrom.distance, bearing: cameFrom.bearing, direction: direction)
-            + (cameFrom.along.map { ", along \($0)" } ?? "")
+            + (along.isEmpty ? "" : "," + along)
     }
 
-    /// `heading` then `- Name (kind), 40 m, ahead` per place, with its OSM facts indented when `withFacts`; nothing for
-    /// no places.
+    /// `heading` then `- Name (kind), 40 m, ahead` per place followed by its `facts` lines; nothing for no places.
     private static func walkPlaceLines(_ heading: String, _ places: [WalkingPlace], from: Coordinate, direction: Double?,
-                                       withFacts: Bool) -> [String] {
+                                       facts: (Candidate) -> [String]) -> [String] {
         guard !places.isEmpty else { return [] }
         return [heading] + places.flatMap { place -> [String] in
             let c = place.candidate
-            var lines = ["- \(c.name) (\(c.kind)), " + distanceAndSide(from: from, to: c.coordinate, direction: direction)]
-            if withFacts, let osm = GuideText.osmFacts(c.tags) { lines.append("  \(osm)") }
-            return lines
+            return ["- \(c.name) (\(c.kind)), " + distanceAndSide(from: from, to: c.coordinate, direction: direction)] + facts(c)
         }
     }
 

@@ -136,7 +136,8 @@ import Foundation
         g.applePlaces = places
         let listed = Self.lines(Self.first(grounding: g)).filter { $0.hasPrefix("- P") }
         #expect(listed.map { $0.split(separator: " ")[1] } == ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"])
-        // P1: 74.1 m → 70 m; P8: 8 × 74.1 = 593 m → 590 m.
+        // P1: 74.1 m → 70 m; P8: 8 × 74.1 = 593 m → 590 m. All due east (bearing ≈ 90) against facing 135:
+        // r = −45 → ahead-left.
         #expect(listed.first == "- P1 (park), 70 m, ahead-left" && listed.last == "- P8 (park), 590 m, ahead-left")
     }
     @Test func addressFailedSaysSo() {
@@ -305,6 +306,8 @@ import Foundation
         #expect(Self.line(s, 3) == "Time: 13:46 Monday" && Self.line(s, 4) == "Facing: south-east (135°), compass ±10°")
         // Matched gate 35.4 m → 40 m; r = 304.6 − 135 = 169.6 > 150 → behind.
         #expect(Self.line(s, 5) == "Subject: Michaelertor (confidence: likely), 40 m, behind")
+        // Albertina 74.1 m → 70 m, bearing ≈ 90 against facing 135: r = −45 → 30 < 45 ≤ 60, negative → ahead-left.
+        // The only candidate (the gate) is listed and named otherwise, so nothing is dropped.
         #expect(s.contains("Also on Apple Maps:\n- Albertina (museum), 70 m, ahead-left\nTold so far:\nLevel 1: L1 text.\n"))
         #expect(s.contains("Told in the last 3 hours:\n- 13:36 Hofburg level 1:"))
         #expect(s.contains("Told here before:\n- [osm:way/1] level 1: The emperor rode out here.\n"))
@@ -392,7 +395,8 @@ import Foundation
         let namesake = RankedCandidate(candidate: Candidate(id: "osm:way/2", name: "Albertina", coordinate: Self.here, kind: "tourism=museum"),
                                        distance: 70, bearing: 90, inView: false)
         let g = Grounding(candidates: [Self.gate, namesake], address: Self.address, failedSources: [], applePlaces: [Self.albertina])
-        // Matched gate: only the gate is listed.
+        // Albertina 74.1 m → 70 m at bearing ≈ 90 (see `albertina`); facing 135: r = 90 − 135 = −45 → 30 < 45 ≤ 60, negative
+        // → ahead-left. Matched gate: only the gate is listed.
         #expect(Self.continuation(Self.session(grounding: g)).contains("\nAlso on Apple Maps:\n- Albertina (museum), 70 m, ahead-left\n"))
         // Unmatched with the namesake listed among the fact candidates (nothing in view besides the gate → gate only;
         // the namesake is out of view, so the in-view filter leaves it out) → still shown.
