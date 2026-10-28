@@ -212,4 +212,213 @@ import Testing
         #expect(image["type"] as? String == "input_image")
         #expect(image.keys.contains("detail") == false)
     }
+
+    // MARK: - Streaming
+
+    /// The lines of one SSE event: its type, its JSON data, and the blank line that ends it.
+    static func sse(_ type: String, _ json: String) -> [String] {
+        ["event: \(type)", "data: \(json)", ""]
+    }
+
+    static func delta(_ text: String) -> [String] {
+        let escaped = String(decoding: try! JSONEncoder().encode(text), as: UTF8.self)
+        return sse("response.output_text.delta", #"{"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":\#(escaped),"sequence_number":4}"#)
+    }
+
+    static func completed(text: String = #"{\"story\":\"Hi\"}"#, usage: String = #"{"input_tokens":120,"output_tokens":40,"total_tokens":160}"#) -> [String] {
+        sse("response.completed", #"{"type":"response.completed","sequence_number":9,"response":{"id":"resp_1","status":"completed","output":[{"type":"reasoning","summary":[]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\#(text)","annotations":[]}]}],"usage":\#(usage)}}"#)
+    }
+
+    static let preamble: [String] =
+        sse("response.created", #"{"type":"response.created","sequence_number":0,"response":{"id":"resp_1","status":"in_progress","output":[]}}"#)
+        + [": keep-alive", ""]
+        + sse("response.in_progress", #"{"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_1","status":"in_progress","output":[]}}"#)
+
+    func stream(_ client: OpenAIClient) -> AsyncThrowingStream<StoryStreamEvent, Error> {
+        client.respondStreaming(model: "m", reasoningEffort: "low", instructions: "sys", text: "hello",
+                                imageJPEG: Data([0xFF, 0xD8]), schemaName: "s", schema: Self.schema, promptCacheKey: "myguide-story-v1")
+    }
+
+    /// Collects every event; rethrows the stream's error.
+    func collect(_ client: OpenAIClient) async throws -> [StoryStreamEvent] {
+        var events: [StoryStreamEvent] = []
+        for try await event in stream(client) { events.append(event) }
+        return events
+    }
+
+    @Test func streamYieldsDeltasThenCompleted() async throws {
+        let http = StubHTTPClient(lines: Self.preamble + Self.delta(#"{"story":"#) + Self.delta(#""Hi"}"#) + Self.completed())
+        let events = try await collect(OpenAIClient(apiKey: "k", http: http))
+        // usage {"input_tokens":120,"output_tokens":40} maps field for field: inputTokens 120, outputTokens 40
+        // (total_tokens 160 = 120 + 40 is not kept).
+        #expect(events == [
+            .textDelta(#"{"story":"#),
+            .textDelta(#""Hi"}"#),
+            .completed(json: Data(#"{"story":"Hi"}"#.utf8), usage: TokenUsage(inputTokens: 120, outputTokens: 40)),
+        ])
+    }
+
+    @Test func completedUsesTheFinalTextNotTheDeltas() async throws {
+        // The final JSON comes from `response.output_text`, by the same rule as the non-streaming call.
+        let http = StubHTTPClient(lines: Self.delta("partial") + Self.completed(text: #"{\"story\":\"Final\"}"#, usage: #"{"input_tokens":7}"#))
+        let events = try await collect(OpenAIClient(apiKey: "k", http: http))
+        // A partial usage keeps the story: input 7, missing output counts as 0.
+        #expect(events.last == .completed(json: Data(#"{"story":"Final"}"#.utf8), usage: TokenUsage(inputTokens: 7, outputTokens: 0)))
+    }
+
+    @Test func streamEndingWithoutCompletedThrows() async {
+        let http = StubHTTPClient(lines: Self.preamble + Self.delta(#"{"story":"Half a sto"#))
+        let received = LockedBox<[StoryStreamEvent]>([])
+        await #expect(throws: OpenAIError.malformedResponse) {
+            for try await event in stream(OpenAIClient(apiKey: "k", http: http)) { received.withValue { $0.append(event) } }
+        }
+        // The partial text was delivered as a delta, but never as a completed story.
+        #expect(received.value == [.textDelta(#"{"story":"Half a sto"#)])
+    }
+
+    @Test func completedEventWithoutItsBlankLineIsNotAccepted() async {
+        // A connection that drops before the blank line that ends `response.completed` is a broken stream.
+        let http = StubHTTPClient(lines: Self.delta("x") + Self.completed().dropLast())
+        await #expect(throws: OpenAIError.malformedResponse) { try await collect(OpenAIClient(apiKey: "k", http: http)) }
+    }
+
+    @Test func connectionBreakingMidStreamThrowsNetwork() async {
+        let http = StubHTTPClient(lines: Self.delta("x"), failure: OpenAIError.network("The network connection was lost."))
+        await #expect(throws: OpenAIError.network("The network connection was lost.")) { try await collect(OpenAIClient(apiKey: "k", http: http)) }
+    }
+
+    @Test func urlErrorMidStreamBecomesNetwork() async {
+        let http = StubHTTPClient(lines: Self.delta("x"), failure: URLError(.networkConnectionLost))
+        do {
+            _ = try await collect(OpenAIClient(apiKey: "k", http: http))
+            Issue.record("expected throw")
+        } catch let OpenAIError.network(message) {
+            #expect(!message.isEmpty)
+        } catch {
+            Issue.record("wrong error \(error)")
+        }
+    }
+
+    @Test func cancelledURLErrorMidStreamBecomesCancellationError() async {
+        let http = StubHTTPClient(lines: Self.delta("x"), failure: URLError(.cancelled))
+        await #expect(throws: CancellationError.self) { try await collect(OpenAIClient(apiKey: "k", http: http)) }
+    }
+
+    @Test func failedEventThrows() async {
+        let failed = Self.sse("response.failed", #"{"type":"response.failed","sequence_number":5,"response":{"id":"resp_1","status":"failed","output":[],"error":{"code":"server_error","message":"The model failed."}}}"#)
+        let http = StubHTTPClient(lines: Self.preamble + Self.delta("x") + failed + Self.completed())
+        await #expect(throws: OpenAIError.malformedResponse) { try await collect(OpenAIClient(apiKey: "k", http: http)) }
+    }
+
+    @Test(arguments: [
+        // Failure events with no mappable API error are malformed.
+        (#"response.incomplete"#, #"{"type":"response.incomplete","response":{"id":"r","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}}"#, OpenAIError.malformedResponse),
+        (#"response.refusal.delta"#, #"{"type":"response.refusal.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"I can't"}"#, OpenAIError.malformedResponse),
+        (#"error"#, #"{"type":"error","code":"ERR_SOMETHING","message":"Something went wrong","param":null}"#, OpenAIError.malformedResponse),
+        (#"error"#, #"{"type":"error","code":null,"message":"Something","param":null}"#, OpenAIError.malformedResponse),
+        // A mapped API error wins, whether its fields are top-level or nested under `error`.
+        (#"error"#, #"{"type":"error","code":"insufficient_quota","message":"You exceeded your quota"}"#, OpenAIError.quotaExceeded),
+        (#"error"#, #"{"type":"error","error":{"type":"insufficient_quota","code":"insufficient_quota","message":"quota"}}"#, OpenAIError.quotaExceeded),
+        (#"error"#, #"{"type":"error","code":"rate_limit_exceeded","message":"Slow down"}"#, OpenAIError.rateLimited("Slow down")),
+        (#"error"#, #"{"type":"error","code":"invalid_api_key","message":"bad key"}"#, OpenAIError.invalidAPIKey),
+        (#"error"#, #"{"type":"error","code":"model_not_found","message":"gone"}"#, OpenAIError.modelRetired),
+        (#"response.failed"#, #"{"type":"response.failed","response":{"id":"r","status":"failed","output":[],"error":{"code":"content_policy_violation","message":"policy"}}}"#, OpenAIError.contentBlocked),
+        (#"response.failed"#, #"{"type":"response.failed","response":{"id":"r","status":"failed","output":[],"error":null}}"#, OpenAIError.malformedResponse),
+    ])
+    func failureEventsThrow(type: String, json: String, expected: OpenAIError) async {
+        let http = StubHTTPClient(lines: Self.delta("x") + Self.sse(type, json) + Self.completed())
+        await #expect(throws: expected) { try await collect(OpenAIClient(apiKey: "k", http: http)) }
+    }
+
+    @Test func eventTypeFallsBackToTheJSONTypeWithoutAnEventLine() async throws {
+        let lines = Self.delta("a").filter { !$0.hasPrefix("event:") } + Self.completed().filter { !$0.hasPrefix("event:") }
+        let events = try await collect(OpenAIClient(apiKey: "k", http: StubHTTPClient(lines: lines)))
+        #expect(events.first == .textDelta("a"))
+        #expect(events.count == 2)
+    }
+
+    @Test func malformedDeltaOrCompletedJSONThrows() async {
+        for lines in [Self.sse("response.output_text.delta", #"{"type":"response.output_text.delta"}"#) + Self.completed(),
+                      Self.sse("response.output_text.delta", "not json") + Self.completed(),
+                      Self.sse("response.completed", #"{"type":"response.completed"}"#),
+                      Self.sse("response.completed", #"{"type":"response.completed","response":{"status":"completed","output":[]}}"#)] {
+            await #expect(throws: OpenAIError.malformedResponse) { try await collect(OpenAIClient(apiKey: "k", http: StubHTTPClient(lines: lines))) }
+        }
+    }
+
+    @Test func completedRefusalThrowsRefusedLikeTheNonStreamingCall() async {
+        let refusal = Self.sse("response.completed", #"{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"I can't help"}]}]}}"#)
+        await #expect(throws: OpenAIError.refused("I can't help")) { try await collect(OpenAIClient(apiKey: "k", http: StubHTTPClient(lines: refusal))) }
+    }
+
+    @Test func unknownEventsAreIgnored() async throws {
+        let noise = Self.sse("response.output_item.added", #"{"type":"response.output_item.added"}"#)
+            + Self.sse("response.output_text.done", #"{"type":"response.output_text.done","text":"ignored"}"#)
+            + Self.sse("something.new", "not even json")
+        let events = try await collect(OpenAIClient(apiKey: "k", http: StubHTTPClient(lines: noise + Self.delta("a") + noise + Self.completed())))
+        #expect(events.count == 2)
+        #expect(events.first == .textDelta("a"))
+    }
+
+    @Test(arguments: [
+        (401, #"{"error":{"message":"bad key","code":"invalid_api_key"}}"#),
+        (429, #"{"error":{"message":"quota","type":"insufficient_quota","code":"insufficient_quota"}}"#),
+        (429, #"{"error":{"message":"slow down","code":"rate_limit_exceeded"}}"#),
+        (400, #"{"error":{"message":"blocked","code":"moderation_blocked"}}"#),
+        (500, "upstream exploded"),
+    ])
+    func non2xxMapsLikePost(status: Int, body: String) async {
+        // What the non-streaming call throws for this status and body is the reference.
+        var expected: OpenAIError?
+        do { _ = try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (status, Data(body.utf8)) })) } catch let error as OpenAIError { expected = error } catch {}
+        #expect(expected != nil)
+        // The error body arrives as stream lines, here pretty-printed over several.
+        let lines = body.replacingOccurrences(of: ",", with: ",\n").components(separatedBy: "\n")
+        await #expect(throws: expected!) { try await collect(OpenAIClient(apiKey: "k", http: StubHTTPClient(status: status, lines: lines))) }
+    }
+
+    @Test func non2xx401IsInvalidAPIKey() async {
+        let http = StubHTTPClient(status: 401, lines: ["{", #"  "error": {"message": "bad key", "code": "invalid_api_key"}"#, "}"])
+        await #expect(throws: OpenAIError.invalidAPIKey) { try await collect(OpenAIClient(apiKey: "k", http: http)) }
+    }
+
+    @Test func bodyHasStreamTrueAndStoreFalse() async throws {
+        let http = StubHTTPClient(lines: Self.completed())
+        _ = try await collect(OpenAIClient(apiKey: "sk-test", http: http))
+        let request = try #require(http.requests.first)
+        #expect(http.requests.count == 1)
+        #expect(request.url?.absoluteString == "https://api.openai.com/v1/responses")
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
+        #expect(request.value(forHTTPHeaderField: "Accept") == "text/event-stream")
+        let body = request.jsonBody
+        #expect(body["stream"] as? Bool == true)
+        #expect(body["store"] as? Bool == false)
+        #expect(body["prompt_cache_key"] as? String == "myguide-story-v1")
+
+        // Apart from `stream`, the body is exactly what `respond(...)` sends for the same arguments.
+        let plain = StubHTTPClient { _ in (200, Self.okBody) }
+        _ = try await OpenAIClient(apiKey: "sk-test", http: plain).respond(
+            model: "m", reasoningEffort: "low", instructions: "sys", text: "hello", imageJPEG: Data([0xFF, 0xD8]),
+            schemaName: "s", schema: Self.schema, promptCacheKey: "myguide-story-v1")
+        var withoutStream = body
+        withoutStream.removeValue(forKey: "stream")
+        #expect(NSDictionary(dictionary: withoutStream).isEqual(to: try #require(plain.requests.first).jsonBody))
+    }
+
+    @Test func streamingBodyKeepsOrderedSchema() async throws {
+        let schema: JSONValue = .ordered([JSONMember(key: "z", value: 1), JSONMember(key: "a", value: 2)])
+        let http = StubHTTPClient(lines: Self.completed())
+        for try await _ in OpenAIClient(apiKey: "k", http: http).respondStreaming(
+            model: "m", reasoningEffort: nil, instructions: "sys", text: "t", imageJPEG: nil,
+            schemaName: "s", schema: schema, promptCacheKey: nil) {}
+        let body = String(decoding: try #require(http.requests.first?.httpBody), as: UTF8.self)
+        #expect(body.contains(#""schema":{"z":1,"a":2}"#))
+    }
+
+    @Test func streamingWithEmptyKeyThrowsWithoutSending() async {
+        let http = StubHTTPClient(lines: Self.completed())
+        await #expect(throws: OpenAIError.missingAPIKey) { try await collect(OpenAIClient(apiKey: "  ", http: http)) }
+        #expect(http.requests.isEmpty)
+    }
 }
