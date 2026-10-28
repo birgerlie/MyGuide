@@ -22,7 +22,7 @@ final class WalkLog {
     func begin(runID: UUID, at date: Date) {
         end()
         quiet.reset()
-        let url = Self.directory.appending(path: WalkLogStore.fileName(start: date, runID: runID, timeZone: .current),
+        let url = Self.directory.appending(path: WalkLogStore.fileName(start: date, runID: runID),
                                            directoryHint: .notDirectory)
         do {
             writer = try WalkLogWriter(url: url)

@@ -49,7 +49,7 @@ Leads the log must be able to confirm or rule out:
 
 ### 4.1 Storage
 
-- One file per run (start to stop): `Application Support/WalkLogs/<yyyyMMdd-HHmmss>-<runID>.jsonl`, in the phone's time zone for the name.
+- One file per run (start to stop): `Application Support/WalkLogs/<yyyyMMdd-HHmmss>-<runID>.jsonl`, the start time in UTC for the name, so names sort by start time also after a time-zone change.
 - JSON Lines: one JSON object per line, each written and flushed when the event happens (`FileHandle` append). A crash loses at most the line being written.
 - The newest **20** files are kept. Older ones are deleted when a new run starts *(Claude's call)*.
 - A write failure is logged with `os.Logger` (category `walklog`) and the event is dropped. Walking mode carries on.

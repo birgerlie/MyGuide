@@ -54,10 +54,11 @@ public enum WalkLogReader {
 public enum WalkLogStore {
     public static let keep = 20
 
-    /// "yyyyMMdd-HHmmss-<UUID>.jsonl" in `timeZone`.
-    public static func fileName(start: Date, runID: UUID, timeZone: TimeZone) -> String {
+    /// "yyyyMMdd-HHmmss-<UUID>.jsonl" in UTC, so names sort by start time whatever time zone the phone is in (a run
+    /// started after travelling west never sorts older and is never pruned first).
+    public static func fileName(start: Date, runID: UUID) -> String {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
+        calendar.timeZone = .gmt
         let c = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: start)
         let stamp = String(format: "%04d%02d%02d-%02d%02d%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0,
                            c.hour ?? 0, c.minute ?? 0, c.second ?? 0)

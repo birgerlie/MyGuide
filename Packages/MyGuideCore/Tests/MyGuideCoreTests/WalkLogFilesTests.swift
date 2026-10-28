@@ -69,14 +69,35 @@ import Testing
     }
 
     @Test func fileNameFormat() throws {
-        let oslo = try #require(TimeZone(identifier: "Europe/Oslo"))
         let id = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
-        // Hand: Oslo is UTC+1 on 2026-10-28 (CEST ended 2026-10-25), so 13:03:09Z shows as 14:03:09.
-        // Days from epoch to 2026-01-01: 56 * 365 = 20 440, plus 14 leap days (1972...2024) = 20 454.
-        // 2026-10-28 is 300 days later (Jan-Sep 273 + 27) = 20 754. Seconds: 20 754 * 86 400 + 13*3600 + 3*60 + 9.
+        // Hand: days from epoch to 2026-01-01: 56 * 365 = 20 440, plus 14 leap days (1972...2024) = 20 454.
+        // 2026-10-28 is 300 days later (Jan-Sep 273 + 27) = 20 754. Seconds: 20 754 * 86 400 + 13*3600 + 3*60 + 9,
+        // which is 2026-10-28 13:03:09 UTC (14:03:09 in Oslo, UTC+1 since CEST ended on 25 Oct). The name is UTC:
+        // "20261028-130309", not Oslo's 140309.
         let start = Date(timeIntervalSince1970: 20_754 * 86_400 + 13 * 3600 + 3 * 60 + 9)
-        #expect(WalkLogStore.fileName(start: start, runID: id, timeZone: oslo) == "20261028-140309-11111111-2222-3333-4444-555555555555.jsonl")
-        #expect(WalkLogStore.fileName(start: start, runID: id, timeZone: TimeZone(identifier: "UTC")!) == "20261028-130309-11111111-2222-3333-4444-555555555555.jsonl")
+        #expect(WalkLogStore.fileName(start: start, runID: id) == "20261028-130309-11111111-2222-3333-4444-555555555555.jsonl")
+        // Hand: one second before midnight UTC, 20 754 * 86 400 - 1 = 2026-10-27 23:59:59 UTC (already 00:59:59 on
+        // the 28th in Oslo): the UTC date "20261027" and time "235959" are used.
+        let lateEvening = Date(timeIntervalSince1970: 20_754 * 86_400 - 1)
+        #expect(WalkLogStore.fileName(start: lateEvening, runID: id) == "20261027-235959-11111111-2222-3333-4444-555555555555.jsonl")
+    }
+
+    /// A run started later sorts newer even when the phone moved west in between: local names would sort it older.
+    @Test func laterRunSortsNewerAfterTravellingWest() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Hand: first run at 2026-10-28 13:00:00 UTC (14:00 in Oslo); second run 2 h later at 15:00:00 UTC, which is
+        // 11:00 in New York (UTC-4 until 1 Nov). Local names would be 140000 vs 110000, the newer sorting older; UTC
+        // names are 130000 and 150000.
+        let first = Date(timeIntervalSince1970: 20_754 * 86_400 + 13 * 3600)
+        let second = first.addingTimeInterval(2 * 3600)
+        let older = WalkLogStore.fileName(start: first, runID: UUID())
+        let newer = WalkLogStore.fileName(start: second, runID: UUID())
+        #expect(older.hasPrefix("20261028-130000-"))
+        #expect(newer.hasPrefix("20261028-150000-"))
+        try Self.makeFiles([older, newer], in: dir)
+        #expect(try WalkLogStore.runFiles(in: dir).map(\.lastPathComponent) == [newer, older])
     }
 
     static func makeFiles(_ names: [String], in dir: URL) throws {
