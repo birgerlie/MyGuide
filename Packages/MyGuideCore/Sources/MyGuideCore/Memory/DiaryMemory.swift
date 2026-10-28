@@ -31,9 +31,10 @@ public struct DayStory: Sendable, Equatable {
 /// save rolls back and rethrows.
 extension MemoryStore {
     /// Stored sizes of an imported photo: long side in pixels, and JPEG quality.
-    static let libraryPhotoLongSide = 1536
+    /// Public so the app can downscale off the main actor before importing.
+    nonisolated public static let libraryPhotoLongSide = 1536
     static let libraryThumbnailLongSide = 400
-    static let libraryJPEGQuality = 0.7
+    nonisolated public static let libraryJPEGQuality = 0.7
 
     /// Stores the photo downscaled (long side 1536, thumbnail 400, JPEG 0.7, no EXIF), stamped with `now()` as its
     /// import time. Returns its id, or nil when `assetIdentifier` is already stored. Throws an

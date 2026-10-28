@@ -22,9 +22,10 @@ struct DiaryView: View {
     @State private var story: StoryViewModel?
     @State private var fullScreenPhoto: FullScreenPhoto?
     @State private var pickerItems: [PhotosPickerItem] = []
-    @State private var isImporting = false
-    @State private var importSummary: LibraryImport.Summary?
-    @State private var errorText: String?
+    /// The running import; cancelled if the screen goes away, so it never outlives the diary.
+    @State private var importTask: Task<Void, Never>?
+    /// The screen's one alert, so an error and an import summary never compete.
+    @State private var alert: DiaryAlert?
 
     static let loadFailedText = "Couldn't load the diary."
     static let deleteFailedText = "Couldn't delete the photo."
@@ -45,6 +46,8 @@ struct DiaryView: View {
                 .disabled(isImporting)
             }
         }
+        // Nothing can be opened, deleted or left while photos are added, so the summary is always seen.
+        .navigationBarBackButtonHidden(isImporting)
         .overlay {
             if isImporting {
                 ProgressView("Adding photos…")
@@ -60,21 +63,20 @@ struct DiaryView: View {
         .fullScreenCover(item: $fullScreenPhoto) { photo in
             LibraryPhotoScreen(id: photo.id, memory: services.memory)
         }
-        .alert(importSummary?.title ?? "", isPresented: summaryPresented, presenting: importSummary) { _ in
+        .alert(alert?.title ?? "", isPresented: alertPresented, presenting: alert) { _ in
             Button("OK", role: .cancel) {}
-        } message: { summary in
-            Text(summary.message)
-        }
-        .alert("Couldn't complete that", isPresented: errorPresented) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(errorText ?? "")
+        } message: { alert in
+            Text(alert.message)
         }
         .onAppear(perform: reload)
+        .onDisappear {
+            importTask?.cancel()
+            importTask = nil
+        }
         .onChange(of: pickerItems) { _, items in
-            guard !items.isEmpty else { return }
+            guard !items.isEmpty, importTask == nil else { return }
             pickerItems = []
-            Task { await importPhotos(items) }
+            importTask = Task { await importPhotos(items) }
         }
     }
 
@@ -99,6 +101,7 @@ struct DiaryView: View {
                     }
                 }
             }
+            .disabled(isImporting)
         }
     }
 
@@ -126,7 +129,7 @@ struct DiaryView: View {
             }
         } catch {
             AppServices.logMemoryFailure("diary load failed", error)
-            errorText = Self.loadFailedText
+            showError(Self.loadFailedText)
             loaded = true
             return
         }
@@ -172,7 +175,7 @@ struct DiaryView: View {
 
     private func open(_ entry: DiaryEntry) {
         guard let id = entry.recordID else {
-            errorText = HistoryView.corruptText
+            showError(HistoryView.corruptText)
             return
         }
         switch entry.kind {
@@ -180,7 +183,7 @@ struct DiaryView: View {
             do {
                 guard let record = try fetchCapture(id) else {
                     // Deleted in History since the diary was read.
-                    errorText = HistoryView.corruptText
+                    showError(HistoryView.corruptText)
                     reload()
                     return
                 }
@@ -188,7 +191,7 @@ struct DiaryView: View {
                 story = StoryViewModel(session: session, services: services)
             } catch {
                 AppServices.logMemoryFailure("open session failed", error)
-                errorText = HistoryView.corruptText
+                showError(HistoryView.corruptText)
             }
         case .buzz, .stop:
             openWalkStory(id)
@@ -203,17 +206,25 @@ struct DiaryView: View {
             try services.memory.deleteLibraryPhoto(id: id)
         } catch {
             AppServices.logMemoryFailure("library photo delete failed", error)
-            errorText = Self.deleteFailedText
+            showError(Self.deleteFailedText)
         }
         reload()
     }
 
+    private var isImporting: Bool { importTask != nil }
+
     private func importPhotos(_ items: [PhotosPickerItem]) async {
-        isImporting = true
         let summary = await LibraryImport.run(items, memory: services.memory)
-        isImporting = false
+        // Cancelled: the screen is gone, and onDisappear has already cleared the task.
+        guard !Task.isCancelled else { return }
+        importTask = nil
         reload()
-        importSummary = summary
+        // A load failure from the reload is the more urgent message.
+        if alert == nil { alert = .summary(summary) }
+    }
+
+    private func showError(_ text: String) {
+        alert = .error(text)
     }
 
     // MARK: - Bindings
@@ -227,12 +238,27 @@ struct DiaryView: View {
         })
     }
 
-    private var errorPresented: Binding<Bool> {
-        Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })
+    private var alertPresented: Binding<Bool> {
+        Binding(get: { alert != nil }, set: { if !$0 { alert = nil } })
+    }
+}
+
+private enum DiaryAlert {
+    case error(String)
+    case summary(LibraryImport.Summary)
+
+    var title: String {
+        switch self {
+        case .error: "Couldn't complete that"
+        case .summary(let summary): summary.title
+        }
     }
 
-    private var summaryPresented: Binding<Bool> {
-        Binding(get: { importSummary != nil }, set: { if !$0 { importSummary = nil } })
+    var message: String {
+        switch self {
+        case .error(let text): text
+        case .summary(let summary): summary.message
+        }
     }
 }
 

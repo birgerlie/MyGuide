@@ -16,7 +16,9 @@ struct DayStoryScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .task(id: dayKey) {
                 do {
-                    summary = try services.memory.dayStory(dayKey: dayKey)?.summary
+                    // A blank summary reads as no story, not as an empty page.
+                    let stored = try services.memory.dayStory(dayKey: dayKey)?.summary
+                    summary = stored?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? stored : nil
                 } catch {
                     AppServices.logMemoryFailure("day story load failed", error)
                     failed = true

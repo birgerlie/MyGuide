@@ -29,7 +29,7 @@ enum PhotoImport {
         }
         var capture = metadata.captureContext(fallbackDate: .now)
         if capture.coordinate == nil, let identifier = item.itemIdentifier,
-           let assetLocation = await asset(identifier)?.location,
+           let assetLocation = await asset(identifier).info?.location,
            let fix = assetFix(assetLocation) {
             // Position only; the EXIF heading (if any) still describes this photo, PHAsset adds none.
             capture.coordinate = fix.coordinate
@@ -44,14 +44,28 @@ enum PhotoImport {
         let location: CLLocation?
     }
 
-    /// The library asset's creation date and location, after asking for read access. Nil if access is refused or
-    /// the asset is not found.
-    static func asset(_ identifier: String) async -> AssetInfo? {
+    /// The outcome of looking up a picked photo's library asset.
+    enum AssetLookup: Sendable {
+        case found(AssetInfo)
+        /// Access was refused, or is limited and this asset is outside the selection.
+        case noAccess
+        /// Full access, but no asset has this identifier.
+        case missing
+
+        var info: AssetInfo? {
+            if case .found(let info) = self { return info }
+            return nil
+        }
+    }
+
+    /// The library asset's creation date and location, after asking for read access.
+    static func asset(_ identifier: String) async -> AssetLookup {
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-        guard status == .authorized || status == .limited,
-              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
-        else { return nil }
-        return AssetInfo(creationDate: asset.creationDate, location: asset.location)
+        guard status == .authorized || status == .limited else { return .noAccess }
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject else {
+            return status == .limited ? .noAccess : .missing
+        }
+        return .found(AssetInfo(creationDate: asset.creationDate, location: asset.location))
     }
 
     /// A library location has no age limit (the photo may be old), but sentinel values still mean "no position".
