@@ -48,7 +48,7 @@ import Testing
         #expect(text.hasPrefix("OSM: start_date=1697; architect=Linstow; inscription="))
         #expect(!text.contains("historic"))
         // value "a a a …" has 299 chars once the trailing space is trimmed; cut at 200: the window is the first 201
-        // chars, its last space is at index 199 (odd), so head = 199 chars + "…" = 200 chars, which is ≤ 201.
+        // chars, its last space is at index 199 (odd), so the head is 199 chars and 199 + "…" = 200.
         let value = String(text.dropFirst("OSM: start_date=1697; architect=Linstow; inscription=".count))
         #expect(value.count == 200 && value.hasSuffix("…"))
         #expect(GuideText.osmFacts(["historic": "church"]) == nil)
