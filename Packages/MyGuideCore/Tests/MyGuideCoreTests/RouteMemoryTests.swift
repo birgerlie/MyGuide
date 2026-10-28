@@ -152,9 +152,29 @@ import Testing
         // current address unknown → no current street, no along
         let none = try #require(r.context(address: nil, course: nil, now: now).cameFrom)
         #expect(none.along == nil)
-        // same street as came-from (Kirkegata) → no along
-        let same = try #require(r.context(address: address("Kirkegata 20"), course: nil, now: now).cameFrom)
-        #expect(same.along == nil)
+        // the current street is Kirkegata too: no came-from at all (cameFromSkipsTheCurrentStreet)
+        #expect(r.context(address: address("Kirkegata 20"), course: nil, now: now).cameFrom == nil)
+    }
+
+    @Test func cameFromSkipsTheCurrentStreet() throws {
+        // Kirkegata (0 m) → Munkegata (100 m) → newest at 200 m, now on Kirkegata again. The oldest candidate is the
+        // current street, so the next one is the came-from: Munkegata, 200 − 100 = 100 m back, due south (180).
+        var r = RouteMemory()
+        r.add(sample(north: 0, t: 0)); r.recordLookup(address("Kirkegata 1"), at: Self.t0)
+        r.add(sample(north: 100, t: 70)); r.recordLookup(address("Munkegata 2"), at: Self.t0.addingTimeInterval(70))
+        r.add(sample(north: 200, t: 140))
+        let now = Self.t0.addingTimeInterval(140)
+        let from = try #require(r.context(address: address("Kirkegata 20"), course: nil, now: now).cameFrom)
+        #expect(from.street == "Munkegata")
+        #expect(abs(from.distance - 100) < 0.5)
+        #expect(abs(from.bearing - 180) < 0.5)
+        // No newer successful lookup after Munkegata: no along.
+        #expect(from.along == nil)
+        // Without a current street nothing is skipped: the oldest, Kirkegata, 200 m back.
+        let unknown = try #require(r.context(address: nil, course: nil, now: now).cameFrom)
+        #expect(unknown.street == "Kirkegata" && abs(unknown.distance - 200) < 0.5)
+        // On Munkegata now: Kirkegata (oldest) is the came-from again.
+        #expect(r.context(address: address("Munkegata 9"), course: nil, now: now).cameFrom?.street == "Kirkegata")
     }
 
     @Test func noAlongWhenAnIntermediateLookupWasAnotherStreet() throws {

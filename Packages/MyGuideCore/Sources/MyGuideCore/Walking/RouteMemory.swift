@@ -127,8 +127,10 @@ public struct RouteMemory: Sendable {
 
     private func cameFrom(currentStreet: String?, now: Date) -> CameFrom? {
         guard let newest = points.last else { return nil }
+        // A lookup on the current street says nothing about where the walker came from ("Came from: Kirkegata" while
+        // walking along Kirkegata): skipped, so an older turn-off is not hidden behind it.
         let index = lookups.firstIndex { lookup in
-            guard lookup.street != nil else { return false }
+            guard let street = lookup.street, street != currentStreet else { return false }
             let path = newest.offset - lookup.offset
             return path >= Self.minimumCameFromPath - Self.slack
                 && GeoMath.distance(newest.sample.coordinate, lookup.position) >= Self.minimumCameFromPath
@@ -140,7 +142,7 @@ public struct RouteMemory: Sendable {
         let age = max(0, now.timeIntervalSince(lookup.at))
         var along: String?
         let newer = lookups[(index + 1)...]
-        if let currentStreet, currentStreet != street,
+        if let currentStreet,
            newer.contains(where: { $0.address != nil }),
            newer.allSatisfy({ $0.street == currentStreet }) {
             along = currentStreet
