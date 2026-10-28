@@ -2,11 +2,16 @@ import SwiftUI
 
 @main
 struct MyGuideWatchApp: App {
-    @State private var check = WatchCheckModel()
+    @WKApplicationDelegateAdaptor private var delegate: WatchAppDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
-            WatchCheckView(model: check)
+            GuidedWalkView(model: delegate.walk, check: delegate.check)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // The application context brings the newest state whenever the app becomes active (spec 6.3).
+            if phase == .active { PhoneLink.shared.deliverReceivedContext() }
         }
     }
 }

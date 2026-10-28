@@ -27,6 +27,13 @@ final class PhoneLink: NSObject {
     /// Handles a message from the phone; set by whoever cares (Task 15 adds the walking types).
     @ObservationIgnored var onMessage: (@MainActor ([String: Any]) -> Void)?
 
+    /// Handles the phone's application context: each one it pushes, and the newest one already received when the
+    /// session activates. Setting it also delivers that newest context, so an owner set after activation misses
+    /// nothing. The receiver must tolerate the same context twice.
+    @ObservationIgnored var onState: (@MainActor ([String: Any]) -> Void)? {
+        didSet { deliverReceivedContext() }
+    }
+
     private var session: WCSession? { WCSession.isSupported() ? WCSession.default : nil }
 
     override init() {
@@ -62,6 +69,14 @@ final class PhoneLink: NSObject {
         }
     }
 
+    /// Hands the newest received context to `onState`; also called when the app becomes active.
+    func deliverReceivedContext() {
+        guard let session, session.activationState == .activated else { return }
+        let context = session.receivedApplicationContext
+        guard !context.isEmpty else { return }
+        onState?(context)
+    }
+
     /// Fire-and-forget form for callers that do not show a result.
     func tell(_ message: [String: Any]) async throws {
         _ = try await send(message)
@@ -78,7 +93,10 @@ extension PhoneLink: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
                              error: Error?) {
         let reachable = session.isReachable
-        Task { @MainActor in self.isReachable = reachable }
+        Task { @MainActor in
+            self.isReachable = reachable
+            self.deliverReceivedContext()
+        }
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
@@ -92,5 +110,10 @@ extension PhoneLink: WCSessionDelegate {
             self.lastReceived = box.value["type"] as? String
             self.onMessage?(box.value)
         }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        let box = UncheckedBox(value: applicationContext)
+        Task { @MainActor in self.onState?(box.value) }
     }
 }

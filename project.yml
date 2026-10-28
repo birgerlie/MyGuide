@@ -69,6 +69,8 @@ targets:
     platform: watchOS
     deploymentTarget: "26.0"
     sources: [MyGuideWatch]
+    dependencies:
+      - package: MyGuideCore
     info:
       path: MyGuideWatch/Info.plist
       properties:
