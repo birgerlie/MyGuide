@@ -49,10 +49,12 @@ public enum RecentStories {
         return TextTrim.truncate(String(text[..<end]), maxCharacters: sentenceLimit)
     }
 
-    /// `- 11:58 Akershus Fortress level 1: "…"`; `this spot` stands for a missing name, ` (prepared)` ends a prepared story.
-    /// A `"` inside the sentence becomes `'` so the quote stays unambiguous.
+    /// `- 11:58 Akershus Fortress level 1: "…"`; `this spot` stands for a missing or blank name, ` (prepared)` ends a
+    /// prepared story. The name is collapsed to one line, and a `"` in the name or the sentence becomes `'` so the quote
+    /// stays unambiguous.
     public static func line(_ story: RecentStory, timeZone: TimeZone) -> String {
-        let name = story.placeName ?? "this spot"
+        let collapsed = (story.placeName ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let name = collapsed.isEmpty ? "this spot" : collapsed.replacingOccurrences(of: "\"", with: "'")
         let tail = story.prepared ? " (prepared)" : ""
         return "- \(GuideText.clock(story.toldAt, timeZone: timeZone)) \(name) level \(story.level.rawValue): "
             + "\"\(firstSentence(story.text).replacingOccurrences(of: "\"", with: "'"))\"\(tail)"

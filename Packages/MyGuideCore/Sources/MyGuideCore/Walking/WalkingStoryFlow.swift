@@ -6,72 +6,123 @@ public struct WalkingStoryFlow: Sendable {
     public static let factLimit = 5
     /// A stop story only hears of places this close (metres).
     public static let stopFactRadius = 150.0
+    /// With nothing within `stopFactRadius`, a stop story points to a place within this distance (metres); with nothing
+    /// here either, there is no stop story (spec 9).
+    public static let detourRadius = 500.0
+    /// Most places a stop story points to as worth the detour.
+    public static let detourLimit = 2
 
     private let openAI: OpenAIClient
     private let models: OpenAIModels
     private let priors: PriorStoryLookup
+    private let recent: RecentStoryLookup
+    private let pointsOfInterest: PointsOfInterestSearching?
+    private let articles: ArticleTextSource?
+    private let timeZone: TimeZone
     private let now: @Sendable () -> Date
     private let makeID: @Sendable () -> UUID
 
+    /// `pointsOfInterest` and `articles` are supplementary: without them (or when they fail) the story is told without
+    /// Apple Maps places or the fuller Wikipedia text. `timeZone` is the one the request's `Time:` is written in.
     public init(openAI: OpenAIClient, models: OpenAIModels = .current,
                 priors: @escaping PriorStoryLookup = { _, _, _ in [] },
+                recent: @escaping RecentStoryLookup = { _, _ in [] },
+                pointsOfInterest: PointsOfInterestSearching? = nil, articles: ArticleTextSource? = nil,
+                timeZone: TimeZone = .current,
                 now: @escaping @Sendable () -> Date = Date.init, makeID: @escaping @Sendable () -> UUID = UUID.init) {
         self.openAI = openAI
         self.models = models
         self.priors = priors
+        self.recent = recent
+        self.pointsOfInterest = pointsOfInterest
+        self.articles = articles
+        self.timeZone = timeZone
         self.now = now
         self.makeID = makeID
     }
 
     /// The first level for a buzzed place. The story takes the buzz's id so a notification maps back to it.
-    public func buzzStory(_ buzz: Buzz, position: Coordinate, course: Double?, nearby: [WalkingPlace],
+    public func buzzStory(_ buzz: Buzz, position: Coordinate, context: WalkContext, nearby: [WalkingPlace],
                           language: StoryLanguage) async throws -> (WalkStory, [UsageEntry]) {
-        let placeID = buzz.place.candidate.id
-        let facts = PromptBuilder.buzzFacts(nearby, excluding: placeID, position: position)
-        let told = await priors([placeID] + facts.map(\.candidate.id), position, nil)
-        let (title, text, entry) = try await generate(
-            language: language,
-            input: PromptBuilder.walkBuzzInput(buzz: buzz, course: course, facts: facts, position: position, priors: told))
-        let story = WalkStory(id: buzz.id, kind: .buzz, place: buzz.place.candidate, position: position, course: course,
+        let place = buzz.place.candidate
+        // The supplementary fetches run while the memory lookups do; neither fails the story.
+        async let applePlaces = ApplePlaces.fetch(pointsOfInterest, around: position, radius: ApplePlaces.walkingRadius)
+        async let articleText = fetchArticle(place.wikipediaTitle)
+        let facts = PromptBuilder.buzzFacts(nearby, excluding: place.id, position: position)
+        let told = await priors([place.id] + facts.map(\.candidate.id), position, nil)
+        let at = now()
+        let lately = await recent(at - RecentStories.window, nil)
+        let found = try await applePlaces
+        let input = PromptBuilder.walkBuzzInput(
+            buzz: buzz, position: position, context: context, nearby: nearby, articleText: await articleText,
+            applePlaces: found, recent: lately, priors: told, language: language, now: at, timeZone: timeZone)
+        let (title, text, entry) = try await generate(input)
+        let story = WalkStory(id: buzz.id, kind: .buzz, place: place, position: position, course: context.bearing,
                               language: language, title: title, levels: [text], createdAt: now(),
-                              address: nil, detail: buzz.detail)
+                              address: context.address, detail: buzz.detail, applePlaces: found)
         return (story, [entry])
     }
 
     /// The first level for the spot where the walker has stopped.
-    public func stopStory(position: Coordinate, address: Address?, nearby: [WalkingPlace],
-                          language: StoryLanguage) async throws -> (WalkStory, [UsageEntry]) {
-        let facts = PromptBuilder.stopFacts(nearby, position: position)
-        let told = await priors(facts.map(\.candidate.id), position, nil)
-        let (title, text, entry) = try await generate(
-            language: language,
-            input: PromptBuilder.walkStopInput(address: address, facts: nearby, position: position, priors: told))
-        let story = WalkStory(id: makeID(), kind: .stop, place: nil, position: position, course: nil,
+    /// nil: nothing within `detourRadius` — no request is made (spec 9 step 4).
+    public func stopStory(position: Coordinate, context: WalkContext, nearby: [WalkingPlace],
+                          language: StoryLanguage) async throws -> (WalkStory, [UsageEntry])? {
+        // Decided from the places walking mode already has, before any request.
+        guard let stop = PromptBuilder.walkStop(nearby, position: position) else { return nil }
+        async let applePlaces = ApplePlaces.fetch(pointsOfInterest, around: position, radius: ApplePlaces.walkingRadius)
+        // Only the place under `Facts about` gets the fuller text; a detour lists no facts.
+        let factsTitle: String? = if case .here(let listed) = stop { listed.first?.candidate.wikipediaTitle } else { nil }
+        async let articleText = fetchArticle(factsTitle)
+        let told = await priors(stop.places.map(\.candidate.id), position, nil)
+        let at = now()
+        let lately = await recent(at - RecentStories.window, nil)
+        let found = try await applePlaces
+        let input = PromptBuilder.walkStopInput(
+            stop, position: position, context: context, articleText: await articleText, applePlaces: found,
+            recent: lately, priors: told, language: language, now: at, timeZone: timeZone)
+        let (title, text, entry) = try await generate(input)
+        let story = WalkStory(id: makeID(), kind: .stop, place: nil, position: position, course: context.bearing,
                               language: language, title: title, levels: [text], createdAt: now(),
-                              address: address, detail: nil)
+                              address: context.address, detail: nil, applePlaces: found)
         return (story, [entry])
     }
 
-    /// Adds the next level, up to three.
-    public func continueStory(_ story: WalkStory) async throws -> (WalkStory, [UsageEntry]) {
+    /// Adds the next level, up to three. `nearby` are the places walking mode has now; a stop story lists those around
+    /// its own position again. The first level's Apple Maps places are reused, or searched again when it has none.
+    public func continueStory(_ story: WalkStory, nearby: [WalkingPlace]) async throws -> (WalkStory, [UsageEntry]) {
         guard let level = story.nextLevel else { throw PhotoStoryError.noFurtherLevel }
-        let ids = story.place.map { [$0.id] } ?? []
+        let stored = story.applePlaces
+        async let searched: [ApplePlace]? = stored == nil
+            ? ApplePlaces.fetch(pointsOfInterest, around: story.position, radius: ApplePlaces.walkingRadius)
+            : nil
+        async let articleText = fetchArticle(story.kind == .buzz ? story.place?.wikipediaTitle : nil)
+        let ids = PromptBuilder.walkContinuationPlaces(story, nearby: nearby).map(\.id)
         let told = await priors(ids, story.position, story.id)
-        let (_, text, entry) = try await generate(
-            language: story.language,
-            input: PromptBuilder.walkContinuationInput(story: story, level: level, priors: told))
+        let at = now()
+        let lately = await recent(at - RecentStories.window, story.id)
+        let applePlaces: [ApplePlace]?
+        if let stored { applePlaces = stored } else { applePlaces = try await searched }
+        let input = PromptBuilder.walkContinuationInput(
+            story: story, level: level, nearby: nearby, articleText: await articleText, applePlaces: applePlaces,
+            recent: lately, priors: told, now: at, timeZone: timeZone)
+        let (_, text, entry) = try await generate(input)
         var next = story
         next.levels.append(text)
+        next.applePlaces = applePlaces
         return (next, [entry])
     }
 
-    private func generate(language: StoryLanguage, input: String) async throws -> (String, String, UsageEntry) {
-        // The instructions no longer name the language; until the walking inputs carry their own `Answer in:`, it is appended here.
+    private func fetchArticle(_ title: String?) async -> String? {
+        guard let title, !title.isEmpty, let articles else { return nil }
+        return await articles.text(wikipediaTitle: title)
+    }
+
+    private func generate(_ input: String) async throws -> (String, String, UsageEntry) {
         let (json, usage) = try await openAI.respond(
             model: models.story,
             reasoningEffort: models.storyReasoningEffort,
             instructions: PromptBuilder.systemInstructions,
-            text: input + "\nAnswer in: \(language.promptName)",
+            text: input,
             imageJPEG: nil,
             schemaName: "walk_story",
             schema: PromptBuilder.walkStorySchema,

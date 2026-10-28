@@ -10,20 +10,24 @@ public struct WalkStory: Sendable, Equatable, Identifiable {
     public var place: Candidate?
     /// Where the walker was when the story was made.
     public var position: Coordinate
-    /// GPS course in degrees clockwise from north; nil when unknown.
+    /// Walking direction (`WalkContext.bearing`) in degrees clockwise from north; nil when unknown.
     public var course: Double?
     public var language: StoryLanguage
     public var title: String
     /// Story texts told so far; `levels[0]` is level 1.
     public var levels: [String]
     public var createdAt: Date
-    /// The spot's address, for stop stories; nil for `.buzz`.
+    /// The walker's address when the story was made (`WalkContext.address`); nil when the lookup failed.
     public var address: Address?
     /// The buzz direction line, such as "50 m left" (`Buzz.detail`); nil for `.stop`.
     public var detail: String?
+    /// The Apple Maps places found for the first level, reused by "More"; nil when not searched or the search failed.
+    /// In memory only.
+    public var applePlaces: [ApplePlace]?
 
     public init(id: UUID, kind: Kind, place: Candidate?, position: Coordinate, course: Double?, language: StoryLanguage,
-                title: String, levels: [String], createdAt: Date, address: Address? = nil, detail: String? = nil) {
+                title: String, levels: [String], createdAt: Date, address: Address? = nil, detail: String? = nil,
+                applePlaces: [ApplePlace]? = nil) {
         self.id = id
         self.kind = kind
         self.place = place
@@ -35,6 +39,7 @@ public struct WalkStory: Sendable, Equatable, Identifiable {
         self.createdAt = createdAt
         self.address = address
         self.detail = detail
+        self.applePlaces = applePlaces
     }
 
     public var nextLevel: StoryLevel? { StoryLevel(rawValue: levels.count + 1) }

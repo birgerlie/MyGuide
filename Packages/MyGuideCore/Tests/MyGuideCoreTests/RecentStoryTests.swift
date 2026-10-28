@@ -80,6 +80,13 @@ import Testing
         let s = RecentStory(toldAt: Self.at, placeName: "Gate", level: .first, text: "\nFirst\nline. Second.", prepared: false)
         #expect(RecentStories.line(s, timeZone: Self.utc) == #"- 13:58 Gate level 1: "First line.""#)
     }
+    @Test func linePlaceNameIsOneLineWithoutDoubleQuotes() {
+        let s = RecentStory(toldAt: Self.at, placeName: " The \"Old\"\n  Gate ", level: .first, text: "T.", prepared: false)
+        #expect(RecentStories.line(s, timeZone: Self.utc) == "- 13:58 The 'Old' Gate level 1: \"T.\"")
+        // A name that is only whitespace stands for no name.
+        let blank = RecentStory(toldAt: Self.at, placeName: " \n ", level: .first, text: "T.", prepared: false)
+        #expect(RecentStories.line(blank, timeZone: Self.utc) == "- 13:58 this spot level 1: \"T.\"")
+    }
     @Test func lineUsesTheGivenTimeZone() {
         // 13:58 UTC; Oslo on 1970-01-12 is UTC+1 (CET), so 14:58.
         let s = RecentStory(toldAt: Self.at, placeName: "X", level: .more, text: "T.", prepared: false)
