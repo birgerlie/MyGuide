@@ -28,12 +28,26 @@ public struct GroundingService: Sendable {
 
     public func ground(_ capture: CaptureContext, language: StoryLanguage) async throws -> Grounding {
         guard let here = capture.coordinate else { throw GroundingError.noPosition }
+        return try await ground(capture, language: language, address: { try await self.address(for: here) })
+    }
+
+    /// The street address from the geocoder, bounded by the geocoder timeout; nil when it fails or runs out of time.
+    /// Only cancellation propagates.
+    public func address(for here: Coordinate) async throws -> Address? {
+        let geocoder = self.geocoder
+        let timeout = geocoderTimeout
+        return try await Self.attempt { try await Self.withTimeout(timeout) { try await geocoder.address(for: here) } }
+    }
+
+    /// As `ground`, with the address from `address` (nil meaning the geocoder failed), so a lookup that is already
+    /// under way can be shared with the caller. `address` may throw only cancellation.
+    func ground(_ capture: CaptureContext, language: StoryLanguage,
+                address: @escaping @Sendable () async throws -> Address?) async throws -> Grounding {
+        guard let here = capture.coordinate else { throw GroundingError.noPosition }
 
         async let osm = Self.attempt { try await overpass.places(around: here, radius: Self.osmRadius, language: language) }
         async let wiki = Self.attempt { try await wikipedia.articles(around: here, radius: Self.wikiRadius, language: language) }
-        let geocoder = self.geocoder
-        let timeout = geocoderTimeout
-        async let geo = Self.attempt { try await Self.withTimeout(timeout) { try await geocoder.address(for: here) } }
+        async let geo = address()
         let (osmResult, wikiResult, geoResult) = try await (osm, wiki, geo)
         // Some sources signal cancellation with their own error type (CLError, MKError); do not report that as a failure.
         try Task.checkCancellation()
@@ -48,7 +62,8 @@ public struct GroundingService: Sendable {
                          address: geoResult, failedSources: failed)
     }
 
-    private struct Timeout: Error {}
+    /// Thrown by `withTimeout` when the sleep wins.
+    struct Timeout: Error {}
 
     /// Races `work` against a sleep of `timeout`; the loser is cancelled. Throws `Timeout` if the sleep wins.
     /// `work` runs abandonable, so a source that ignores cancellation (MapKit's request) cannot hold the race open.

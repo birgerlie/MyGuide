@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Looks up stories already told near a place so new ones take a new angle.
 /// `excludingSession` leaves out the session being continued.
@@ -24,15 +25,18 @@ public struct PhotoStoryFlow: Sendable {
     private let pointsOfInterest: PointsOfInterestSearching?
     private let articles: ArticleTextSource?
     private let timeZone: TimeZone
+    private let storyDeadline: Duration
     private let now: @Sendable () -> Date
 
     /// `pointsOfInterest` and `articles` are supplementary: without them (or when they fail) the story is told without
     /// Apple Maps places or the fuller Wikipedia text. `timeZone` is the one the request's `Time:` is written in.
+    /// `storyDeadline` bounds a streamed story from request to completion. `now` is the clock of the dates and timings.
     public init(grounding: GroundingService, openAI: OpenAIClient, models: OpenAIModels = .current,
                 priors: @escaping PriorStoryLookup = { _, _, _ in [] },
                 recent: @escaping RecentStoryLookup = { _, _ in [] },
                 pointsOfInterest: PointsOfInterestSearching? = nil, articles: ArticleTextSource? = nil,
                 timeZone: TimeZone = .current,
+                storyDeadline: Duration = PhotoStoryFlow.defaultStoryDeadline,
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.grounding = grounding
         self.openAI = openAI
@@ -42,6 +46,7 @@ public struct PhotoStoryFlow: Sendable {
         self.pointsOfInterest = pointsOfInterest
         self.articles = articles
         self.timeZone = timeZone
+        self.storyDeadline = storyDeadline
         self.now = now
     }
 
@@ -89,7 +94,20 @@ public struct PhotoStoryFlow: Sendable {
     public func continueStory(_ session: StorySession) async throws -> (StorySession, [UsageEntry]) {
         guard let level = session.nextLevel else { throw PhotoStoryError.noFurtherLevel }
 
-        // The fuller article text for the matched place, fetched while the memory lookups run.
+        let (json, usage) = try await openAI.respond(
+            model: models.story,
+            reasoningEffort: models.storyReasoningEffort,
+            instructions: PromptBuilder.systemInstructions,
+            text: await continuationInput(session, level: level),
+            imageJPEG: nil,
+            schemaName: "continuation",
+            schema: PromptBuilder.continuationSchema,
+            promptCacheKey: PromptBuilder.promptCacheKey)
+        return try continued(session, json: json, usage: usage)
+    }
+
+    /// The request text of the next level: the matched place's fuller article text, fetched while the memory lookups run.
+    private func continuationInput(_ session: StorySession, level: StoryLevel) async -> String {
         let title = session.matchedCandidate?.candidate.wikipediaTitle
         async let articleText: String? = fetchArticle(title)
 
@@ -101,19 +119,13 @@ public struct PhotoStoryFlow: Sendable {
         }
         let at = now()
         let lately = await recent(at - RecentStories.window, session.id)
+        return PromptBuilder.photoContinuationInput(session: session, level: level, articleText: await articleText,
+                                                    recent: lately, priors: told, now: at, timeZone: timeZone)
+    }
 
-        let (json, usage) = try await openAI.respond(
-            model: models.story,
-            reasoningEffort: models.storyReasoningEffort,
-            instructions: PromptBuilder.systemInstructions,
-            text: PromptBuilder.photoContinuationInput(session: session, level: level, articleText: await articleText,
-                                                       recent: lately, priors: told, now: at, timeZone: timeZone),
-            imageJPEG: nil,
-            schemaName: "continuation",
-            schema: PromptBuilder.continuationSchema,
-            promptCacheKey: PromptBuilder.promptCacheKey)
+    /// The session with the decoded level appended, and its usage entry.
+    private func continued(_ session: StorySession, json: Data, usage: TokenUsage) throws -> (StorySession, [UsageEntry]) {
         let story = try PromptBuilder.decodeContinuation(json)
-
         var next = session
         next.levels.append(story)
         let entry = UsageEntry(date: now(), kind: .story, model: models.story,
@@ -134,6 +146,343 @@ public struct PhotoStoryFlow: Sendable {
                                inputTokens: tokens?.inputTokens ?? 0, outputTokens: tokens?.outputTokens ?? 0,
                                words: 0, images: 1)
         return (png, entry)
+    }
+}
+
+// MARK: - Streaming (spec 6, 7.1, 8, 10)
+
+extension PhotoStoryFlow {
+    /// On the fresh-list path the request waits at most this long, from the start of the searches, for the address and
+    /// the Apple Maps places, then goes without whatever has not arrived (spec 14.3).
+    public static let freshPathWait: Duration = .milliseconds(1500)
+    /// Characters of the top candidate's article text sent with the first story (spec 15.2).
+    public static let articleLimit = 1500
+    /// The guess card needs a candidate in view at most this far (metres) from the photo.
+    public static let guessDistance = 250.0
+    /// A streamed story not completed within this time fails like a lost connection.
+    public static let defaultStoryDeadline: Duration = .seconds(90)
+
+    /// Tells the first story while reporting `progress`. With a fresh `nearby` list (in `language`), the list's
+    /// candidates are sent at once, with the address and Apple Maps places that arrive within `freshPathWait`; otherwise
+    /// the request waits for the fresh place search, as `tellFirstStory` does. Either way the top candidate's article
+    /// text goes with it, cut to `articleLimit` characters.
+    /// A stream that breaks, or does not complete within the story deadline, throws: no session is made, whatever
+    /// partial text was reported.
+    public func tellFirstStoryStreaming(photoJPEG: Data, capture: CaptureContext, language: StoryLanguage, nearby: NearbyList?,
+                                        progress: @escaping @Sendable (PhotoStoryProgress) -> Void) async throws -> PhotoStoryOutcome {
+        try await streamFirstStory(photoJPEG: photoJPEG, capture: capture, language: language,
+                                   places: .search(nearby?.language == language ? nearby : nil), progress: progress)
+    }
+
+    /// "Prøv igjen med flere steder" / "Try again with more places": the first story told from `grounding` (an earlier
+    /// outcome's `freshCandidates`), with no list and no new search.
+    public func tellFirstStoryStreaming(photoJPEG: Data, capture: CaptureContext, language: StoryLanguage, grounding: Grounding,
+                                        progress: @escaping @Sendable (PhotoStoryProgress) -> Void) async throws -> PhotoStoryOutcome {
+        try await streamFirstStory(photoJPEG: photoJPEG, capture: capture, language: language,
+                                   places: .given(grounding), progress: progress)
+    }
+
+    /// As `continueStory`, streamed: `onText` gets the level's text so far each time it grows (never empty).
+    /// The returned level is the final decoded text; a broken or late stream throws and adds nothing.
+    public func continueStoryStreaming(_ session: StorySession, onText: @escaping @Sendable (String) -> Void)
+        async throws -> (StorySession, [UsageEntry]) {
+        guard let level = session.nextLevel else { throw PhotoStoryError.noFurtherLevel }
+        let (json, usage) = try await streamStory(text: await continuationInput(session, level: level), imageJPEG: nil,
+                                                  schemaName: "continuation", schema: PromptBuilder.continuationSchema) { partial in
+            if let story = partial.story, !story.isEmpty { onText(story) }
+        }
+        return try continued(session, json: json, usage: usage)
+    }
+
+    // MARK: Places
+
+    private enum PlaceSource {
+        /// Search, with the nearby list when there is one in the story's language.
+        case search(NearbyList?)
+        /// Use these places; no list, no search.
+        case given(Grounding)
+    }
+
+    /// The lookups started at the shutter. The address task is shared: the fresh search waits for it in full, the
+    /// fresh-list path only for `freshPathWait`.
+    private struct Searches: Sendable {
+        let address: Task<Address?, Error>
+        let applePlaces: Task<[ApplePlace]?, Error>
+        let places: Task<Grounding, Error>
+        /// When the fresh search finished, on the flow's clock; nil while it runs.
+        let placesFinishedAt: Latch<Date>
+        /// The end of the fresh-list path's wait for the address and Apple Maps places.
+        let waitEnds: ContinuousClock.Instant
+
+        func cancel() {
+            address.cancel()
+            applePlaces.cancel()
+            places.cancel()
+        }
+    }
+
+    private func startSearches(_ capture: CaptureContext, at coordinate: Coordinate, language: StoryLanguage) -> Searches {
+        let grounding = self.grounding
+        let pointsOfInterest = self.pointsOfInterest
+        let now = self.now
+        let waitEnds = ContinuousClock.now + Self.freshPathWait
+        let finished = Latch<Date>()
+        let address = Task { try await grounding.address(for: coordinate) }
+        let applePlaces = Task {
+            // Fails silently (nil) and never throws but for cancellation.
+            try await ApplePlaces.fetch(pointsOfInterest, around: coordinate, radius: ApplePlaces.photoRadius)
+        }
+        let places = Task {
+            let found = try await grounding.ground(capture, language: language, address: { try await address.value })
+            finished.set(now())
+            return found
+        }
+        return Searches(address: address, applePlaces: applePlaces, places: places, placesFinishedAt: finished,
+                        waitEnds: waitEnds)
+    }
+
+    /// The fresh search's places with the Apple Maps places, as `tellFirstStory` grounds a story.
+    private static func searched(_ searches: Searches) async throws -> Grounding {
+        var found = try await searches.places.value
+        found.applePlaces = try await searches.applePlaces.value
+        return found
+    }
+
+    /// The task's value if it arrives before `deadline`, else nil; the task itself keeps running.
+    /// Only the caller's cancellation propagates.
+    private static func value<T: Sendable>(of task: Task<T?, Error>, before deadline: ContinuousClock.Instant) async throws -> T? {
+        let remaining = max(.zero, deadline - ContinuousClock.now)
+        do {
+            // Cancelling the wait (when the sleep wins) does not cancel `task`: awaiting a task's value never does.
+            return try await GroundingService.withTimeout(remaining) { try await task.value }
+        } catch {
+            try Task.checkCancellation()
+            return nil
+        }
+    }
+
+    // MARK: Article
+
+    private struct ArticleStep: Sendable {
+        var article: (title: String, text: String)?
+        var ms: Int?
+    }
+
+    /// The top candidate's article text, from the list when it has it, else from `articles` (bounded by the source's
+    /// own timeout), collapsed to one line and cut to `articleLimit` characters. Nothing when the candidate has no
+    /// article title or no text was found.
+    private func articleStep(for top: RankedCandidate?, list: NearbyList?) async -> ArticleStep {
+        guard let title = top?.candidate.wikipediaTitle, !title.isEmpty else { return ArticleStep() }
+        let started = now()
+        var raw = list?.articleTexts[title]
+        if raw.map(GuideText.oneLine)?.isEmpty ?? true, let articles {
+            // Abandoned on cancellation: a source's shared fetch may not stop for one caller.
+            raw = try? await GroundingService.abandoningOnCancel { await articles.text(wikipediaTitle: title) }
+        }
+        let ms = Self.milliseconds(from: started, to: now())
+        let text = String(GuideText.oneLine(raw ?? "").prefix(Self.articleLimit))
+        guard !text.isEmpty else { return ArticleStep(article: nil, ms: ms) }
+        return ArticleStep(article: (title: Self.articleTitle(title), text: text), ms: ms)
+    }
+
+    /// "en:Tower" → "Tower": the title without its language prefix.
+    private static func articleTitle(_ wikipediaTitle: String) -> String {
+        guard let colon = wikipediaTitle.firstIndex(of: ":") else { return wikipediaTitle }
+        return String(wikipediaTitle[wikipediaTitle.index(after: colon)...])
+    }
+
+    // MARK: First story
+
+    private func streamFirstStory(photoJPEG: Data, capture: CaptureContext, language: StoryLanguage, places: PlaceSource,
+                                  progress: @escaping @Sendable (PhotoStoryProgress) -> Void) async throws -> PhotoStoryOutcome {
+        guard let coordinate = capture.coordinate else { throw PhotoStoryError.noPosition }
+        let started = now()
+        progress(.finding)
+        let feedbackMs = Self.milliseconds(from: started, to: now())
+
+        let list: NearbyList?
+        let searches: Searches?
+        switch places {
+        case .search(let nearby):
+            list = nearby
+            searches = startSearches(capture, at: coordinate, language: language)
+        case .given:
+            list = nil
+            searches = nil
+        }
+        let listFresh = list?.isFresh(for: coordinate, now: started) ?? false
+
+        return try await withTaskCancellationHandler {
+            // The searches are only needed until the story is done; on the fresh-list path (b) may still be running.
+            defer { searches?.cancel() }
+
+            var guessMs: Int?
+            let found: Grounding
+            let article: ArticleStep
+            let (upload, thumbnail): (Data, Data)
+            if case .given(let given) = places {
+                (upload, thumbnail) = try Self.downscaled(photoJPEG)
+                found = given
+                article = await articleStep(for: given.candidates.first, list: nil)
+            } else if let searches, let list, listFresh {
+                let ranked = CandidateRanker.rank(list.candidates, capture: capture)
+                if let guess = ranked.first(where: { $0.inView == true && $0.distance <= Self.guessDistance }) {
+                    progress(.guess(guess))
+                    guessMs = Self.milliseconds(from: started, to: now())
+                }
+                (upload, thumbnail) = try Self.downscaled(photoJPEG)
+                async let articleStep = articleStep(for: ranked.first, list: list)
+                async let address = Self.value(of: searches.address, before: searches.waitEnds)
+                async let applePlaces = Self.value(of: searches.applePlaces, before: searches.waitEnds)
+                let gotAddress = try await address
+                found = Grounding(candidates: ranked, address: gotAddress, failedSources: gotAddress == nil ? [.geocoder] : [],
+                                  applePlaces: try await applePlaces)
+                article = await articleStep
+            } else if let searches {
+                (upload, thumbnail) = try Self.downscaled(photoJPEG)
+                found = try await Self.searched(searches)
+                article = await articleStep(for: found.candidates.first, list: list)
+            } else {
+                preconditionFailure("a search source always starts its searches")
+            }
+            try Task.checkCancellation()
+
+            let at = now()
+            let told = await priors(found.candidates.map(\.candidate.id), coordinate, nil)
+            let lately = await recent(at - RecentStories.window, nil)
+            let text = PromptBuilder.photoFirstInput(capture: capture, grounding: found, recent: lately, priors: told,
+                                                     language: language, now: at, timeZone: timeZone, article: article.article)
+
+            progress(.writing)
+            let modelStarted = now()
+            let firstText = Latch<Date>()
+            let sentIDs = Set(found.candidates.map(\.candidate.id))
+            let now = self.now
+            let (json, usage) = try await streamStory(text: text, imageJPEG: upload, schemaName: "first_story",
+                                                      schema: PromptBuilder.firstStorySchema) { partial in
+                if let story = partial.story, !story.isEmpty, firstText.value == nil { firstText.set(now()) }
+                progress(.partial(Self.checked(partial, sentIDs: sentIDs)))
+            }
+            let modelEnded = now()
+
+            // The final JSON is authoritative; the partials were display only.
+            let identified = try PromptBuilder.decodeFirstStory(json, grounding: found)
+            // An empty story must never reach the user.
+            guard !identified.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OpenAIError.malformedResponse
+            }
+            let session = StorySession(id: UUID(), capture: capture, photoJPEG: upload, thumbnailJPEG: thumbnail,
+                                       language: language, grounding: found, identified: identified,
+                                       levels: [identified.story])
+            let entry = UsageEntry(date: now(), kind: .story, model: models.story,
+                                   inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
+
+            var freshCandidates: Grounding?
+            if listFresh, identified.confidence == .unsure, let searches {
+                let fresh = try await Self.searched(searches)
+                if fresh.candidates.contains(where: { $0.inView == true && !sentIDs.contains($0.candidate.id) }) {
+                    freshCandidates = fresh
+                }
+            }
+
+            let timings = PhotoStoryTimings(
+                feedbackMs: feedbackMs,
+                guessMs: guessMs,
+                placeSearchMs: searches?.placesFinishedAt.value.map { Self.milliseconds(from: started, to: $0) },
+                articleMs: article.ms,
+                firstTextMs: firstText.value.map { Self.milliseconds(from: modelStarted, to: $0) },
+                modelMs: Self.milliseconds(from: modelStarted, to: modelEnded),
+                listFresh: listFresh,
+                listAgeS: list.map { Int(started.timeIntervalSince($0.fetchedAt).rounded(.towardZero)) },
+                articleChars: article.article?.text.count ?? 0)
+            return PhotoStoryOutcome(session: session, usage: [entry], timings: timings, freshCandidates: freshCandidates)
+        } onCancel: {
+            searches?.cancel()
+        }
+    }
+
+    /// A partial identification as the screen may show it: an id that was not sent is dropped, and "certain" stands
+    /// only on an id that was sent. With no id yet, the id may still arrive and be invented, so "certain" waits as
+    /// "likely"; the final decoded story can raise it again, but a shown "certain" never drops.
+    static func checked(_ partial: PartialFirstStory, sentIDs: Set<String>) -> PartialFirstStory {
+        var checked = partial
+        if let id = checked.matchedCandidateID, !sentIDs.contains(id) { checked.matchedCandidateID = nil }
+        if checked.confidence == SubjectConfidence.certain.rawValue, checked.matchedCandidateID == nil {
+            checked.confidence = SubjectConfidence.likely.rawValue
+        }
+        return checked
+    }
+
+    private static func downscaled(_ photoJPEG: Data) throws -> (upload: Data, thumbnail: Data) {
+        (try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: uploadLongSide, quality: jpegQuality),
+         try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: thumbnailLongSide, quality: jpegQuality))
+    }
+
+    // MARK: Stream
+
+    /// Streams one story request and returns the final JSON and usage. `onPartial` gets the parsed state after each
+    /// delta that changed it. Fails with `OpenAIError.network` when the story is not complete within `storyDeadline`;
+    /// any stream error propagates. Nothing partial is ever returned.
+    private func streamStory(text: String, imageJPEG: Data?, schemaName: String, schema: JSONValue,
+                             onPartial: @escaping @Sendable (PartialFirstStory) -> Void) async throws -> (json: Data, usage: TokenUsage) {
+        let openAI = self.openAI
+        let models = self.models
+        let deadline = storyDeadline
+        do {
+            let result = try await GroundingService.withTimeout(deadline) { () async throws -> StreamedStory in
+                let events = openAI.respondStreaming(
+                    model: models.story,
+                    reasoningEffort: models.storyReasoningEffort,
+                    instructions: PromptBuilder.systemInstructions,
+                    text: text,
+                    imageJPEG: imageJPEG,
+                    schemaName: schemaName,
+                    schema: schema,
+                    promptCacheKey: PromptBuilder.promptCacheKey)
+                var parser = PartialStoryParser()
+                var last = PartialFirstStory()
+                for try await event in events {
+                    switch event {
+                    case .textDelta(let delta):
+                        let partial = parser.append(delta)
+                        guard partial != last else { continue }
+                        last = partial
+                        // After the deadline this work is abandoned; it must not report anything more.
+                        try Task.checkCancellation()
+                        onPartial(partial)
+                    case .completed(let json, let usage):
+                        return StreamedStory(json: json, usage: usage)
+                    }
+                }
+                // respondStreaming throws when the stream ends without `response.completed`; this is the same rule.
+                try Task.checkCancellation()
+                throw OpenAIError.malformedResponse
+            }
+            return (result.json, result.usage)
+        } catch is GroundingService.Timeout {
+            throw OpenAIError.network("The story did not arrive within \(deadline.components.seconds) seconds.")
+        }
+    }
+
+    private struct StreamedStory: Sendable {
+        var json: Data
+        var usage: TokenUsage
+    }
+
+    /// Whole milliseconds from `start` to `end`, rounded.
+    static func milliseconds(from start: Date, to end: Date) -> Int {
+        Int((end.timeIntervalSince(start) * 1000).rounded())
+    }
+}
+
+/// A value set once, then read from any thread; later sets are ignored.
+final class Latch<Value: Sendable>: Sendable {
+    private let state = Mutex<Value?>(nil)
+
+    var value: Value? { state.withLock { $0 } }
+
+    func set(_ value: Value) {
+        state.withLock { if $0 == nil { $0 = value } }
     }
 }
 
