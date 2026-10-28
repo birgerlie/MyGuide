@@ -93,6 +93,35 @@ import Testing
         #expect(r.needsStreetLookup)                    // 200 - 100 = 100
     }
 
+    @Test func aStoryLookupNearTheNewestSampleIsRecorded() {
+        // Newest sample at 100 m north; the story's lookup was made for a spot 149 − 100 = 49 m from it (≤ 50).
+        var r = RouteMemory()
+        r.add(sample(north: 0, t: 0)); r.recordLookup(nil, at: Self.t0)
+        r.add(sample(north: 100, t: 80))
+        #expect(r.needsStreetLookup)                    // path 100 ≥ 100
+        let recorded = r.recordLookup(address("Kirkegata 3"), at: Self.t0.addingTimeInterval(81), near: .at(north: 149))
+        #expect(recorded)
+        #expect(!r.needsStreetLookup)                   // not looked up again
+        // Stored at the newest sample (100 m), not at 149 m: 140 − 100 = 40 m away, reused.
+        #expect(r.recentAddress(near: .at(north: 140))?.line == "Kirkegata 3")
+    }
+
+    @Test func aStoryLookupFarFromTheNewestSampleIsNotRecorded() {
+        // Newest sample at 100 m; the story spot 151 m north is 151 − 100 = 51 m away (> 50): the address would be filed
+        // at the wrong spot.
+        var r = RouteMemory()
+        r.add(sample(north: 0, t: 0)); r.recordLookup(nil, at: Self.t0)
+        r.add(sample(north: 100, t: 80))
+        let recorded = r.recordLookup(address("Kirkegata 3"), at: Self.t0.addingTimeInterval(81), near: .at(north: 151))
+        #expect(!recorded)
+        #expect(r.needsStreetLookup && r.recentAddress(near: .at(north: 100)) == nil)
+        // An empty route records nothing.
+        var empty = RouteMemory()
+        let recordedInEmpty = empty.recordLookup(address("Kirkegata 3"), at: Self.t0, near: .at())
+        #expect(!recordedInEmpty)
+        #expect(empty.recentAddress(near: .at()) == nil)
+    }
+
     @Test func lookupSpacingUsesPathNotStraightLine() {
         // out 60 m east and back to the start: straight line 0, path 120 ≥ 100
         var r = RouteMemory()

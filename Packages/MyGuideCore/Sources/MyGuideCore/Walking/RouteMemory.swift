@@ -102,6 +102,17 @@ public struct RouteMemory: Sendable {
         trim()
     }
 
+    /// Records a story's own lookup of the address at `position`, so the street is not looked up again: like
+    /// `recordLookup`, at the newest sample, but only when that sample is within `addressReuseDistance` of `position`
+    /// (farther, the address would be filed at the wrong spot). Returns whether it was recorded.
+    @discardableResult
+    public mutating func recordLookup(_ address: Address, at: Date, near position: Coordinate) -> Bool {
+        guard let newest = points.last,
+              GeoMath.distance(newest.sample.coordinate, position) <= Self.addressReuseDistance else { return false }
+        recordLookup(address, at: at)
+        return true
+    }
+
     /// The newest looked-up address within `addressReuseDistance` of `position`.
     public func recentAddress(near position: Coordinate) -> Address? {
         for lookup in lookups.reversed() {

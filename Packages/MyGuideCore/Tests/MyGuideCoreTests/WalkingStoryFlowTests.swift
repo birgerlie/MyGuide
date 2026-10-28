@@ -40,7 +40,7 @@ import Testing
         let http = Self.http()
         let places = Places(result: [WalkPromptTests.library])
         let (story, usage) = try await Self.flow(http, pointsOfInterest: places)
-            .buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: Self.facts, language: .english)
+            .buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: Self.facts, language: .english)
         #expect(story.title == "T" && story.levels == ["S"] && story.kind == .buzz && story.place?.id == Self.buzz.place.candidate.id)
         #expect(story.id == Self.buzz.id && story.detail == "40 m right")
         // Buzz stories now keep the address and the walking direction of the context.
@@ -58,9 +58,30 @@ import Testing
         #expect(input.hasPrefix("Story: walking buzz, first level\nPosition: Kirkegata 15, Kvadraturen, Oslo\nTime: 13:46 Monday\n"))
         #expect(input.contains("\nAlso on Apple Maps:\n- Deichman (library), 120 m, to your right\n"))
     }
+    @Test func buzzLooksUpTheContextWhileTheOtherFetchesRun() async throws {
+        // The context (the address lookup, up to 8 s) must not hold up the Apple Maps search: the provider waits up to
+        // 2 s for the search to start. Run one after the other, it would see no search and give up.
+        let http = Self.http()
+        let places = Places(result: [WalkPromptTests.library])
+        let sawSearch = LockedBox(false)
+        let context: @Sendable () async -> WalkContext = {
+            let deadline = ContinuousClock.now + .seconds(2)
+            while ContinuousClock.now < deadline {
+                if !places.calls.value.isEmpty { sawSearch.set(true); break }
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            return Self.context
+        }
+        let (story, _) = try await Self.flow(http, pointsOfInterest: places)
+            .buzzStory(Self.buzz, position: Self.here, context: context, nearby: [], language: .english)
+        #expect(sawSearch.value)
+        // The context still reaches the request and the story.
+        #expect(story.address == WalkPromptTests.address && story.course == 0)
+        #expect(try Self.inputText(http).contains("\nPosition: Kirkegata 15, Kvadraturen, Oslo\n"))
+    }
     @Test func emptyStoryIsMalformed() async {
         await #expect(throws: OpenAIError.malformedResponse) {
-            try await Self.flow(Self.http(" ")).buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: .english)
+            try await Self.flow(Self.http(" ")).buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         }
         await #expect(throws: OpenAIError.malformedResponse) {
             try await Self.flow(Self.http(" ")).stopStory(position: Self.here, context: Self.context, nearby: Self.facts, language: .english)
@@ -75,7 +96,7 @@ import Testing
     @Test func buzzPriorsStartWithTheBuzzedPlace() async throws {
         let seen = LockedBox<(ids: [String], near: Coordinate, session: UUID?)?>(nil)
         let flow = Self.flow(Self.http()) { ids, near, session in seen.set((ids, near, session)); return [] }
-        _ = try await flow.buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: Self.facts, language: .english)
+        _ = try await flow.buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: Self.facts, language: .english)
         let call = try #require(seen.value)
         // Buzzed place first, then the other places by tier and distance: castle, church, plaque.
         #expect(call.ids == ["osm:node/1", "osm:node/4", "osm:node/2", "osm:node/3"])
@@ -89,7 +110,7 @@ import Testing
                                  seen.withValue { $0.append((since, excluding)) }
                                  return [WalkPromptTests.recent]
                              })
-        let (story, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: .english)
+        let (story, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         let input = try Self.inputText(http)
         #expect(input.contains("\nTold here before:\n- [nearby, unidentified] level 2: Earlier tale.\n"))
         #expect(input.contains("\nTold in the last 3 hours:\n- 13:36 Akershus Fortress level 1: \"Built in 1299.\"\n"))
@@ -103,7 +124,7 @@ import Testing
         for (language, name) in [(StoryLanguage.norwegian, "Norwegian Bokmål"), (.english, "English")] {
             let http = Self.http()
             let flow = Self.flow(http)
-            let (story, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: language)
+            let (story, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: language)
             _ = try await flow.continueStory(story, nearby: [])
             _ = try #require(try await flow.stopStory(position: Self.here, context: Self.context, nearby: Self.facts, language: language))
             #expect(http.requests.count == 3)
@@ -138,7 +159,7 @@ import Testing
             return (200, try Self.body(#"{"title":"T\#(n)","story":"Text \#(n)"}"#))
         }
         let flow = Self.flow(http) { ids, _, session in seen.set((ids, session)); return [] }
-        let (first, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: .english)
+        let (first, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         let (second, usage) = try await flow.continueStory(first, nearby: Self.facts)
         #expect(second.levels == ["Text 1", "Text 2"] && second.title == "T1" && usage.count == 1)
         #expect(seen.value?.ids == ["osm:node/1"] && seen.value?.session == first.id)
@@ -152,7 +173,7 @@ import Testing
         let full = Articles("FULL ARTICLE")
         let http = Self.http()
         let (story, _) = try await Self.flow(http, articles: full)
-            .buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: .english)
+            .buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         #expect(full.titles.value == ["de:Michaelertor"])
         let input = try Self.inputText(http)
         #expect(input.contains("\nFacts about Michaelertor:\n  OSM: start_date=1725\n  Wikipedia: FULL ARTICLE\n"))
@@ -166,7 +187,7 @@ import Testing
         let failed = Articles(nil)
         let http2 = Self.http()
         _ = try await Self.flow(http2, articles: failed)
-            .buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: .english)
+            .buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         #expect(try Self.inputText(http2).contains("\n  Wikipedia: Gate of the palace.\n"))
 
         // No article title → no fetch at all.
@@ -174,7 +195,7 @@ import Testing
         untitled.place.candidate.wikipediaTitle = nil
         let unused = Articles("UNUSED")
         _ = try await Self.flow(Self.http(), articles: unused)
-            .buzzStory(untitled, position: Self.here, context: Self.context, nearby: [], language: .english)
+            .buzzStory(untitled, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         #expect(unused.titles.value.isEmpty)
     }
     @Test func stopFetchesArticleTextForTheBestPlace() async throws {
@@ -273,7 +294,7 @@ import Testing
         let http = Self.http()
         let places = Places(result: [WalkPromptTests.library])
         let flow = Self.flow(http, pointsOfInterest: places)
-        let (story, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: .english)
+        let (story, _) = try await flow.buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         let (more, _) = try await flow.continueStory(story, nearby: [])
         #expect(places.calls.value.count == 1 && more.applePlaces == [WalkPromptTests.library])
         // Course 0 kept on the story: library bearing 90 → to your right.
@@ -283,7 +304,7 @@ import Testing
         let http = Self.http()
         let failing = Places(result: nil)
         let (story, _) = try await Self.flow(http, pointsOfInterest: failing)
-            .buzzStory(Self.buzz, position: Self.here, context: Self.context, nearby: [], language: .english)
+            .buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: [], language: .english)
         #expect(story.applePlaces == nil && failing.calls.value.count == 1)
         #expect(try !Self.inputText(http).contains("Also on Apple Maps"))
         let working = Places(result: [WalkPromptTests.library])

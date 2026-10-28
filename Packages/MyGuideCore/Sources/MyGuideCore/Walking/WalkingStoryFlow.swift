@@ -42,10 +42,12 @@ public struct WalkingStoryFlow: Sendable {
     }
 
     /// The first level for a buzzed place. The story takes the buzz's id so a notification maps back to it.
-    public func buzzStory(_ buzz: Buzz, position: Coordinate, context: WalkContext, nearby: [WalkingPlace],
-                          language: StoryLanguage) async throws -> (WalkStory, [UsageEntry]) {
+    /// `context` (it may look up the address, which can take seconds) runs alongside the other fetches.
+    public func buzzStory(_ buzz: Buzz, position: Coordinate, context: @escaping @Sendable () async -> WalkContext,
+                          nearby: [WalkingPlace], language: StoryLanguage) async throws -> (WalkStory, [UsageEntry]) {
         let place = buzz.place.candidate
-        // The supplementary fetches run while the memory lookups do; neither fails the story.
+        // The walk context and the supplementary fetches run while the memory lookups do; none fails the story.
+        async let walk = context()
         async let applePlaces = ApplePlaces.fetch(pointsOfInterest, around: position, radius: ApplePlaces.walkingRadius)
         async let articleText = fetchArticle(place.wikipediaTitle)
         let facts = PromptBuilder.buzzFacts(nearby, excluding: place.id, position: position)
@@ -53,6 +55,7 @@ public struct WalkingStoryFlow: Sendable {
         let at = now()
         let lately = await recent(at - RecentStories.window, nil)
         let found = try await applePlaces
+        let context = await walk
         let input = PromptBuilder.walkBuzzInput(
             buzz: buzz, position: position, context: context, neighbours: facts, articleText: await articleText,
             applePlaces: found, recent: lately, priors: told, language: language, now: at, timeZone: timeZone)

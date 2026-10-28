@@ -114,11 +114,11 @@ final class WalkingStories {
 
     // MARK: - Commands
 
-    /// Prepares the story for a buzz that was just posted: the walk context (`context` looks up the address, so it may
-    /// take up to the lookup's limit), text, then speech for level 1, under a background task.
+    /// Prepares the story for a buzz that was just posted: text (the flow runs `context`, which may look up the
+    /// address, alongside its other fetches), then speech for level 1, under a background task.
     /// Always ends with `storyReady` or `storyFailed`, also when cancelled.
     func prepare(_ buzz: Buzz, position: Coordinate, nearby: [WalkingPlace], language: StoryLanguage,
-                 context: @escaping @MainActor () async -> WalkContext) {
+                 context: @escaping @MainActor @Sendable () async -> WalkContext) {
         let id = buzz.id
         let tripID = currentTripID?()
         feed(.buzzSent(id))
@@ -127,9 +127,7 @@ final class WalkingStories {
             guard let self else { return }
             do {
                 let flow = try makeFlow()
-                let walk = await context()
-                try Task.checkCancellation()
-                let (story, usage) = try await flow.buzzStory(buzz, position: position, context: walk,
+                let (story, usage) = try await flow.buzzStory(buzz, position: position, context: context,
                                                               nearby: nearby, language: language)
                 // Paid calls are counted even when the story is no longer wanted.
                 recordUsage(usage)
