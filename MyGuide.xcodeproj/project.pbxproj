@@ -22,6 +22,7 @@
 		4A41F0BABB7371E08C5F20E8 /* MyGuideWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */; };
 		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
 		56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */; };
+		581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1937BD8CD114DE987914DC8 /* WalkLog.swift */; };
 		5EFA0074A45D0C954418D2A4 /* MyGuideWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5FA86F274E41178B17735956 /* WalkStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7A49C840514706DE718EF1 /* WalkStoryView.swift */; };
 		6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7601A9D4143D662A6232BA41 /* AppServices.swift */; };
@@ -124,6 +125,7 @@
 		90746D6CA8E40DE76B97D622 /* WalkingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingController.swift; sourceTree = "<group>"; };
 		9399C561071230F13BDD5526 /* WalkingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingPanel.swift; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
+		A1937BD8CD114DE987914DC8 /* WalkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLog.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
 		C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitPointsOfInterest.swift; sourceTree = "<group>"; };
@@ -297,6 +299,7 @@
 				9399C561071230F13BDD5526 /* WalkingPanel.swift */,
 				593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */,
 				DC982992B37C30453C7F88D8 /* WalkingStories.swift */,
+				A1937BD8CD114DE987914DC8 /* WalkLog.swift */,
 				5E7A49C840514706DE718EF1 /* WalkStoryView.swift */,
 			);
 			path = Walking;
@@ -491,6 +494,7 @@
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
+				581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */,
 				5FA86F274E41178B17735956 /* WalkStoryView.swift in Sources */,
 				9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */,
 				3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */,

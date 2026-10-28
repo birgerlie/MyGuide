@@ -72,6 +72,39 @@ enum BuzzNotifier {
         try await add(content, identifier: "auto-off-\(UUID().uuidString)")
     }
 
+    /// The notification settings as the walk log's `notified` line carries them (spec 9.5): `add` succeeds even when
+    /// iOS will show nothing, so this is the only way to see why a buzz never appeared.
+    static func settingsSnapshot() async -> NotificationSettingsSnapshot {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        return NotificationSettingsSnapshot(
+            authorization: name(of: settings.authorizationStatus),
+            alert: name(of: settings.alertSetting),
+            sound: name(of: settings.soundSetting),
+            lockScreen: name(of: settings.lockScreenSetting),
+            notificationCenter: name(of: settings.notificationCenterSetting),
+            timeSensitive: name(of: settings.timeSensitiveSetting))
+    }
+
+    private static func name(of status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined: "notDetermined"
+        case .denied: "denied"
+        case .authorized: "authorized"
+        case .provisional: "provisional"
+        case .ephemeral: "ephemeral"
+        @unknown default: "unknown"
+        }
+    }
+
+    private static func name(of setting: UNNotificationSetting) -> String {
+        switch setting {
+        case .notSupported: "notSupported"
+        case .disabled: "disabled"
+        case .enabled: "enabled"
+        @unknown default: "unknown"
+        }
+    }
+
     /// Removes the BUZZ and MORE notifications, both those in the notification centre and those not yet shown.
     static func removeWalkNotifications() async {
         let center = UNUserNotificationCenter.current()

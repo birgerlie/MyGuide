@@ -19,6 +19,12 @@ final class WalkingActivityController {
         var storyID: UUID?
     }
 
+    /// Called beside the memory log for every Live Activity failure, with its context, for the walk log.
+    var onFailure: ((String, Error) -> Void)?
+
+    /// The owner's Live Activities setting.
+    static var areActivitiesEnabled: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
+
     private var activity: Activity<WalkingActivityAttributes>?
     /// The last status text; nothing is pushed for the same text again.
     private var status: String?
@@ -60,6 +66,7 @@ final class WalkingActivityController {
             return requested.id
         } catch {
             AppServices.logMemoryFailure("live activity start failed", error)
+            onFailure?("live activity start failed", error)
             return nil
         }
     }

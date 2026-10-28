@@ -33,6 +33,8 @@ final class AppServices {
     /// The one walking-mode controller. It lives here so walking continues with the phone locked and
     /// notification actions still find it.
     let walking: WalkingController
+    /// The walk log of walking mode: the run in progress and where the run files live.
+    let walkLog = WalkLog()
 
     /// False when the persistent store could not be opened and memory is held in RAM only.
     let memoryIsPersistent: Bool
@@ -42,6 +44,7 @@ final class AppServices {
         self.memoryIsPersistent = memoryIsPersistent
         let http = http
         let keychain = keychain
+        let walkLog = walkLog
         let articles = ArticleTextCache(client: WikipediaClient(http: http))
         self.articles = articles
         let stories = WalkingStories(
@@ -55,6 +58,7 @@ final class AppServices {
         walking = WalkingController(
             memory: memory,
             stories: stories,
+            walkLog: walkLog,
             makeSource: { Self.walkingSource(http: http) },
             hasAPIKey: { ((try? keychain.read(Self.apiKeyAccount)) ?? nil)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false })
         let walkingCheck = walkingCheck

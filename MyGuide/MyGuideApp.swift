@@ -8,6 +8,7 @@ struct MyGuideApp: App {
     @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
     private let container: ModelContainer
     @State private var services: AppServices
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let container: ModelContainer
@@ -46,6 +47,8 @@ struct MyGuideApp: App {
     var body: some Scene {
         WindowGroup {
             HomeScreen(services: services)
+            // Foreground and background during a walk go into the walk log.
+            .onChange(of: scenePhase) { services.walking.noteScenePhase($1) }
             // myguide://walk/<id>, from the Live Activity: open that walk story.
             .onOpenURL { url in
                 if let id = WalkLink.storyID(from: url) { services.walking.stories.open(id) }

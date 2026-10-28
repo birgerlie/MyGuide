@@ -49,6 +49,8 @@ final class WalkingStories {
     @ObservationIgnored var currentTripID: (() -> UUID?)?
     /// The places walking mode has now, given to a continuation ("More").
     @ObservationIgnored var currentPlaces: (@MainActor () -> [WalkingPlace])?
+    /// The walk log (set by `WalkingController`). It writes nothing while walking mode is off.
+    @ObservationIgnored var walkLog: WalkLog?
 
     @ObservationIgnored private let memory: MemoryStore
     @ObservationIgnored private let makeFlow: @MainActor () throws -> WalkingStoryFlow
@@ -68,6 +70,10 @@ final class WalkingStories {
     /// silent. Any other cancellation (background time ran out) is reported.
     @ObservationIgnored private var ownCancels: Set<UUID> = []
     @ObservationIgnored private var errors: [(id: UUID, error: Error)] = []
+    /// When each buzz story started preparing, for the seconds of its `storyReady` or `storyFailed` line.
+    @ObservationIgnored private var preparedAt: [UUID: Date] = [:]
+    /// The busy flag last written and the run file it went to; a new run writes the flag afresh.
+    @ObservationIgnored private var loggedBusy: (run: URL, busy: Bool)?
 
     init(memory: MemoryStore, makeFlow: @escaping @MainActor () throws -> WalkingStoryFlow,
          makeSpeech: @escaping @MainActor () throws -> SpeechService,
@@ -107,7 +113,7 @@ final class WalkingStories {
         do {
             return try memory.walkStory(id: id)
         } catch {
-            AppServices.logMemoryFailure("walk story load failed", error)
+            fail("walk story load failed", error)
             return nil
         }
     }
@@ -123,6 +129,8 @@ final class WalkingStories {
         let tripID = currentTripID?()
         feed(.buzzSent(id))
         preparing.insert(id)
+        preparedAt[id] = .now
+        walkLog?.log(.storyPreparing(id: id))
         prepareTasks[id] = runInBackground("MyGuide walk story") { [weak self] in
             guard let self else { return }
             do {
@@ -165,18 +173,24 @@ final class WalkingStories {
                 let walk = await context()
                 try Task.checkCancellation()
                 guard let told = try await flow.stopStory(position: position, context: walk, nearby: nearby,
-                                                          language: language) else { return }
+                                                          language: language) else {
+                    walkLog?.log(.stopStory(outcome: .silent, title: nil, error: nil))
+                    return
+                }
                 let (story, usage) = told
                 // Paid calls are counted even when the story is no longer wanted.
                 recordUsage(usage)
                 try Task.checkCancellation()
                 save(story, tripID: tripID)
                 prepared.store(story)
+                walkLog?.log(.stopStory(outcome: .told, title: story.title, error: nil))
                 ready(story)
             } catch is CancellationError {
-                // Walking mode went off meanwhile: silent.
+                // Walking mode went off meanwhile: silent (and the run's log has ended, so this writes nothing then).
+                walkLog?.log(.stopStory(outcome: .failed, title: nil, error: "cancelled"))
             } catch {
-                AppServices.logMemoryFailure("stop story failed", error)
+                fail("stop story failed", error)
+                walkLog?.log(.stopStory(outcome: .failed, title: nil, error: WalkLogEvent.errorText(error)))
             }
         }
     }
@@ -247,6 +261,7 @@ final class WalkingStories {
         if case .skip(let id) = event { skippedLevel = playback.deepestLevel(id) ?? 0 }
         let effects = playback.handle(event)
         onBusyChanged?(playback.isBusy)
+        logBusy()
         for effect in effects {
             switch effect {
             case .play(let id, let level): play(id, level: level)
@@ -262,6 +277,17 @@ final class WalkingStories {
     private func endPreparing(_ id: UUID, with event: WalkingPlayback.Event) {
         prepareTasks[id] = nil
         preparing.remove(id)
+        let seconds = preparedAt.removeValue(forKey: id).map { max(0, Date.now.timeIntervalSince($0)) } ?? 0
+        switch event {
+        case .storyReady:
+            walkLog?.log(.storyReady(id: id, seconds: seconds))
+        case .storyFailed:
+            let error = errors.last { $0.id == id }?.error
+            let text = error.map { $0 is CancellationError ? "cancelled" : WalkLogEvent.errorText($0) } ?? "unknown"
+            walkLog?.log(.storyFailed(id: id, seconds: seconds, error: text))
+        default:
+            break
+        }
         if case .storyReady = event, prepared.story(id) != nil { featuredID = id }
         feed(event)
     }
@@ -376,7 +402,11 @@ final class WalkingStories {
     private func offerMore(_ id: UUID) {
         guard let title = (prepared.story(id) ?? storedStory(id))?.title else { return }
         Task {
-            do { try await BuzzNotifier.postMore(id: id, title: title) } catch { AppServices.logMemoryFailure("more post failed", error) }
+            do {
+                try await posting(.more, id: id) { try await BuzzNotifier.postMore(id: id, title: title) }
+            } catch {
+                fail("more post failed", error)
+            }
         }
     }
 
@@ -406,11 +436,39 @@ final class WalkingStories {
         guard !body.isEmpty else { return }
         lastFailure = Failure(id: id, message: body)
         Task {
-            do { try await BuzzNotifier.postFailure(id: id, body: body) } catch { AppServices.logMemoryFailure("failure post failed", error) }
+            do {
+                try await posting(.storyFailed, id: id) { try await BuzzNotifier.postFailure(id: id, body: body) }
+            } catch {
+                fail("failure post failed", error)
+            }
         }
     }
 
     // MARK: - Helpers
+
+    /// Logs a failure without any story text: to the memory log, and to the walk log while a run is on.
+    private func fail(_ context: String, _ error: Error) {
+        AppServices.logMemoryFailure(context, error)
+        walkLog?.log(.failure(context: context, error: WalkLogEvent.errorText(error)))
+    }
+
+    /// Writes `busy` when the flag differs from the last one written to this run's file.
+    private func logBusy() {
+        guard let walkLog, let run = walkLog.currentURL else { return }
+        let busy = playback.isBusy
+        if let loggedBusy, loggedBusy.run == run, loggedBusy.busy == busy { return }
+        loggedBusy = (run, busy)
+        walkLog.log(.busy(busy))
+    }
+
+    /// Posts through the walk log, which records `notified` or `notifyFailed`.
+    private func posting(_ kind: WalkNotificationKind, id: UUID, _ post: @MainActor () async throws -> Void) async throws {
+        if let walkLog {
+            try await walkLog.posting(kind, id: id, post)
+        } else {
+            try await post()
+        }
+    }
 
     /// Cached speech is named `<story id>-<level>-<language>.mp3`: `SpeechService` appends the language.
     private func speechFile(for story: WalkStory, level: Int) async throws -> URL {
@@ -432,12 +490,12 @@ final class WalkingStories {
             try memory.setBuzzOutcome(id, .heard, deepestLevel: level, at: now)
         } catch MemoryError.corruptRecord {
             if let candidate = story.place {
-                do { try memory.markHeard(candidate, level: level, at: now) } catch { AppServices.logMemoryFailure("heard failed", error) }
+                do { try memory.markHeard(candidate, level: level, at: now) } catch { fail("heard failed", error) }
             } else {
-                AppServices.logMemoryFailure("heard outcome failed", MemoryError.corruptRecord)
+                fail("heard outcome failed", MemoryError.corruptRecord)
             }
         } catch {
-            AppServices.logMemoryFailure("heard outcome failed", error)
+            fail("heard outcome failed", error)
         }
         if let placeID = story.place?.id { onHeard?(placeID) }
     }
@@ -449,7 +507,7 @@ final class WalkingStories {
             try memory.saveWalkStory(story, tripID: tripID ?? UUID())
             LatestStoryRef.record(.walk(story.id))
         } catch {
-            AppServices.logMemoryFailure("walk story save failed", error)
+            fail("walk story save failed", error)
         }
     }
 
@@ -458,7 +516,7 @@ final class WalkingStories {
         do {
             return try memory.deepestLevelHeard(buzzID: id) ?? 0
         } catch {
-            AppServices.logMemoryFailure("deepest level lookup failed", error)
+            fail("deepest level lookup failed", error)
             return 0
         }
     }

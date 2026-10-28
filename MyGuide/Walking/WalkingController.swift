@@ -1,7 +1,9 @@
 import CoreLocation
+import CoreMotion
 import MyGuideCore
 import Observation
 import os
+import SwiftUI
 import UIKit
 import UserNotifications
 
@@ -16,7 +18,7 @@ enum WalkingCommand {
 
 /// Walking mode on the phone: follows the walker in the background, keeps the nearby places fresh and
 /// buzzes when one is due. Owned by `AppServices`, so it keeps running with the phone locked.
-/// A memory failure is logged and never stops walking mode.
+/// A memory failure is logged and never stops walking mode. Each run writes its walk log (spec 4).
 @MainActor
 @Observable
 final class WalkingController {
@@ -37,6 +39,7 @@ final class WalkingController {
     let stories: WalkingStories
 
     @ObservationIgnored private let memory: MemoryStore
+    @ObservationIgnored private let walkLog: WalkLog
     @ObservationIgnored private let makeSource: () -> WalkingPlaceSource
     @ObservationIgnored private let hasAPIKey: () -> Bool
     @ObservationIgnored private let location = WalkingLocation()
@@ -68,10 +71,19 @@ final class WalkingController {
     @ObservationIgnored private var startToken: UUID?
     /// Identifies the current run (start to stop), so work begun in an earlier run never touches this one.
     @ObservationIgnored private var runToken: UUID?
+    /// The last fix written to the walk log (logged or dropped), so the log thins like the track, on its own.
+    @ObservationIgnored private var lastLoggedSample: TrackSample?
+    /// The GPS state last written to the walk log. A run starts waiting for GPS, so its first `gps` line is `found`.
+    @ObservationIgnored private var loggedGPS = false
+    /// The app state last written to the walk log. A run starts in the foreground (the owner tapped Walk).
+    @ObservationIgnored private var loggedForeground = true
+    /// Failures during a start, before the run's log is open; written right after its `started` line.
+    @ObservationIgnored private var startFailures: [WalkLogEvent] = []
 
-    init(memory: MemoryStore, stories: WalkingStories, makeSource: @escaping () -> WalkingPlaceSource,
+    init(memory: MemoryStore, stories: WalkingStories, walkLog: WalkLog, makeSource: @escaping () -> WalkingPlaceSource,
          hasAPIKey: @escaping () -> Bool) {
         self.memory = memory
+        self.walkLog = walkLog
         self.stories = stories
         self.makeSource = makeSource
         self.hasAPIKey = hasAPIKey
@@ -81,10 +93,12 @@ final class WalkingController {
         stories.onRetire = { [weak self] id, candidate, level in self?.retire(id, candidate: candidate, deepestLevel: level) }
         stories.currentTripID = { [weak self] in self?.tripID }
         stories.currentPlaces = { [weak self] in self?.feed.places ?? [] }
+        stories.walkLog = walkLog
+        activity.onFailure = { [weak self] context, error in self?.logFailure(context, error) }
         location.onLocation = { [weak self] fix in self?.handle(fix) }
         location.onDenied = { [weak self] in
             guard let self, isOn else { return }
-            stop()
+            stop(reason: .locationDenied)
             problems = WalkingReadiness.problems(location: .denied, notifications: .allowed, hasAPIKey: true)
         }
         // "Always" is answered after start, so the reminder follows the real status while walking.
@@ -103,6 +117,7 @@ final class WalkingController {
         guard !isOn, startToken == nil else { return }
         let token = UUID()
         startToken = token
+        startFailures = []
         defer { if startToken == token { startToken = nil } }
 
         // Ask while something is undetermined, then judge.
@@ -111,7 +126,7 @@ final class WalkingController {
             do {
                 _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             } catch {
-                AppServices.logMemoryFailure("notification permission request failed", error)
+                fail("notification permission request failed", error)
             }
         }
         guard startToken == token else { return }
@@ -133,7 +148,7 @@ final class WalkingController {
             return
         }
         await BuzzNotifier.registerCategories()
-        do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
+        do { try memory.closePendingBuzzes() } catch { fail("closing pending buzzes failed", error) }
         let city = await Self.city(near: location.lastKnown)
         guard startToken == token else {
             if let activityID { activity.end(id: activityID) }
@@ -143,16 +158,16 @@ final class WalkingController {
         do {
             trip = try memory.touchTrip(now: now, city: city).id
         } catch {
-            AppServices.logMemoryFailure("trip update failed", error)
+            fail("trip update failed", error)
             trip = UUID()
         }
         tripID = trip
         var excluded = Set<String>()
-        do { excluded.formUnion(try memory.retiredPlaceIDs()) } catch { AppServices.logMemoryFailure("retired places failed", error) }
-        do { excluded.formUnion(try memory.placeIDsBuzzed(tripID: trip)) } catch { AppServices.logMemoryFailure("buzzed places failed", error) }
+        do { excluded.formUnion(try memory.retiredPlaceIDs()) } catch { fail("retired places failed", error) }
+        do { excluded.formUnion(try memory.placeIDsBuzzed(tripID: trip)) } catch { fail("buzzed places failed", error) }
 
         var stopSpots: [Coordinate] = []
-        do { stopSpots = try memory.stopSpots(tripID: trip) } catch { AppServices.logMemoryFailure("stop spots failed", error) }
+        do { stopSpots = try memory.stopSpots(tripID: trip) } catch { fail("stop spots failed", error) }
         stopDetector = StopDetector(previousStops: stopSpots)
 
         appliedPerHour = Self.configuredPerHour()
@@ -160,23 +175,37 @@ final class WalkingController {
         // A story from before this run may still be playing or ending.
         engine.isBusy = stories.isBusy
         self.engine = engine
-        runToken = UUID()
+        let run = UUID()
+        runToken = run
+        walkLog.begin(runID: run, at: now)
         feed = PlaceFeed()
         source = makeSource()
         postedCandidates = [:]
         track = []
         lastTrackSample = nil
+        lastLoggedSample = nil
+        loggedGPS = false
+        loggedForeground = true
         resetRoute()
         buzzCount = 0
         lastFixAt = nil
         startedAt = now
         UIDevice.current.isBatteryMonitoringEnabled = true
         isOn = true
+        walkLog.log(.started(startFields(state)), at: now)
+        for failure in startFailures { walkLog.log(failure.kind, at: failure.at) }
+        startFailures = []
         location.start()
         startAutoOffTimer(run: runToken)
     }
 
-    func stop() {
+    /// Turns walking mode off; `reason` goes into the walk log's `stopped` line.
+    func stop(reason: WalkStopReason = .user) {
+        stop(reason: reason, autoOffMessage: nil)
+    }
+
+    /// `autoOffMessage`, when given, is posted after the stop; its outcome is the last line of the run's log.
+    private func stop(reason: WalkStopReason, autoOffMessage: String?) {
         startToken = nil
         guard isOn else { return }
         isOn = false
@@ -188,7 +217,7 @@ final class WalkingController {
         location.stop()
         flushTrack()
         resetRoute()
-        do { try memory.closePendingBuzzes() } catch { AppServices.logMemoryFailure("closing pending buzzes failed", error) }
+        do { try memory.closePendingBuzzes() } catch { fail("closing pending buzzes failed", error) }
         fetchTask?.cancel()
         fetchTask = nil
         feed.fetchCancelled()
@@ -200,6 +229,28 @@ final class WalkingController {
         // Preparations and fetches still end with their (silent) failure events, so the machine never stays busy.
         stories.stopAll()
         Task { await BuzzNotifier.removeWalkNotifications() }
+        walkLog.log(.stopped(reason))
+        if let autoOffMessage {
+            walkLog.end(posting: .autoOff, id: nil, { try await BuzzNotifier.postAutoOff(autoOffMessage) },
+                        // Memory log only: the run is over, and its `notifyFailed` line already holds the error.
+                        onError: { AppServices.logMemoryFailure("auto-off notification failed", $0) })
+        } else {
+            walkLog.end()
+        }
+    }
+
+    /// Writes the app's foreground and background changes while walking mode is on; `.inactive` is ignored.
+    func noteScenePhase(_ phase: ScenePhase) {
+        guard isOn else { return }
+        let foreground: Bool
+        switch phase {
+        case .active: foreground = true
+        case .background: foreground = false
+        default: return
+        }
+        guard foreground != loggedForeground else { return }
+        loggedForeground = foreground
+        walkLog.log(.app(foreground: foreground))
     }
 
     /// At launch: walking mode never survives a relaunch, so a walking Live Activity still on the lock screen belongs
@@ -242,9 +293,9 @@ final class WalkingController {
             try memory.setBuzzOutcome(buzzID, .skipped, deepestLevel: deepestLevel, at: now)
         } catch {
             if let candidate {
-                do { try memory.markSkipped(candidate, at: now) } catch { AppServices.logMemoryFailure("skip failed", error) }
+                do { try memory.markSkipped(candidate, at: now) } catch { fail("skip failed", error) }
             } else {
-                AppServices.logMemoryFailure("skip failed", error)
+                fail("skip failed", error)
             }
         }
         if let candidate { engine?.exclude(candidate.id) }
@@ -260,6 +311,7 @@ final class WalkingController {
                 try? await Task.sleep(for: Self.autoOffInterval)
                 guard !Task.isCancelled, let self, self.isOn, self.runToken == run else { return }
                 self.checkAutoOff(now: .now)
+                self.noteGPS(now: .now)
                 self.refreshActivity(now: .now)
             }
         }
@@ -271,11 +323,12 @@ final class WalkingController {
               let reason = AutoOff.reason(activeTime: AutoOff.activeTime(startedAt: startedAt, now: now, pausedTotal: 0, pausedSince: nil),
                                           pausedFor: nil, batteryLevel: UIDevice.current.batteryLevel)
         else { return }
-        stop()
-        let message = AutoOff.message(reason)
-        Task {
-            do { try await BuzzNotifier.postAutoOff(message) } catch { AppServices.logMemoryFailure("auto-off notification failed", error) }
+        let stopReason: WalkStopReason = switch reason {
+        case .timeLimit: .timeLimit
+        case .lowBattery: .lowBattery
+        case .pausedTooLong: .pausedTooLong
         }
+        stop(reason: stopReason, autoOffMessage: AutoOff.message(reason))
     }
 
     // MARK: - Fixes
@@ -283,10 +336,17 @@ final class WalkingController {
     private func handle(_ fix: CLLocation) {
         let now = Date.now
         checkAutoOff(now: now)
+        guard isOn, engine != nil else { return }
         // CoreLocation's first fix can be its cached position from minutes ago: not where the walker is.
-        guard isOn, engine != nil, fix.horizontalAccuracy >= 0, WalkingFix.isFresh(fix.timestamp, now: now) else { return }
+        guard fix.horizontalAccuracy >= 0, WalkingFix.isFresh(fix.timestamp, now: now) else {
+            logFix(fix, dropped: fix.horizontalAccuracy < 0 ? .invalid : .stale, at: now)
+            noteGPS(now: now)
+            return
+        }
         // The status says "waiting for GPS" until a fix the engine can use arrives.
         if WalkingFix.isUsable(accuracy: fix.horizontalAccuracy) { lastFixAt = fix.timestamp }
+        logFix(fix, dropped: nil, at: now)
+        noteGPS(now: now)
         let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
 
         // Every fix arrives (no distance filter); the stored track keeps one per 5 m or per minute. The route gets
@@ -306,6 +366,7 @@ final class WalkingController {
 
         // The raw speed: -1 means unknown, which the detector does not count as moving.
         if let spot = stopDetector?.update(position: position, accuracy: fix.horizontalAccuracy, speed: fix.speed, now: now) {
+            walkLog.log(.stopDetected(spot), at: now)
             tellStop(at: spot)
         }
 
@@ -320,10 +381,40 @@ final class WalkingController {
         // The buzz's side ("50 m left") and its story use the same direction: the route's, else the GPS course
         // (spec 6.4). The route was fed above, so it has this fix when it counts as a route fix.
         let direction = route.walkingBearing ?? course
-        let buzz = engine?.evaluate(places: feed.places, position: position, accuracy: fix.horizontalAccuracy,
-                                    course: direction, now: now)
-        if let buzz { deliver(buzz, position: position, direction: direction, at: now) }
+        switch engine?.decide(places: feed.places, position: position, accuracy: fix.horizontalAccuracy,
+                              course: direction, now: now) {
+        case .buzz(let buzz):
+            walkLog.log(.buzz(WalkLogBuzz(buzz)), at: now)
+            walkLog.resetQuiet()
+            deliver(buzz, position: position, direction: direction, at: now)
+        case .quiet(let reason, let due):
+            walkLog.logQuiet(reason, due: due, at: now)
+        case nil:
+            break
+        }
         refreshActivity(now: now)
+    }
+
+    /// Writes a fix to the walk log, thinned like the stored track (one per 5 m or per minute) but on its own state.
+    /// `dropped` marks a fix the controller does not use. Unknown speed and course (negative) are written as null.
+    private func logFix(_ fix: CLLocation, dropped: FixDrop?, at now: Date) {
+        let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
+        let sample = TrackSample(at: fix.timestamp, coordinate: position)
+        guard TrackSample.isWorthStoring(sample, after: lastLoggedSample) else { return }
+        lastLoggedSample = sample
+        walkLog.log(.fix(WalkLogFix(coordinate: position, accuracy: fix.horizontalAccuracy,
+                                    speed: fix.speed >= 0 ? fix.speed : nil, course: fix.course >= 0 ? fix.course : nil,
+                                    paused: false, dropped: dropped)), at: now)
+    }
+
+    /// Writes `gps` when the status changes between waiting for GPS and having GPS.
+    private func noteGPS(now: Date) {
+        guard isOn else { return }
+        let found = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: false)
+            != WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: buzzCount, now: now, paused: false)
+        guard found != loggedGPS else { return }
+        loggedGPS = found
+        walkLog.log(.gps(found: found), at: now)
     }
 
     /// Shows the status on the Live Activity; it only changes with the buzz count or the GPS state, and is pushed
@@ -407,9 +498,15 @@ final class WalkingController {
             guard let self else { return }
             do {
                 try await activity.showStop(story, quiet: quiet)
+                if isOn, runToken == run { walkLog.log(.stopShown(via: .liveActivity)) }
             } catch {
                 guard isOn, runToken == run else { return }
-                do { try await BuzzNotifier.postStop(story, quiet: quiet) } catch { AppServices.logMemoryFailure("stop post failed", error) }
+                do {
+                    try await walkLog.posting(.stop, id: story.id) { try await BuzzNotifier.postStop(story, quiet: quiet) }
+                    if isOn, runToken == run { walkLog.log(.stopShown(via: .notification)) }
+                } catch {
+                    fail("stop post failed", error)
+                }
             }
         }
     }
@@ -417,13 +514,18 @@ final class WalkingController {
     private func deliver(_ buzz: Buzz, position: Coordinate, direction: Double?, at now: Date) {
         postedCandidates[buzz.id] = buzz.place.candidate
         if let tripID {
-            do { try memory.recordBuzz(buzz, tripID: tripID, at: now) } catch { AppServices.logMemoryFailure("buzz record failed", error) }
+            do { try memory.recordBuzz(buzz, tripID: tripID, at: now) } catch { fail("buzz record failed", error) }
         }
         buzzCount += 1
         let run = runToken
         Task { [weak self] in
             guard let self, self.isOn, self.runToken == run else { return }
-            do { try await BuzzNotifier.post(buzz) } catch { AppServices.logMemoryFailure("buzz post failed", error); return }
+            do {
+                try await self.walkLog.posting(.buzz, id: buzz.id) { try await BuzzNotifier.post(buzz) }
+            } catch {
+                self.fail("buzz post failed", error)
+                return
+            }
             // stop() may have cleared the notifications while this one was being added: take it back.
             if !self.isOn || self.runToken != run { BuzzNotifier.removeNotifications(for: buzz.id) }
         }
@@ -441,6 +543,7 @@ final class WalkingController {
     private func fetch(around position: Coordinate, now: Date) {
         guard let source else { return }
         feed.fetchStarted(now: now)
+        walkLog.log(.fetchStarted(position), at: now)
         let language = Self.storyLanguage()
         let run = runToken
         fetchTask = Task { [weak self] in
@@ -455,9 +558,11 @@ final class WalkingController {
             switch result {
             case .success(let places) where !Task.isCancelled:
                 self.feed.fetchSucceeded(places, at: position, now: .now)
+                self.walkLog.log(WalkLogEvent.fetched(places, around: position))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
                 // A real failure waits 60 s before the next try.
                 self.feed.fetchFailed(now: .now)
+                self.walkLog.log(.fetchFailed(error: WalkLogEvent.errorText(error)))
             default:
                 // The app's own cancellation is silent and sets no retry delay.
                 self.feed.fetchCancelled()
@@ -471,9 +576,27 @@ final class WalkingController {
             try memory.appendTrack(track, tripID: tripID)
             track = []
         } catch {
-            AppServices.logMemoryFailure("track save failed", error)
+            fail("track save failed", error)
             // A failed save rolls back, so the samples can be retried with the next flush.
             if track.count > Self.trackLimit { track.removeFirst(track.count - Self.trackLimit) }
+        }
+    }
+
+    // MARK: - Failures
+
+    /// Logs a failure without any story text: to the memory log, and to the walk log.
+    private func fail(_ context: String, _ error: Error) {
+        AppServices.logMemoryFailure(context, error)
+        logFailure(context, error)
+    }
+
+    /// Writes `failure` to the walk log. During a start, before the run's log is open, it is kept for the run.
+    private func logFailure(_ context: String, _ error: Error) {
+        let kind = WalkLogEvent.Kind.failure(context: context, error: WalkLogEvent.errorText(error))
+        if !isOn, startToken != nil {
+            startFailures.append(WalkLogEvent(at: .now, kind: kind))
+        } else {
+            walkLog.log(kind)
         }
     }
 
@@ -498,6 +621,42 @@ final class WalkingController {
         @unknown default: .denied
         }
         return Readiness(location: location, notifications: await Self.notificationState(), hasAPIKey: hasAPIKey())
+    }
+
+    /// The `started` line: app version and build, the permissions as judged for this start, and the settings.
+    private func startFields(_ state: Readiness) -> WalkLogStart {
+        let info = Bundle.main.infoDictionary
+        let location: LocationPermission = switch state.location {
+        case .always: .always
+        case .whenInUse: .whenInUse
+        case .denied: .denied
+        case .notDetermined: .notDetermined
+        }
+        let notifications: NotificationPermission = switch state.notifications {
+        case .allowed, .timeSensitiveOff: .allowed
+        case .denied: .denied
+        case .notDetermined: .notDetermined
+        }
+        // -1 means unknown (the simulator, or monitoring not ready yet). Two decimals: the level comes in 1 % steps.
+        let level = UIDevice.current.batteryLevel
+        let battery = level < 0 ? nil : (Double(level) * 100).rounded() / 100
+        return WalkLogStart(appVersion: info?["CFBundleShortVersionString"] as? String ?? "",
+                            build: info?["CFBundleVersion"] as? String ?? "",
+                            location: location, notifications: notifications,
+                            liveActivities: WalkingActivityController.areActivitiesEnabled,
+                            motion: Self.motionPermission(), perHour: appliedPerHour, battery: battery)
+    }
+
+    /// Read only: walking mode does not ask for motion access in this version.
+    private static func motionPermission() -> MotionPermission {
+        guard CMMotionActivityManager.isActivityAvailable() else { return .unavailable }
+        return switch CMMotionActivityManager.authorizationStatus() {
+        case .authorized: .authorized
+        case .denied: .denied
+        case .restricted: .restricted
+        case .notDetermined: .notDetermined
+        @unknown default: .denied
+        }
     }
 
     private static func notificationState() async -> WalkingReadiness.Notifications {
