@@ -23,8 +23,9 @@ import Testing
         #expect(lines.contains("Summary: Gate of the palace."))
         #expect(lines.contains("Already told:"))
         #expect(lines.contains("- [osm:node/1] level 1: Told before."))
-        // StoryLevel.first: 20 s · 150 / 60 = 50 words.
-        #expect(lines.last == "Write the first story in about 50 words.")
+        // gate is tier .top: buzz first level 75 words; 75·60/150 = 30 s.
+        #expect(Self.gate.tier == .top)
+        #expect(lines.last == "Length: about 75 words (30 seconds spoken), 2–3 points")
     }
     @Test func buzzNeighboursAreTierThenDistanceWithoutTheBuzzedPlace() throws {
         let text = PromptBuilder.walkBuzzInput(buzz: Self.buzz, course: nil, facts: Self.facts, position: Self.origin, priors: [])
@@ -62,7 +63,8 @@ import Testing
                                                           "- Mozart plaque (historic=memorial), 30 m"])
         #expect(!text.contains("Hofburg"))
         #expect(lines.contains("- [osm:node/1] level 1: Told before."))
-        #expect(lines.last == "Write the first story in about 50 words.")
+        // best listed tier is .top (gate): stop = min(75, 50) = 50 words; 50·60/150 = 20 s.
+        #expect(lines.last == "Length: about 50 words (20 seconds spoken), 2–3 points")
     }
     @Test func stopFactsAreCappedAtFive() {
         let many = (0..<8).map { Self.place("osm:node/2\($0)", "Q\($0)", "k", north: Double(10 + $0 * 10), tier: .good) }
@@ -78,15 +80,15 @@ import Testing
         let story = WalkStory(id: UUID(), kind: .buzz, place: Self.gate.candidate, position: Self.origin, course: nil,
                               language: .english, title: "T", levels: ["First text."], createdAt: .now, detail: "50 m left")
         let text = PromptBuilder.walkContinuationInput(story: story, level: .more, priors: [])
-        // StoryLevel.more: 30 s · 150 / 60 = 75 words.
-        #expect(text.contains("Story length: about 75 words (30 seconds spoken)."))
+        // level .more: 200 words; 200·60/150 = 80 s.
+        #expect(text.contains("Length: about 200 words (80 seconds spoken), 3–4 points"))
         #expect(text.contains("Place: Michaelertor (historic=city_gate), 50 m left."))
         #expect(text.contains("Level 1: First text."))
         let stop = WalkStory(id: UUID(), kind: .stop, place: nil, position: Self.origin, course: nil, language: .english,
                              title: "T", levels: ["A", "B"], createdAt: .now, address: Address(line: "Graben"))
         let stopText = PromptBuilder.walkContinuationInput(story: stop, level: .evenMore, priors: [Self.prior])
-        // StoryLevel.evenMore: 120 s · 150 / 60 = 300 words.
-        #expect(stopText.contains("about 300 words (2 minutes spoken)") && stopText.contains("Where: Graben"))
+        // level .evenMore: 300 words; 300·60/150 = 120 s = 2 minutes.
+        #expect(stopText.contains("about 300 words (2 minutes spoken), as many as the facts carry") && stopText.contains("Where: Graben"))
         #expect(stopText.contains("Level 2: B") && stopText.contains("- [osm:node/1] level 1: Told before."))
     }
     @Test func schemaIsStrictWithTitleAndStory() throws {

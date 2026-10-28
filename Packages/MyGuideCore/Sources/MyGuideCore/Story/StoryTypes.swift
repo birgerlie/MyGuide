@@ -21,25 +21,9 @@ public enum StoryLanguage: String, Sendable, Codable, CaseIterable {
     }
 }
 
-/// How deep into a place's story the listener is. Spoken at about 150 words per minute (spec 6).
+/// How deep into a place's story the listener is. Lengths: see `StoryLength`.
 public enum StoryLevel: Int, Sendable, Codable, CaseIterable {
     case first = 1, more = 2, evenMore = 3
-
-    public var targetSeconds: Int {
-        switch self {
-        case .first: 20
-        case .more: 30
-        case .evenMore: 120
-        }
-    }
-
-    /// `targetSeconds` · 150 words per minute / 60.
-    public var targetWords: Int { targetSeconds * 150 / 60 }
-
-    public var lengthPhrase: String {
-        let spoken = targetSeconds >= 60 ? "\(targetSeconds / 60) minutes" : "\(targetSeconds) seconds"
-        return "about \(targetWords) words (\(spoken) spoken)"
-    }
 
     public var next: StoryLevel? { StoryLevel(rawValue: rawValue + 1) }
 }

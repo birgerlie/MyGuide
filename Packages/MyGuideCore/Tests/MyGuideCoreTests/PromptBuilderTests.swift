@@ -12,12 +12,7 @@ import Foundation
                        headingAccuracy: acc, horizontalFOV: 55, takenAt: .now, source: .camera)
     }
 
-    @Test func levelTargets() {
-        // words = seconds·150/60:  20·150/60 = 50;  30·150/60 = 75;  120·150/60 = 300
-        #expect(StoryLevel.allCases.map(\.targetWords) == [50, 75, 300])
-        #expect(StoryLevel.allCases.map(\.lengthPhrase) == ["about 50 words (20 seconds spoken)",
-                                                           "about 75 words (30 seconds spoken)",
-                                                           "about 300 words (2 minutes spoken)"])
+    @Test func levelSuccession() {
         #expect(StoryLevel.evenMore.next == nil && StoryLevel.first.next == .more)
     }
     @Test func instructionsCarryVoiceAndLanguage() {
@@ -32,7 +27,7 @@ import Foundation
     }
     @Test func firstInputWithHeading() {
         let s = PromptBuilder.firstStoryInput(capture: Self.capture(heading: 312, acc: 10), grounding: Self.grounding, priors: [])
-        #expect(s.contains("Story length: about 50 words (20 seconds spoken)."))
+        #expect(s.contains("Length: about 200 words (80 seconds spoken), 3–4 points"))
         #expect(s.contains("Position: 48.208200, 16.373800 (accuracy ±8 m)"))
         #expect(s.contains("Facing: 312° (north-west), compass accuracy ±10°"))
         #expect(s.contains("Address: Michaelerplatz, Vienna, Austria"))
@@ -148,7 +143,7 @@ import Foundation
         let session = Self.session()
         let s = PromptBuilder.continuationInput(session: session, level: .more,
             priors: [PriorStory(placeID: "osm:way/1", level: .first, text: "Earlier visit.", toldAt: .now)])
-        #expect(s.contains("Story length: about 75 words (30 seconds spoken)."))
+        #expect(s.contains("Length: about 200 words (80 seconds spoken), 3–4 points"))
         #expect(s.contains("Subject: Michaelertor (confidence: likely)"))
         #expect(s.contains("Facts:\n- Michaelertor — historic=building\n  Summary: Gate of the palace."))
         #expect(s.contains("Told so far:\nLevel 1: L1 text."))
@@ -178,7 +173,7 @@ import Foundation
         let none = Grounding(candidates: [], address: nil, failedSources: [])
         let s = PromptBuilder.continuationInput(session: Self.session(grounding: none, matched: nil), level: .evenMore, priors: [])
         // 120·150/60 = 300
-        #expect(s.contains("Story length: about 300 words (2 minutes spoken)."))
+        #expect(s.contains("Length: about 300 words (2 minutes spoken), as many as the facts carry"))
         #expect(s.contains("Facts: none found") && !s.contains("Address:"))
     }
     @Test func decodeContinuation() throws {

@@ -20,7 +20,7 @@ public enum PromptBuilder {
     }
 
     static func firstStoryInput(capture: CaptureContext, grounding: Grounding, priors: [PriorStory]) -> String {
-        var lines = ["Story length: \(StoryLevel.first.lengthPhrase)."]
+        var lines = [StoryLength.of(kind: .photo, level: .first, tier: nil).line]
 
         if let c = capture.coordinate {
             var position = String(format: "Position: %.6f, %.6f", c.latitude, c.longitude)
@@ -125,7 +125,7 @@ public enum PromptBuilder {
     }
 
     static func continuationInput(session: StorySession, level: StoryLevel, priors: [PriorStory]) -> String {
-        var lines = ["Story length: \(level.lengthPhrase).",
+        var lines = [StoryLength.of(kind: .photo, level: level, tier: nil).line,
                      "Subject: \(session.identified.subject) (confidence: \(session.identified.confidence.rawValue))"]
         if let address = session.grounding.address {
             lines.append("Address: \(address.display)")
@@ -193,7 +193,7 @@ public enum PromptBuilder {
             lines.append(contentsOf: others.map { factLine($0, from: position) })
         }
         lines.append(contentsOf: priorsBlock(priors))
-        lines.append(firstStoryLengthLine)
+        lines.append(StoryLength.of(kind: .buzz, level: .first, tier: buzz.place.tier).line)
         return lines.joined(separator: "\n")
     }
 
@@ -206,12 +206,12 @@ public enum PromptBuilder {
             lines.append(contentsOf: near.map { factLine($0, from: position) })
         }
         lines.append(contentsOf: priorsBlock(priors))
-        lines.append(firstStoryLengthLine)
+        lines.append(StoryLength.of(kind: .stop, level: .first, tier: near.map(\.tier).min()).line)
         return lines.joined(separator: "\n")
     }
 
     static func walkContinuationInput(story: WalkStory, level: StoryLevel, priors: [PriorStory]) -> String {
-        var lines = ["Story length: \(level.lengthPhrase)."]
+        var lines = [StoryLength.of(kind: story.kind == .buzz ? .buzz : .stop, level: level, tier: nil).line]
         if let place = story.place {
             lines.append("Place: \(place.name) (\(place.kind))" + (story.detail.map { ", \($0)" } ?? "") + ".")
             if let summary = place.summary, !summary.isEmpty { lines.append("Summary: \(summary)") }
@@ -226,9 +226,6 @@ public enum PromptBuilder {
         lines.append("Task: Continue the story from where it left off. Do not restart or repeat. Take a new angle: another person, another moment in time, or something the listener can still see today that connects to it. If the facts are thin, say less.")
         return lines.joined(separator: "\n")
     }
-
-    /// "Write the first story in about 50 words."
-    private static var firstStoryLengthLine: String { "Write the first story in about \(StoryLevel.first.targetWords) words." }
 
     /// The places a buzz prompt lists besides the buzzed one: best tier first, then nearest.
     static func buzzFacts(_ facts: [WalkingPlace], excluding placeID: String, position: Coordinate) -> [WalkingPlace] {

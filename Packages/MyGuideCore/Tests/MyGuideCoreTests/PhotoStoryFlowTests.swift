@@ -106,7 +106,7 @@ import Testing
         let r = http.requests.first { $0.url!.host == "api.openai.com" }!
         let content = ((r.jsonBody["input"] as! [[String: Any]])[0]["content"] as! [[String: Any]])
         #expect(content.count == 1)                        // text only, no image
-        #expect(String(decoding: r.httpBody!, as: UTF8.self).contains("about 75 words"))
+        #expect(String(decoding: r.httpBody!, as: UTF8.self).contains("about 200 words"))
         let body = String(decoding: r.httpBody!, as: UTF8.self)
         #expect(body.contains("Once a coachman waited here.") && body.contains(#""name":"continuation""#))
         s.levels = ["a", "b", "c"]
