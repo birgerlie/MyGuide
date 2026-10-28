@@ -64,6 +64,21 @@ import Testing
         #expect(try store.context.fetchCount(FetchDescriptor<LibraryPhotoRecord>()) == 2)
     }
 
+    @Test func hasLibraryPhotoTracksStoredAssets() throws {
+        let store = try Self.store()
+        let jpeg = TestImages.jpeg(width: 100, height: 100)
+        #expect(try !store.hasLibraryPhoto(assetIdentifier: "asset"))
+        let id = try #require(try store.importLibraryPhoto(jpeg: jpeg, assetIdentifier: "asset", takenAt: Self.taken,
+                                                           coordinate: nil))
+        #expect(try store.hasLibraryPhoto(assetIdentifier: "asset"))
+        // Only an exact identifier counts.
+        #expect(try !store.hasLibraryPhoto(assetIdentifier: "other"))
+        #expect(try !store.hasLibraryPhoto(assetIdentifier: "Asset"))
+        #expect(try !store.hasLibraryPhoto(assetIdentifier: ""))
+        try store.deleteLibraryPhoto(id: id)
+        #expect(try !store.hasLibraryPhoto(assetIdentifier: "asset"))
+    }
+
     @Test func unreadableImageThrowsAndStoresNothing() throws {
         let store = try Self.store()
         #expect(throws: ImageProcessingError.unreadableImage) {

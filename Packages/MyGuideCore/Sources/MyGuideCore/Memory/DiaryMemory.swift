@@ -56,6 +56,14 @@ extension MemoryStore {
         return id
     }
 
+    /// Whether the library asset is stored already, so an import can skip it before loading any bytes.
+    /// Counts rather than fetches, so no photo data is read.
+    public func hasLibraryPhoto(assetIdentifier: String) throws -> Bool {
+        var descriptor = FetchDescriptor<LibraryPhotoRecord>(predicate: #Predicate { $0.assetIdentifier == assetIdentifier })
+        descriptor.fetchLimit = 1
+        return try context.fetchCount(descriptor) > 0
+    }
+
     /// Removes the photo; an unknown id changes nothing.
     public func deleteLibraryPhoto(id: UUID) throws {
         guard let record = try libraryPhoto(id: id) else { return }
@@ -105,8 +113,9 @@ extension MemoryStore {
 
     /// Every capture, stop story, heard buzz story (`BuzzRecord.deepestLevel` >= 1; a buzz story nobody heard, or
     /// without a log entry, is left out) and library photo, in no particular order: group with `Diary.days`.
+    /// A photo story whose position is a substitute ("Use where I am now") has no coordinate.
     /// A record whose JSON cannot be decoded keeps its entry but loses that field (no city, or no coordinate for
-    /// a buzz), so one corrupt record never hides the diary. `onCorrupt` is called once per such field, and once
+    /// a buzz; an unreadable capture JSON keeps the stored coordinate), so one corrupt record never hides the diary. `onCorrupt` is called once per such field, and once
     /// per walk story of an unknown kind (which is left out), with the entry id and the field, such as
     /// `capture:<uuid> groundingJSON`. Photo bytes are not fetched.
     public func diaryEntries(onCorrupt: (String) -> Void = { _ in }) throws -> [DiaryEntry] {
@@ -115,9 +124,19 @@ extension MemoryStore {
 
         // Core Data keeps small external-storage blobs inline in SQLite, so name the fields to load.
         var captures = FetchDescriptor<CaptureRecord>()
-        captures.propertiesToFetch = [\.id, \.takenAt, \.latitude, \.longitude, \.title, \.subject, \.groundingJSON]
+        captures.propertiesToFetch = [\.id, \.takenAt, \.latitude, \.longitude, \.title, \.subject, \.captureJSON,
+                                      \.groundingJSON]
         for capture in try context.fetch(captures) {
             let id = "capture:\(capture.id.uuidString)"
+            // A substitute position ("Use where I am now") is not where the photo was taken, so it places nothing.
+            var coordinate: Coordinate? = Coordinate(latitude: capture.latitude, longitude: capture.longitude)
+            do {
+                if try decoder.decode(CaptureContext.self, from: capture.captureJSON).positionIsSubstitute {
+                    coordinate = nil
+                }
+            } catch {
+                onCorrupt("\(id) captureJSON")
+            }
             let grounding: Grounding?
             do {
                 grounding = try decoder.decode(Grounding.self, from: capture.groundingJSON)
@@ -127,7 +146,7 @@ extension MemoryStore {
             }
             entries.append(DiaryEntry(
                 id: id, kind: .photoStory, time: capture.takenAt, title: capture.title, placeName: capture.subject,
-                coordinate: Coordinate(latitude: capture.latitude, longitude: capture.longitude),
+                coordinate: coordinate,
                 firstSentence: Self.firstSentence(of: capture.stories), city: grounding?.address?.city,
                 hasPhoto: true))
         }

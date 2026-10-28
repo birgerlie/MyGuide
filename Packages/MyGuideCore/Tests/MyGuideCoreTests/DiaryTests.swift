@@ -116,6 +116,38 @@ import Testing
             firstSentence: "A gate.", city: "Wien", hasPhoto: true))
     }
 
+    @Test func substitutePositionGivesNoCoordinate() throws {
+        // "Use where I am now" stores where the listener was later, not where the photo was taken: it must not
+        // place the photo story for matching. An ordinary capture keeps its position.
+        let substituteID = UUID(), ownID = UUID()
+        var substitute = Self.session(substituteID, at: 1_000, city: "Wien", level1: "Gate.")
+        substitute.capture = substitute.capture.withCoordinate(Coordinate(latitude: 59.9, longitude: 10.7), accuracy: 8)
+        try store.save(substitute)
+        try store.save(Self.session(ownID, at: 2_000, city: "Wien", level1: "Gate."))
+        var corrupt: [String] = []
+        let entries = try store.diaryEntries(onCorrupt: { corrupt.append($0) })
+        #expect(corrupt.isEmpty)
+        let fromSubstitute = try #require(entries.first { $0.id == "capture:\(substituteID.uuidString)" })
+        #expect(fromSubstitute.coordinate == nil)
+        #expect(fromSubstitute.title == "Gate title" && fromSubstitute.city == "Wien" && fromSubstitute.hasPhoto)
+        let own = try #require(entries.first { $0.id == "capture:\(ownID.uuidString)" })
+        #expect(own.coordinate == Coordinate(latitude: 48.2, longitude: 16.37))
+    }
+
+    @Test func corruptCaptureJSONKeepsTheCoordinate() throws {
+        let id = UUID()
+        try store.save(Self.session(id, at: 1_000, city: "Wien", level1: "Gate."))
+        for capture in try store.context.fetch(FetchDescriptor<CaptureRecord>()) {
+            capture.captureJSON = Data("not json".utf8)
+        }
+        var corrupt: [String] = []
+        let entries = try store.diaryEntries(onCorrupt: { corrupt.append($0) })
+        #expect(corrupt == ["capture:\(id.uuidString) captureJSON"])
+        let entry = try #require(entries.first)
+        #expect(entries.count == 1)
+        #expect(entry.coordinate == Coordinate(latitude: 48.2, longitude: 16.37) && entry.city == "Wien")
+    }
+
     @Test func unheardBuzzIsHidden() throws {
         let unheard = UUID(), heard = UUID()
         try logBuzz(Self.buzzStory(id: unheard, levels: ["Prepared."], address: nil), heardLevel: 0)
