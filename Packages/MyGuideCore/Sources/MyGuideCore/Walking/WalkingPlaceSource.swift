@@ -13,9 +13,17 @@ public struct WalkingPlaceSource: Sendable {
         self.wikipedia = wikipedia
     }
 
-    /// Both sources concurrently. One failing → the other's places; both failing → the OSM error is thrown.
-    /// CancellationError always propagates. Places with a nil tier are dropped.
+    /// `candidates(around:language:)` with tiers; places with a nil tier are dropped.
     public func places(around: Coordinate, language: StoryLanguage) async throws -> [WalkingPlace] {
+        try await candidates(around: around, language: language).compactMap { candidate in
+            PlaceTiers.tier(for: candidate).map { WalkingPlace(candidate: candidate, tier: $0) }
+        }
+    }
+
+    /// The merged OpenStreetMap and Wikipedia candidates, untiered ones included.
+    /// Both sources concurrently. One failing → the other's candidates; both failing → the OSM error is thrown.
+    /// CancellationError always propagates.
+    public func candidates(around: Coordinate, language: StoryLanguage) async throws -> [Candidate] {
         async let osm = Self.outcome { try await overpass.places(around: around, radius: Self.radius, language: language) }
         async let wiki = Self.outcome {
             try await wikipedia.articles(around: around, radius: Self.radius, language: language, limit: Self.wikiLimit)
@@ -24,19 +32,15 @@ public struct WalkingPlaceSource: Sendable {
         // Some sources signal cancellation with their own error type; do not report that as a failure.
         try Task.checkCancellation()
 
-        let merged: [Candidate]
         switch (osmResult, wikiResult) {
         case (.failure(let error), .failure):
             throw error
         case (.success(let osmPlaces), .failure):
-            merged = CandidateRanker.merge(osm: osmPlaces, wiki: [])
+            return CandidateRanker.merge(osm: osmPlaces, wiki: [])
         case (.failure, .success(let articles)):
-            merged = CandidateRanker.merge(osm: [], wiki: articles)
+            return CandidateRanker.merge(osm: [], wiki: articles)
         case (.success(let osmPlaces), .success(let articles)):
-            merged = CandidateRanker.merge(osm: osmPlaces, wiki: articles)
-        }
-        return merged.compactMap { candidate in
-            PlaceTiers.tier(for: candidate).map { WalkingPlace(candidate: candidate, tier: $0) }
+            return CandidateRanker.merge(osm: osmPlaces, wiki: articles)
         }
     }
 

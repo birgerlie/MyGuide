@@ -38,6 +38,18 @@ import Testing
         #expect(places.map(\.tier) == [.top])
     }
 
+    @Test func candidatesKeepUntieredPlaces() async throws {
+        // OverpassClient drops cafés before merging, so the untiered place is a plain historic=yes without an article.
+        let stone = #"{"elements":[{"type":"node","id":7,"lat":48.2086,"lon":16.3671,"tags":{"name":"Old Stone","historic":"yes"}}]}"#
+        let empty = #"{"query":{"pages":[]}}"#
+        let src = source(Self.stub(osm: { (200, Data(stone.utf8)) }, wiki: { (200, Data(empty.utf8)) }))
+        let candidates = try await src.candidates(around: here, language: .english)
+        let places = try await src.places(around: here, language: .english)
+        #expect(candidates.map(\.name) == ["Old Stone"])
+        #expect(candidates.first?.tags?["historic"] == "yes")
+        #expect(places.isEmpty)
+    }
+
     @Test func wikipediaArticlesAreWikiOnlyAndMergedWithOSM() async throws {
         let places = try await source(Self.stub()).places(around: here, language: .english)
         #expect(places.map(\.candidate.name) == ["Burg", "Stephansdom"])
