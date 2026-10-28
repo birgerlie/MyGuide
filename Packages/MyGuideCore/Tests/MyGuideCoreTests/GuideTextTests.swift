@@ -47,9 +47,29 @@ import Testing
         let text = GuideText.osmFacts(["architect": "Linstow", "start_date": "1697", "historic": "church", "inscription": long])!
         #expect(text.hasPrefix("OSM: start_date=1697; architect=Linstow; inscription="))
         #expect(!text.contains("historic"))
-        #expect(text.count < 300)
+        // value "a a a …" has 299 chars once the trailing space is trimmed; cut at 200: the window is the first 201
+        // chars, its last space is at index 199 (odd), so head = 199 chars + "…" = 200 chars, which is ≤ 201.
+        let value = String(text.dropFirst("OSM: start_date=1697; architect=Linstow; inscription=".count))
+        #expect(value.count == 200 && value.hasSuffix("…"))
         #expect(GuideText.osmFacts(["historic": "church"]) == nil)
         #expect(GuideText.osmFacts(nil) == nil)
+    }
+    @Test func osmFactsPrintEveryKeyInOrder() {
+        let tags = Dictionary(uniqueKeysWithValues: GuideText.factTagKeys.map { ($0, "v") })
+        #expect(GuideText.factTagKeys.count == 11)
+        // 11 keys, each "key=v", in the documented order
+        #expect(GuideText.osmFacts(tags) == "OSM: start_date=v; architect=v; building:architecture=v; artist_name=v; inscription=v; "
+            + "description=v; name:etymology=v; memorial:type=v; material=v; heritage=v; heritage:operator=v")
+    }
+    @Test func osmFactsSkipEmptyValues() {
+        #expect(GuideText.osmFacts(["start_date": "", "architect": "  \n "]) == nil)
+        #expect(GuideText.osmFacts(["start_date": "", "architect": "Linstow"]) == "OSM: architect=Linstow")
+    }
+    @Test func osmFactsStayOnOneLine() {
+        // "a \n\t b" → "a b"; runs of whitespace and newlines collapse to one space
+        let text = GuideText.osmFacts(["inscription": "Soli  Deo\n\nGloria\r\n\t1697", "description": " lead\ntrail "])!
+        #expect(text == "OSM: inscription=Soli Deo Gloria 1697; description=lead trail")
+        #expect(!text.contains("\n") && !text.contains("\r") && !text.contains("\t") && !text.contains("  "))
     }
     @Test func addressWithoutDistrictDecodes() throws {
         let old = #"{"line":"Kirkegata 15","city":"Oslo","country":"Norway"}"#.data(using: .utf8)!

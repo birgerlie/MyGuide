@@ -53,11 +53,14 @@ public enum GuideText {
         format(date, "HH:mm", timeZone)
     }
 
-    /// "OSM: start_date=1697; architect=…" from the fact keys present, nil when none. Values over 200 characters are cut.
+    /// "OSM: start_date=1697; architect=…" from the fact keys present, nil when none. Values are collapsed to one line and, over 200 characters, cut.
     public static func osmFacts(_ tags: [String: String]?) -> String? {
         guard let tags else { return nil }
         let parts = factTagKeys.compactMap { key -> String? in
-            guard let value = tags[key], !value.isEmpty else { return nil }
+            // OSM values are untrusted and may span lines; keep each place's facts on one line.
+            guard let raw = tags[key] else { return nil }
+            let value = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard !value.isEmpty else { return nil }
             return "\(key)=\(TextTrim.truncate(value, maxCharacters: 200))"
         }
         return parts.isEmpty ? nil : "OSM: " + parts.joined(separator: "; ")
