@@ -24,11 +24,11 @@ final class WatchCheckModel {
         do {
             try await workout.start()
         } catch {
-            status = "Workout failed: \(error.localizedDescription)"
+            status = "Guided walk failed: \(error.localizedDescription)"
             return
         }
         workoutRunning = true
-        status = "Workout running. Lower your wrist: a double buzz every 30 s for 2 min."
+        status = "Guided walk running. Lower your wrist: a double buzz every 30 s for 2 min."
         buzzTask = Task { [weak self] in
             for index in 0..<Self.buzzCount {
                 if index > 0 {
@@ -38,7 +38,7 @@ final class WatchCheckModel {
                 do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
                 WKInterfaceDevice.current().play(.success)
             }
-            self?.status = "Workout running. Buzzes done."
+            self?.status = "Guided walk running. Buzzes done."
         }
     }
 
@@ -75,7 +75,7 @@ struct WatchCheckView: View {
                 if model.workoutRunning {
                     Button("Stop") { Task { await model.stopWorkout() } }
                 } else {
-                    Button("Start workout") { Task { await model.startWorkout() } }
+                    Button("Start guided walk") { Task { await model.startWorkout() } }
                         .disabled(model.workoutStarting)
                 }
                 Button("Ping phone") { Task { await model.ping() } }

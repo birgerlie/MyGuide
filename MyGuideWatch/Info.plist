@@ -21,9 +21,9 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>MyGuide runs a walking workout so the watch can buzz you about places while your wrist is down.</string>
+	<string>MyGuide keeps a guided walk running on the watch, recorded as a walking workout, so it can buzz you about places while your wrist is down.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>MyGuide runs a walking workout so the watch can buzz you about places while your wrist is down.</string>
+	<string>MyGuide keeps a guided walk running on the watch, recorded as a walking workout, so it can buzz you about places while your wrist is down.</string>
 	<key>WKApplication</key>
 	<true/>
 	<key>WKBackgroundModes</key>

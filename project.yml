@@ -75,8 +75,8 @@ targets:
         WKApplication: true
         WKCompanionAppBundleIdentifier: io.github.birgerlie.MyGuide
         WKBackgroundModes: [workout-processing]
-        NSHealthShareUsageDescription: "MyGuide runs a walking workout so the watch can buzz you about places while your wrist is down."
-        NSHealthUpdateUsageDescription: "MyGuide runs a walking workout so the watch can buzz you about places while your wrist is down."
+        NSHealthShareUsageDescription: "MyGuide keeps a guided walk running on the watch, recorded as a walking workout, so it can buzz you about places while your wrist is down."
+        NSHealthUpdateUsageDescription: "MyGuide keeps a guided walk running on the watch, recorded as a walking workout, so it can buzz you about places while your wrist is down."
     entitlements:
       path: MyGuideWatch/MyGuideWatch.entitlements
       properties:
