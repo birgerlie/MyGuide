@@ -37,6 +37,8 @@ public actor NearbyPlaces {
     private let articles: ArticleTextSource?
     private let store: NearbyListStore?
     private let now: @Sendable () -> Date
+    /// Told when a refreshed list could not be written to the store; the refresh itself still succeeds.
+    private let onStoreError: (@Sendable (Error) -> Void)?
 
     private var lists: [StoryLanguage: NearbyList] = [:]
     /// Languages whose stored list has been looked for; the store is read at most once per language.
@@ -48,13 +50,16 @@ public actor NearbyPlaces {
     private var lastRefresh: [StoryLanguage: Date] = [:]
     /// The fetch under way per language; simultaneous callers await it.
     private var inFlight: [StoryLanguage: Task<NearbyList, Error>] = [:]
+    /// Callers currently awaiting a fetch, per language (the starter included).
+    private var waitingCallers: [StoryLanguage: Int] = [:]
 
     public init(fetcher: NearbyFetching, articles: ArticleTextSource?, store: NearbyListStore?,
-                now: @escaping @Sendable () -> Date) {
+                now: @escaping @Sendable () -> Date, onStoreError: (@Sendable (Error) -> Void)? = nil) {
         self.fetcher = fetcher
         self.articles = articles
         self.store = store
         self.now = now
+        self.onStoreError = onStoreError
     }
 
     /// The latest list for `language`: from this run, or else from the store.
@@ -65,8 +70,9 @@ public actor NearbyPlaces {
     /// Whether a fix at `position` should start a refresh:
     /// - foreground: no list, or the list is ≥ `foregroundDistance` away or older than `NearbyList.freshAge`;
     ///   never within `foregroundInterval` of the last fetch attempt;
-    /// - walking: no list, or the list is ≥ `walkingDistance` away; never within `foregroundInterval` of the last
-    ///   fetch attempt, so a failing source is not retried on every fix;
+    /// - walking: no list, or the list is ≥ `walkingDistance` away or older than `NearbyList.freshAge` (a list
+    ///   loaded from disk days ago must not drive a walk); never within `foregroundInterval` of the last fetch
+    ///   attempt, so a failing source is not retried on every fix;
     /// - background: never above `backgroundMaxSpeed` or within `backgroundInterval` of the last refresh;
     ///   otherwise as foreground.
     public func shouldRefresh(at position: Coordinate, trigger: RefreshTrigger, language: StoryLanguage) -> Bool {
@@ -78,7 +84,7 @@ public actor NearbyPlaces {
         case .walking:
             if Self.isWithin(Self.foregroundInterval, of: lastFetchAttempt[language], now: now) { return false }
             guard let list else { return true }
-            return GeoMath.distance(list.centre, position) >= Self.walkingDistance
+            return GeoMath.distance(list.centre, position) >= Self.walkingDistance || Self.isOld(list, now: now)
         case .background(let speed):
             if let speed, speed > Self.backgroundMaxSpeed { return false }
             if Self.isWithin(Self.backgroundInterval, of: lastRefresh[language], now: now) { return false }
@@ -113,7 +119,14 @@ public actor NearbyPlaces {
             }
             inFlight[language] = task
         }
+        waitingCallers[language, default: 0] += 1
+        defer { waitingCallers[language, default: 1] -= 1 }
         return try await GroundingService.abandoningOnCancel { try await task.value }
+    }
+
+    /// Callers currently awaiting a fetch for `language`; lets tests see a second caller join.
+    func callersWaiting(language: StoryLanguage) -> Int {
+        waitingCallers[language, default: 0]
     }
 
     // MARK: - Private
@@ -133,17 +146,27 @@ public actor NearbyPlaces {
         lists[list.language] = list
         loadedLanguages.insert(list.language)
         lastRefresh[list.language] = list.fetchedAt
-        // The stored copy is only a restart and fallback aid; failing to write it must not fail a good refresh.
-        try? store?.save(list)
+        // The stored copy is only a restart and fallback aid; failing to write it must not fail a good refresh,
+        // but it is reported.
+        guard let store else { return }
+        do {
+            try store.save(list)
+        } catch {
+            onStoreError?(error)
+        }
     }
 
     private func foregroundRule(_ list: NearbyList?, position: Coordinate, language: StoryLanguage, now: Date) -> Bool {
         if Self.isWithin(Self.foregroundInterval, of: lastFetchAttempt[language], now: now) { return false }
         guard let list else { return true }
-        if list.language != language { return true }
-        if GeoMath.distance(list.centre, position) >= Self.foregroundDistance { return true }
+        assert(list.language == language, "lists are keyed by their own language")
+        return GeoMath.distance(list.centre, position) >= Self.foregroundDistance || Self.isOld(list, now: now)
+    }
+
+    /// Older than `NearbyList.freshAge`. A list dated in the future (the clock was set back) has an unknown age and
+    /// counts as old.
+    private static func isOld(_ list: NearbyList, now: Date) -> Bool {
         let age = now.timeIntervalSince(list.fetchedAt)
-        // A list dated in the future (the clock was set back) has an unknown age: treat it as old.
         return age > NearbyList.freshAge || age < 0
     }
 

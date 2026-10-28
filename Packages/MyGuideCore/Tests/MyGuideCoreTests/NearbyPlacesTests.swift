@@ -3,13 +3,15 @@ import Testing
 @testable import MyGuideCore
 
 /// Counts calls; answers from `result`, or suspends until `resume` when `suspends` is set. Every suspended call
-/// is kept and resumed, so an implementation that wrongly starts a second fetch fails the count instead of hanging.
+/// is kept and resumed, and calls after `resume` answer at once, so an implementation that wrongly starts a second
+/// fetch fails the count instead of hanging.
 private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
     private var waiters: [CheckedContinuation<[Candidate], Error>] = []
     private var result: Result<[Candidate], Error>
     private let suspends: Bool
+    private var released = false
 
     init(_ result: Result<[Candidate], Error>, suspends: Bool = false) {
         self.result = result
@@ -23,18 +25,21 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
 
     func resume() {
         let (waiters, result) = lock.withLock { () -> ([CheckedContinuation<[Candidate], Error>], Result<[Candidate], Error>) in
-            defer { self.waiters = [] }
+            defer {
+                self.waiters = []
+                self.released = true
+            }
             return (self.waiters, self.result)
         }
         for waiter in waiters { waiter.resume(with: result) }
     }
 
     func candidates(around: Coordinate, language: StoryLanguage) async throws -> [Candidate] {
-        let result = lock.withLock { () -> Result<[Candidate], Error> in
+        let (result, released) = lock.withLock { () -> (Result<[Candidate], Error>, Bool) in
             calls += 1
-            return self.result
+            return (self.result, self.released)
         }
-        guard suspends else { return try result.get() }
+        guard suspends, !released else { return try result.get() }
         return try await withCheckedThrowingContinuation { continuation in
             lock.withLock { waiters.append(continuation) }
         }
@@ -90,6 +95,15 @@ private struct Boom: Error {}
     static func waitUntil(limit: Int = 100_000, _ condition: () -> Bool) async {
         var n = 0
         while !condition() && n < limit {
+            await Task.yield()
+            n += 1
+        }
+    }
+
+    /// Polls (yielding) until `count` callers await an English fetch, or `limit` yields have passed.
+    static func waitForCallers(_ count: Int, on places: NearbyPlaces, limit: Int = 100_000) async {
+        var n = 0
+        while await places.callersWaiting(language: .english) < count && n < limit {
             await Task.yield()
             n += 1
         }
@@ -186,9 +200,12 @@ private struct Boom: Error {}
         #expect(await !places.shouldRefresh(at: .at(north: 249), trigger: .walking, language: .english))
         #expect(await places.shouldRefresh(at: .at(north: 251), trigger: .walking, language: .english))
         #expect(await !places.shouldRefresh(at: .at(north: 151), trigger: .walking, language: .english))
-        // Age alone never refreshes while walking: t0+10 000 at the centre → false.
-        clock.set(Self.t0.addingTimeInterval(10_000))
+        // Age at the centre (attempt spacing satisfied, 600 ≥ 60): t0+600 − t0 = 600, not older than 600 → false;
+        // t0+601 − t0 = 601 > 600 → true, so a days-old list from disk cannot drive a walk.
+        clock.set(Self.t0.addingTimeInterval(600))
         #expect(await !places.shouldRefresh(at: .at(), trigger: .walking, language: .english))
+        clock.set(Self.t0.addingTimeInterval(601))
+        #expect(await places.shouldRefresh(at: .at(), trigger: .walking, language: .english))
     }
 
     @Test func walkingRetriesAFailureNoSoonerThanSixtySeconds() async {
@@ -263,9 +280,9 @@ private struct Boom: Error {}
         let first = Task { try await places.refresh(at: .at(), language: .english) }
         await Self.waitUntil { fetcher.isWaiting }
         let second = Task { try await places.refresh(at: .at(north: 10), language: .english) }
-        // The second call cannot be observed joining, so give it ample turns to reach the actor; a second fetch
-        // would show up here as count 2.
-        await Self.waitUntil(limit: 10_000) { fetcher.count > 1 }
+        // Both callers are awaiting; a second fetch would show up here as count 2.
+        await Self.waitForCallers(2, on: places)
+        #expect(await places.callersWaiting(language: .english) == 2)
         #expect(fetcher.count == 1)
 
         fetcher.resume()
@@ -284,7 +301,8 @@ private struct Boom: Error {}
         let first = Task { try await places.refresh(at: .at(), language: .english) }
         await Self.waitUntil { fetcher.isWaiting }
         let second = Task { try await places.refresh(at: .at(), language: .english) }
-        await Self.waitUntil(limit: 10_000) { fetcher.count > 1 }
+        await Self.waitForCallers(2, on: places)
+        #expect(await places.callersWaiting(language: .english) == 2)
         first.cancel()
         await #expect(throws: CancellationError.self) { _ = try await first.value }
 
@@ -354,6 +372,22 @@ private struct Boom: Error {}
         // attempt → background true.
         clock.set(Self.t0.addingTimeInterval(760))
         #expect(await places.shouldRefresh(at: .at(north: 300), trigger: .background(speed: 1), language: .english))
+    }
+
+    @Test func storeFailureIsReportedAndTheRefreshStillSucceeds() async throws {
+        // The store's "directory" is an existing regular file, so creating the directory fails.
+        let blocker = Self.tempDirectory()
+        try Data().write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let errors = LockedBox(0)
+        let clock = LockedBox(Self.t0)
+        let places = NearbyPlaces(fetcher: StubFetcher(.success([Self.castle("Burg", north: 30)])), articles: nil,
+                                  store: NearbyListStore(directory: blocker), now: { clock.value },
+                                  onStoreError: { _ in errors.withValue { $0 += 1 } })
+        let list = try await places.refresh(at: .at(), language: .english)
+        #expect(list.candidates.map(\.name) == ["Burg"])
+        #expect(await places.current(language: .english) == list)
+        #expect(errors.value == 1)
     }
 
     // MARK: - Store
