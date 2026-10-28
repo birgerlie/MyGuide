@@ -1,4 +1,5 @@
 import Foundation
+import MyGuideCore
 
 /// Text for the walk log screens: local time of day, distance and duration.
 enum WalkLogFormat {
@@ -25,5 +26,21 @@ enum WalkLogFormat {
         let minutes = total / 60
         if minutes < 60 { return "\(minutes) min" }
         return String(format: "%d h %02d min", minutes / 60, minutes % 60)
+    }
+
+    static func stopReason(_ reason: WalkStopReason) -> String {
+        switch reason {
+        case .user: "Stopped by you"
+        case .timeLimit: "Turned off after 4 hours of walking"
+        case .lowBattery: "Turned off: battery below 15%"
+        case .pausedTooLong: "Turned off after an hour without walking"
+        case .locationDenied: "Stopped: location access denied"
+        }
+    }
+
+    /// The timeline text of an event; a stop reason reads as English instead of its raw value.
+    static func timelineText(_ kind: WalkLogEvent.Kind) -> String {
+        if case .stopped(let reason) = kind { return stopReason(reason) }
+        return WalkLogText.line(kind)
     }
 }

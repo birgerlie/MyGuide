@@ -38,7 +38,7 @@ struct WalkLogRunView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(WalkLogFormat.time(item.event.at, seconds: true))
                                 .font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
-                            Text(WalkLogText.line(item.event.kind))
+                            Text(WalkLogFormat.timelineText(item.event.kind))
                                 .font(.footnote)
                                 .foregroundStyle(isFailure(item.event.kind) ? Color.red : Color.primary)
                         }
@@ -122,7 +122,7 @@ struct WalkLogRunView: View {
             LabeledContent("Failures", value: "\(s.failures)")
             LabeledContent("Pauses", value: "\(s.pauses)")
             if let reason = s.stopReason {
-                LabeledContent("Stopped", value: reason.rawValue)
+                Text(WalkLogFormat.stopReason(reason))
             } else if isCurrent {
                 LabeledContent("Status", value: "In progress")
             } else {
