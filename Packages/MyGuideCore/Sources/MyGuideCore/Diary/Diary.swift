@@ -65,7 +65,7 @@ public enum Diary {
     /// `yyyy-MM-dd` of `date` in `timeZone`, on the Gregorian calendar.
     public static func dayKey(_ date: Date, timeZone: TimeZone) -> String {
         let parts = calendar(timeZone).dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+        return String(format: "%04ld-%02ld-%02ld", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
     /// Newest day first; entries oldest first, ties by id. A day's city is that of its first entry (by time) with one.

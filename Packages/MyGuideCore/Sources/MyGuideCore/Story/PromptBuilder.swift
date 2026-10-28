@@ -25,7 +25,10 @@ public enum PromptBuilder {
         - Warm, confident, lightly witty. Short sentences. Spoken rhythm — this will be read aloud.
         - No bullet points, no headers, no emojis. Plain flowing prose at the length the request asks for.
         - Answer in the language the request names.
+        """ + "\n\n" + honestySection
 
+    /// The guide voice's HONESTY section, shared word for word by `systemInstructions` and `dayStoryInstructions`.
+    static let honestySection = """
         HONESTY
         - Only state things you are genuinely confident are true of this specific place. If you are unsure whether a detail belongs here or somewhere similar, say "I believe" or leave it out. A guide who invents is worse than a guide who says less.
         - The facts in the request are your ground. Never invent names, dates, numbers or quotes. Label legend, tradition or disputed history as such ("legend has it").
@@ -574,5 +577,129 @@ public enum PromptBuilder {
         case .wikipedia: "Wikipedia"
         case .geocoder: "address lookup"
         }
+    }
+}
+
+// MARK: Day story
+
+extension PromptBuilder {
+    /// The day story's instructions (spec 5.2): its task rules, then the guide voice's HONESTY section word for word.
+    /// One constant for both languages, so the request prefix can be cached.
+    public static let dayStoryInstructions = """
+        You are a brilliant private guide looking back with the user on a day they spent exploring. You receive the day's date and city, the stories the app told them that day in time order, and their photos, attached as images in the order listed, each with a short id in brackets and the event it was taken near, if any.
+
+        WHAT TO DO
+        - Write a caption for each photo: what is in the frame first, then the matched event's facts. At most 40 words, warm and specific, no greetings.
+        - Then write a 2–3 sentence summary of the day as a walk the user took.
+        - Never state facts that are not in the event list or clearly visible in a photo.
+        - Use each photo's id in brackets exactly as given, one caption per id.
+        - No bullet points, no headers, no emojis.
+        - Answer in the language the request names.
+        """ + "\n\n" + honestySection
+
+    /// Sent as `prompt_cache_key` with every day story request.
+    public static let dayPromptCacheKey = "myguide-day-v1"
+
+    /// The id the model sees for the photo at `index` in the plan: `p1` for the first.
+    static func dayPhotoID(_ index: Int) -> String {
+        "p\(index + 1)"
+    }
+
+    /// The day story's user message (spec 5.2): the day, its events, the photos in plan order with their short ids,
+    /// the language and the task. Clock times and the date are in `timeZone`.
+    static func dayStoryInput(plan: DayStoryPlan, day: DiaryDay, language: StoryLanguage, timeZone: TimeZone) -> String {
+        let city = day.city.map(GuideText.oneLine) ?? ""
+        var lines = ["Day: \(GuideText.longDate(day.date, timeZone: timeZone))" + (city.isEmpty ? "" : ", \(city)")]
+        if plan.events.isEmpty {
+            lines.append("Events: none")
+        } else {
+            lines.append("Events:")
+            lines.append(contentsOf: plan.events.map { dayEventLine($0, timeZone: timeZone) })
+        }
+        lines.append("Photos (in the order the images are attached):")
+        lines.append(contentsOf: plan.photos.enumerated().map { index, photo in
+            "- [\(dayPhotoID(index))] \(GuideText.clock(photo.time, timeZone: timeZone)), "
+                + dayPhotoContext(photo, match: plan.matches[photo.id], timeZone: timeZone)
+        })
+        lines.append("Answer in: \(language.promptName)")
+        lines.append("Task: Write one caption per photo id, then the day summary.")
+        return lines.joined(separator: "\n")
+    }
+
+    /// `- 11:58 walking buzz: Akershus Fortress — "first sentence"`; the name and the sentence are left out when missing.
+    private static func dayEventLine(_ event: DiaryEntry, timeZone: TimeZone) -> String {
+        let kind = switch event.kind {
+        case .photoStory: "photo story"
+        case .buzz: "walking buzz"
+        case .stop: "stop"
+        case .libraryPhoto: "photo"
+        }
+        var line = "- \(GuideText.clock(event.time, timeZone: timeZone)) " + named(kind, DayStoryPlan.eventName(event))
+        if let sentence = event.firstSentence.map(GuideText.oneLine), !sentence.isEmpty {
+            line += " — \"\(sentence)\""
+        }
+        return line
+    }
+
+    /// `photo story: Oslo Cathedral`, `matches 11:58 Akershus Fortress` or `no matching event`.
+    private static func dayPhotoContext(_ photo: DayStoryPhoto, match: DiaryEntry?, timeZone: TimeZone) -> String {
+        if let title = photo.storyTitle { return named("photo story", title) }
+        guard let match else { return "no matching event" }
+        let name = DayStoryPlan.eventName(match)
+        return "matches \(GuideText.clock(match.time, timeZone: timeZone))" + (name.isEmpty ? "" : " \(name)")
+    }
+
+    /// `label: name`, or `label` alone for an empty name.
+    private static func named(_ label: String, _ name: String) -> String {
+        name.isEmpty ? label : "\(label): \(name)"
+    }
+
+    static let dayStorySchema: JSONValue = .object([
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary", "captions"],
+        "properties": .object([
+            "summary": .object(["type": "string", "description": "2–3 sentences about the day as a walk"]),
+            "captions": .object([
+                "type": "array",
+                "items": .object([
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["photoID", "caption"],
+                    "properties": .object([
+                        "photoID": .object(["type": "string", "description": "The photo's id in brackets, e.g. p1"]),
+                        "caption": .object(["type": "string", "description": "At most 40 words"]),
+                    ]),
+                ]),
+            ]),
+        ]),
+    ])
+
+    private struct DayStoryText: Decodable {
+        struct Caption: Decodable { var photoID: String; var caption: String }
+        var summary: String
+        var captions: [Caption]
+    }
+
+    /// Unknown photo ids are dropped; an empty or blank summary throws OpenAIError.malformedResponse.
+    /// `photoIDs` are the plan's photo ids in order: `p1` is `photoIDs[0]`. A blank caption counts as none, a repeated
+    /// id keeps its first caption, and summary and captions come back trimmed.
+    static func decodeDayStory(_ json: Data, photoIDs: [String]) throws -> (summary: String, captions: [String: String]) {
+        let decoded: DayStoryText
+        do {
+            decoded = try JSONDecoder().decode(DayStoryText.self, from: json)
+        } catch is DecodingError {
+            throw OpenAIError.malformedResponse
+        }
+        let summary = decoded.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty else { throw OpenAIError.malformedResponse }
+        let realIDs = Dictionary(uniqueKeysWithValues: photoIDs.enumerated().map { (dayPhotoID($0.offset), $0.element) })
+        var captions: [String: String] = [:]
+        for item in decoded.captions {
+            let caption = item.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let id = realIDs[item.photoID], !caption.isEmpty, captions[id] == nil else { continue }
+            captions[id] = caption
+        }
+        return (summary, captions)
     }
 }
