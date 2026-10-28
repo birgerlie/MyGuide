@@ -188,6 +188,49 @@ public enum MemoryError: Error, Equatable {
             }
     }
 
+    /// Story levels created at or after `since`, newest first, at most `RecentStories.limit`: photo levels; stop story
+    /// levels; buzz levels up to the buzz's `deepestLevel`; and level 1 of a buzz that is still `pending` with
+    /// `deepestLevel` 0, marked prepared (a buzz story is saved when its buzz goes out and stays pending until heard,
+    /// skipped or ignored). A buzz story without a log entry counts as neither and is left out. Excludes the capture or
+    /// walk story `excludingSession`.
+    public func recentStories(since: Date, excludingSession: UUID?) throws -> [RecentStory] {
+        // Only the date goes into the predicate; SwiftData's SQL generation rejects richer forms.
+        let fetched = try context.fetch(FetchDescriptor<StoryRecord>(predicate: #Predicate { $0.createdAt >= since }))
+
+        let buzzKind = WalkStory.Kind.buzz.rawValue
+        let buzzStoryIDs = Array(Set(fetched.compactMap { $0.walkStory }.filter { $0.kind == buzzKind }.map(\.id)))
+        var buzzes: [UUID: BuzzRecord] = [:]
+        if !buzzStoryIDs.isEmpty {
+            let descriptor = FetchDescriptor<BuzzRecord>(predicate: #Predicate { buzzStoryIDs.contains($0.id) })
+            for buzz in try context.fetch(descriptor) { buzzes[buzz.id] = buzz }
+        }
+        let pending = BuzzOutcome.pending.rawValue
+
+        return fetched
+            .filter { excludingSession == nil || ($0.capture?.id != excludingSession && $0.walkStory?.id != excludingSession) }
+            .sorted { ($0.createdAt, $0.level) > ($1.createdAt, $1.level) }
+            .compactMap { story -> RecentStory? in
+                guard let level = StoryLevel(rawValue: story.level) else { return nil }
+                if let capture = story.capture {
+                    return RecentStory(toldAt: story.createdAt, placeName: capture.subject, level: level, text: story.text, prepared: false)
+                }
+                guard let walkStory = story.walkStory else { return nil }
+                guard walkStory.kind == buzzKind else {
+                    return RecentStory(toldAt: story.createdAt, placeName: nil, level: level, text: story.text, prepared: false)
+                }
+                guard let buzz = buzzes[walkStory.id] else { return nil }
+                if story.level <= buzz.deepestLevel {
+                    return RecentStory(toldAt: story.createdAt, placeName: buzz.placeName, level: level, text: story.text, prepared: false)
+                }
+                if buzz.outcome == pending, buzz.deepestLevel == 0, story.level == 1 {
+                    return RecentStory(toldAt: story.createdAt, placeName: buzz.placeName, level: level, text: story.text, prepared: true)
+                }
+                return nil
+            }
+            .prefix(RecentStories.limit)
+            .map { $0 }
+    }
+
     /// Deletes a capture (its stories cascade) and, in the same save, its `PlaceRecord` when nothing else needs it: no
     /// other capture refers to the place and walking mode has no history with it (`hasWalkHistory`), because the place
     /// is what keeps a skipped or heard place from buzzing again. A failed save rolls back and rethrows.

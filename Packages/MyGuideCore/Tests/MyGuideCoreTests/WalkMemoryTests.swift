@@ -575,6 +575,93 @@ import Testing
         #expect(p.map(\.text) == ["stop", "photo"])
     }
 
+    // MARK: - Recent stories
+
+    @Test func pendingBuzzStoryCountsAsPrepared() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one", "two"], id: b.id), tripID: Self.trip)
+        let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
+        // Only level 1 is prepared; level 2 is not offered yet.
+        #expect(r == [RecentStory(toldAt: Self.t0, placeName: "Name osm:node/1", level: .first, text: "one", prepared: true)])
+    }
+    @Test func heardBuzzStoryListsTheHeardLevelsNotPrepared() throws {
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one", "two", "three"], id: b.id), tripID: Self.trip)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
+        let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
+        // createdAt: two = t0 + 1, one = t0; newest first; level 3 > deepest 2 is left out.
+        #expect(r.map(\.text) == ["two", "one"] && r.map(\.prepared) == [false, false])
+        #expect(r.map(\.placeName) == ["Name osm:node/1", "Name osm:node/1"])
+    }
+    @Test func ignoredAndSkippedBuzzStoriesAreNotRecent() throws {
+        let ignored = Self.buzz("osm:node/1"), skipped = Self.buzz("osm:node/2")
+        try store.recordBuzz(ignored, tripID: Self.trip, at: Self.t0)
+        try store.recordBuzz(skipped, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one"], id: ignored.id), tripID: Self.trip)
+        try store.saveWalkStory(Self.buzzStory("osm:node/2", levels: ["two"], id: skipped.id), tripID: Self.trip)
+        try store.setBuzzOutcome(skipped.id, .skipped, deepestLevel: 0, at: Self.t0 + 5)
+        try store.closePendingBuzzes()
+        #expect(try store.recentStories(since: Self.t0 - 10, excludingSession: nil).isEmpty)
+    }
+    @Test func buzzStoryWithoutABuzzLogEntryIsNotRecent() throws {
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one"]), tripID: Self.trip)
+        #expect(try store.recentStories(since: Self.t0 - 10, excludingSession: nil).isEmpty)
+    }
+    @Test func stopStoryHasNoPlaceName() throws {
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["stop"]), tripID: Self.trip)
+        let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
+        #expect(r == [RecentStory(toldAt: Self.t0, placeName: nil, level: .first, text: "stop", prepared: false)])
+    }
+    @Test func photoSessionUsesTheCaptureSubject() throws {
+        try store.save(MemoryStoreTests.session(placeID: "osm:node/1", levels: ["photo"], at: 2_000_000))
+        let r = try store.recentStories(since: Date(timeIntervalSince1970: 1_999_990), excludingSession: nil)
+        #expect(r == [RecentStory(toldAt: Date(timeIntervalSince1970: 2_000_000), placeName: "Gate", level: .first,
+                                  text: "photo", prepared: false)])
+    }
+    @Test func storiesBeforeSinceAreExcludedAndSinceItselfIsIncluded() throws {
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["old"], at: 0), tripID: Self.trip)
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["edge"], at: 100), tripID: Self.trip)
+        // since = t0 + 100: "old" (t0) is out, "edge" (exactly t0 + 100) is in.
+        #expect(try store.recentStories(since: Self.t0 + 100, excludingSession: nil).map(\.text) == ["edge"])
+        #expect(try store.recentStories(since: Self.t0 + 101, excludingSession: nil).isEmpty)
+    }
+    @Test func atMostTenNewestStoriesAreReturned() throws {
+        // 12 stop stories at t0 + 0 ... 11; the 10 newest are 11 down to 2.
+        for i in 0..<12 {
+            try store.saveWalkStory(Self.stopStory(north: 20, levels: ["s\(i)"], at: Double(i)), tripID: Self.trip)
+        }
+        let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
+        #expect(r.count == RecentStories.limit)
+        #expect(r.map(\.text) == (2...11).reversed().map { "s\($0)" })
+    }
+    @Test func excludingSessionDropsThatWalkStoryAndThatCapture() throws {
+        let stop = Self.stopStory(north: 20, levels: ["stop"], at: 5)
+        try store.saveWalkStory(stop, tripID: Self.trip)
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["one"], id: b.id), tripID: Self.trip)
+        let photo = MemoryStoreTests.session(placeID: nil, levels: ["photo"], at: 1_000_050)
+        try store.save(photo)
+        let since = Self.t0 - 10
+        #expect(try store.recentStories(since: since, excludingSession: nil).count == 3)
+        #expect(try store.recentStories(since: since, excludingSession: stop.id).map(\.text) == ["photo", "one"])
+        #expect(try store.recentStories(since: since, excludingSession: b.id).map(\.text) == ["photo", "stop"])
+        #expect(try store.recentStories(since: since, excludingSession: photo.id).map(\.text) == ["stop", "one"])
+    }
+    @Test func unheardBuzzStoriesDoNotCrowdOutTheLimit() throws {
+        // 12 ignored buzz stories newer than one stop story: filtered before the limit of 10, so the stop story remains.
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["stop"], at: 0), tripID: Self.trip)
+        for i in 0..<12 {
+            let b = Self.buzz("osm:node/1")
+            try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+            try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["b\(i)"], id: b.id, at: Double(i + 1)), tripID: Self.trip)
+            try store.setBuzzOutcome(b.id, .ignored, deepestLevel: 0, at: Self.t0 + 50)
+        }
+        #expect(try store.recentStories(since: Self.t0 - 10, excludingSession: nil).map(\.text) == ["stop"])
+    }
+
     // MARK: - Track and buzz log
 
     @Test func appendTrackStoresEverySampleForTheTrip() throws {
