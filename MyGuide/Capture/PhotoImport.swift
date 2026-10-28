@@ -29,7 +29,7 @@ enum PhotoImport {
         }
         var capture = metadata.captureContext(fallbackDate: .now)
         if capture.coordinate == nil, let identifier = item.itemIdentifier,
-           let assetLocation = await assetLocation(identifier),
+           let assetLocation = await asset(identifier)?.location,
            let fix = assetFix(assetLocation) {
             // Position only; the EXIF heading (if any) still describes this photo, PHAsset adds none.
             capture.coordinate = fix.coordinate
@@ -38,15 +38,24 @@ enum PhotoImport {
         return .success(Loaded(data: data, capture: capture))
     }
 
-    /// The library asset's location, after asking for read access. Nil if access is refused or there is none.
-    private static func assetLocation(_ identifier: String) async -> CLLocation? {
+    /// What the library asset itself records, for a photo whose EXIF lacks it.
+    struct AssetInfo: Sendable {
+        let creationDate: Date?
+        let location: CLLocation?
+    }
+
+    /// The library asset's creation date and location, after asking for read access. Nil if access is refused or
+    /// the asset is not found.
+    static func asset(_ identifier: String) async -> AssetInfo? {
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-        guard status == .authorized || status == .limited else { return nil }
-        return PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject?.location
+        guard status == .authorized || status == .limited,
+              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
+        else { return nil }
+        return AssetInfo(creationDate: asset.creationDate, location: asset.location)
     }
 
     /// A library location has no age limit (the photo may be old), but sentinel values still mean "no position".
-    private static func assetFix(_ location: CLLocation) -> (coordinate: Coordinate, accuracy: Double?)? {
+    static func assetFix(_ location: CLLocation) -> (coordinate: Coordinate, accuracy: Double?)? {
         guard CLLocationCoordinate2DIsValid(location.coordinate),
               !(location.coordinate.latitude == 0 && location.coordinate.longitude == 0) else { return nil }
         let accuracy = location.horizontalAccuracy

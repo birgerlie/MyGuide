@@ -9,10 +9,13 @@ import UIKit
 enum HomeRoute: Hashable {
     case camera
     case history
+    case diary
     case settings
     /// The story in `HomeScreen.pushedModel`: a fresh photo story, or a stored one opened from the card.
     case photoStory
     case walkStory(UUID)
+    /// The day story of a diary day, by `Diary.dayKey`.
+    case dayStory(String)
 }
 
 /// The app's first screen: the latest story (photo or walk), the walking controls and a button to the camera.
@@ -73,6 +76,10 @@ struct HomeScreen: View {
             .navigationTitle("MyGuide")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: HomeRoute.diary) { Image(systemName: "book") }
+                        .accessibilityLabel("Diary")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: HomeRoute.history) { Image(systemName: "clock.arrow.circlepath") }
                         .accessibilityLabel("History")
@@ -270,6 +277,9 @@ struct HomeScreen: View {
             CaptureScreen(services: services, location: location, onPhoto: photoReady)
         case .history:
             HistoryView(services: services, location: location)
+        case .diary:
+            DiaryView(services: services, location: location, openWalkStory: openWalkStory,
+                      openDayStory: { path.append(.dayStory($0.id)) })
         case .settings:
             SettingsView(services: services)
         case .photoStory:
@@ -279,6 +289,9 @@ struct HomeScreen: View {
         case .walkStory(let id):
             WalkStoryView(stories: services.walking.stories, id: id)
                 .id(id)
+        case .dayStory(let dayKey):
+            DayStoryScreen(dayKey: dayKey, services: services)
+                .id(dayKey)
         }
     }
 

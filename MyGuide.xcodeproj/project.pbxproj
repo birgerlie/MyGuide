@@ -14,11 +14,14 @@
 		11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */; };
 		1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB5929240699451326DF1BD /* PhotoImport.swift */; };
 		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
+		2372F6786301805D64B055F5 /* LibraryImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */; };
 		25CAC5AE46A2956C88341916 /* WalkingStatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
+		2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */; };
 		2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */; };
 		357BDDD00F40A1DF41E20DC6 /* WalkingStories.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC982992B37C30453C7F88D8 /* WalkingStories.swift */; };
 		3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */; };
+		46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CB088E737DE4DD25A20C41 /* DiaryView.swift */; };
 		4A41F0BABB7371E08C5F20E8 /* MyGuideWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */; };
 		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
 		56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */; };
@@ -36,6 +39,7 @@
 		97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */; };
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
 		9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
+		AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25E304A4B1D4048860FAE2FD /* DayStoryView.swift */; };
 		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
 		B8D753A876BD7F2DBBED7DE1 /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */; };
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
@@ -98,13 +102,17 @@
 		11AC3F6758B70A451EA067EB /* SelfCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCheckView.swift; sourceTree = "<group>"; };
 		18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
 		18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckModel.swift; sourceTree = "<group>"; };
+		1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryRows.swift; sourceTree = "<group>"; };
 		218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCheckView.swift; sourceTree = "<group>"; };
 		23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzNotifier.swift; sourceTree = "<group>"; };
+		25E304A4B1D4048860FAE2FD /* DayStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayStoryView.swift; sourceTree = "<group>"; };
 		262854964F0668D9EA23A15A /* TellMeIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TellMeIntent.swift; sourceTree = "<group>"; };
 		2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWidgetsBundle.swift; sourceTree = "<group>"; };
+		32CB088E737DE4DD25A20C41 /* DiaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryView.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
 		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
 		3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryImport.swift; sourceTree = "<group>"; };
 		4D718A718A1BAB633570C16E /* WalkingCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckView.swift; sourceTree = "<group>"; };
 		4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWatchApp.swift; sourceTree = "<group>"; };
 		517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLiveActivity.swift; sourceTree = "<group>"; };
@@ -163,6 +171,17 @@
 			path = Story;
 			sourceTree = "<group>";
 		};
+		0D3471D25E9454F50E8D45FA /* Diary */ = {
+			isa = PBXGroup;
+			children = (
+				25E304A4B1D4048860FAE2FD /* DayStoryView.swift */,
+				1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */,
+				32CB088E737DE4DD25A20C41 /* DiaryView.swift */,
+				4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */,
+			);
+			path = Diary;
+			sourceTree = "<group>";
+		};
 		16AF014B38938FD6A126E7B0 /* WalkingCheck */ = {
 			isa = PBXGroup;
 			children = (
@@ -180,6 +199,7 @@
 				D4F54BE4CD7C5098E4E6DACF /* Info.plist */,
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
 				A7D7E3A20BB6FBE11F69FE33 /* Capture */,
+				0D3471D25E9454F50E8D45FA /* Diary */,
 				EABF7E6D3FEFD2F8655C128B /* History */,
 				C33F1654996717C37D9C0E03 /* Home */,
 				65FCED6406B373ED5C73E009 /* Platform */,
@@ -480,8 +500,12 @@
 				4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */,
 				08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */,
 				FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */,
+				AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */,
+				2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */,
+				46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */,
 				1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */,
 				BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */,
+				2372F6786301805D64B055F5 /* LibraryImport.swift in Sources */,
 				6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */,
 				97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */,
 				0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */,
