@@ -61,8 +61,10 @@
 		E79E99F1329E44BA88B8CFC2 /* GuidedWalkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */; };
 		E8032EFCA466ECD13CCB7000 /* BuzzLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EC60C12EF6858FD501AD51 /* BuzzLogView.swift */; };
 		EB9136D293A0DCCB7A5C8046 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1534A69656411063E4F69C80 /* MyGuideCore */; };
+		EC6D778A693C83A46312B2AC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7CFF1615F9030516CF876C85 /* Assets.xcassets */; };
 		EC6DC3036B2DE3C3D1B8572F /* WalkingLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */; };
 		F0B8DAD8B104CB1D547EA859 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D59629C52B71A28FA9DCBB /* WatchLink.swift */; };
+		F8DE2811C1B6D114F0707472 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68E63B23D5D4103DCC816284 /* Assets.xcassets */; };
 		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
 /* End PBXBuildFile section */
 
@@ -139,9 +141,11 @@
 		5E7A49C840514706DE718EF1 /* WalkStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkStoryView.swift; sourceTree = "<group>"; };
 		60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogFormat.swift; sourceTree = "<group>"; };
 		6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuideWatch.entitlements; sourceTree = "<group>"; };
+		68E63B23D5D4103DCC816284 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6FB5929240699451326DF1BD /* PhotoImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoImport.swift; sourceTree = "<group>"; };
 		728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLocation.swift; sourceTree = "<group>"; };
 		7601A9D4143D662A6232BA41 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
+		7CFF1615F9030516CF876C85 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScreen.swift; sourceTree = "<group>"; };
 		8AB976060B732B94CFFDBA0D /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -230,6 +234,7 @@
 			children = (
 				8AB976060B732B94CFFDBA0D /* AppDelegate.swift */,
 				7601A9D4143D662A6232BA41 /* AppServices.swift */,
+				7CFF1615F9030516CF876C85 /* Assets.xcassets */,
 				D4F54BE4CD7C5098E4E6DACF /* Info.plist */,
 				96B316F6601D1952CFEF86BE /* MyGuide.entitlements */,
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
@@ -251,6 +256,7 @@
 		3B2A02D6212714FC8C838ABB /* MyGuideWatch */ = {
 			isa = PBXGroup;
 			children = (
+				68E63B23D5D4103DCC816284 /* Assets.xcassets */,
 				283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */,
 				04A5C636C046DB5D8AB64F46 /* GuidedWalkView.swift */,
 				F878CC395772D74A4E843693 /* Info.plist */,
@@ -413,6 +419,7 @@
 			buildConfigurationList = 8C0C1917A7F626865DB8DA3E /* Build configuration list for PBXNativeTarget "MyGuide" */;
 			buildPhases = (
 				2B43ADB8CFFFC76D5FEE2175 /* Sources */,
+				99EEA27C7189E6AC3FEF6FFE /* Resources */,
 				2962C0D8DF1D83FD3546567A /* Frameworks */,
 				74E34A7FCBA1CF9F2BEA0D6F /* Embed Foundation Extensions */,
 				8EA0F8C4509ABF144378C8B6 /* Embed Watch Content */,
@@ -453,6 +460,7 @@
 			buildConfigurationList = 462D46FBA3B040A1BE183335 /* Build configuration list for PBXNativeTarget "MyGuideWatch" */;
 			buildPhases = (
 				0CFDCA4FFB52F366F7F1974D /* Sources */,
+				7C2528A5E854B11936B24A9F /* Resources */,
 				B26962E02143666FACD60DE9 /* Frameworks */,
 			);
 			buildRules = (
@@ -510,6 +518,25 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7C2528A5E854B11936B24A9F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F8DE2811C1B6D114F0707472 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		99EEA27C7189E6AC3FEF6FFE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EC6D778A693C83A46312B2AC /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		08916862C983985F8F6A83AC /* Sources */ = {
@@ -637,6 +664,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -655,6 +683,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -700,6 +729,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -712,6 +742,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

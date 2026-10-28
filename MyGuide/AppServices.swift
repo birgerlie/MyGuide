@@ -63,7 +63,7 @@ final class AppServices {
             stories: stories,
             walkLog: walkLog,
             makeSource: { Self.walkingSource(http: http) },
-            hasAPIKey: { ((try? keychain.read(Self.apiKeyAccount)) ?? nil)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false })
+            hasAPIKey: { (try? Self.apiKey(keychain: keychain)) != nil })
         let walkingCheck = walkingCheck
         let walking = walking
         let watchLink = watchLink
@@ -151,9 +151,19 @@ final class AppServices {
     }
 
     private static func openAI(keychain: KeychainStore, http: HTTPClient) throws -> OpenAIClient {
-        let key = try keychain.read(apiKeyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !key.isEmpty else { throw OpenAIError.missingAPIKey }
-        return OpenAIClient(apiKey: key, http: http)
+        guard let source = try apiKey(keychain: keychain) else { throw OpenAIError.missingAPIKey }
+        return OpenAIClient(apiKey: source.key, http: http)
+    }
+
+    /// The key entered in Settings, else the one a test build carries (`APIKeySource`); nil when neither exists.
+    /// Keychain failures propagate.
+    nonisolated static func apiKey(keychain: KeychainStore) throws -> APIKeySource? {
+        APIKeySource.resolve(stored: try keychain.read(apiKeyAccount), bundled: bundledAPIKey)
+    }
+
+    /// `MGBundledOpenAIKey` from Info.plist: empty unless Config/Local.xcconfig sets OPENAI_BUNDLED_KEY.
+    nonisolated static var bundledAPIKey: String? {
+        Bundle.main.object(forInfoDictionaryKey: "MGBundledOpenAIKey") as? String
     }
 
     /// The place source for walking mode: the same shared OSM and Wikipedia clients as phase 1.

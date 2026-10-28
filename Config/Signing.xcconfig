@@ -1,1 +1,3 @@
+// Empty unless Config/Local.xcconfig sets it (TestFlight builds for friends: the owner's key, with a spend cap).
+OPENAI_BUNDLED_KEY =
 #include? "Local.xcconfig"

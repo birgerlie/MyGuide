@@ -5,6 +5,10 @@ options:
 configFiles:
   Debug: Config/Signing.xcconfig
   Release: Config/Signing.xcconfig
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
 packages:
   MyGuideCore: { path: Packages/MyGuideCore }
 targets:
@@ -22,6 +26,11 @@ targets:
       path: MyGuide/Info.plist
       properties:
         CFBundleDisplayName: MyGuide
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        ITSAppUsesNonExemptEncryption: false
+        # A test build may carry the owner's key from the git-ignored Config/Local.xcconfig (empty otherwise).
+        MGBundledOpenAIKey: "$(OPENAI_BUNDLED_KEY)"
         UILaunchScreen: {}
         UIBackgroundModes: [audio, location]
         NSSupportsLiveActivities: true
@@ -55,6 +64,8 @@ targets:
       path: MyGuideWidgets/Info.plist
       properties:
         CFBundleDisplayName: MyGuide
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -75,6 +86,8 @@ targets:
       path: MyGuideWatch/Info.plist
       properties:
         CFBundleDisplayName: MyGuide
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         WKApplication: true
         WKCompanionAppBundleIdentifier: io.github.birgerlie.MyGuide
         WKBackgroundModes: [workout-processing]

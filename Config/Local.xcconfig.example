@@ -1,3 +1,7 @@
 // Copy this file to Config/Local.xcconfig (git-ignored) and set your team ID.
 // The team ID is shown in Xcode -> Settings -> Accounts -> (Personal Team).
 DEVELOPMENT_TEAM = YOUR_TEAM_ID
+
+// Optional, for TestFlight builds shared with people you know: an OpenAI key built into the app when no key is
+// entered in Settings. Anyone with the build can extract it, so set a monthly spend limit on it at OpenAI.
+// OPENAI_BUNDLED_KEY = sk-...

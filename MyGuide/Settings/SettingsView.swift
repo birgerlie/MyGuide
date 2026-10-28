@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var draftKey = ""
     @State private var savedKeySuffix: String?
     @State private var hasSavedKey = false
+    @State private var usesBundledKey = false
     @State private var errorText: String?
     @State private var totals: UsageTotals?
     @State private var totalsFailed = false
@@ -19,6 +20,8 @@ struct SettingsView: View {
             Section {
                 if hasSavedKey {
                     Text(savedKeySuffix.map { "Key saved ••••\($0)" } ?? "Key saved")
+                } else if usesBundledKey {
+                    Text("Using the test key built into this version").foregroundStyle(.secondary)
                 } else {
                     Text("No key saved").foregroundStyle(.secondary)
                 }
@@ -124,8 +127,10 @@ struct SettingsView: View {
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             hasSavedKey = !key.isEmpty
             savedKeySuffix = APIKeyDisplay.visibleSuffix(of: key)
+            usesBundledKey = !hasSavedKey && APIKeySource.resolve(stored: nil, bundled: AppServices.bundledAPIKey) != nil
         } catch {
             hasSavedKey = false
+            usesBundledKey = false
             savedKeySuffix = nil
             errorText = "Couldn't read the Keychain: \(error)"
         }
