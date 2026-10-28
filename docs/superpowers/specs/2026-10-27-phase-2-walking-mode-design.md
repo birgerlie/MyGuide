@@ -5,7 +5,7 @@
 
 ## 1. Intent
 
-A guide in the ear while walking. The owner switches walking mode on, puts the phone in a pocket, and walks. Whenever they come near a place worth hearing about, the watch buzzes with a short title, direction and distance. A tap plays the 20-second story in the AirPods; another tap goes deeper. When they stop for a while, a short story about where they stand is waiting on the lock screen.
+A guide in the ear while walking. The owner switches walking mode on, puts the phone in a pocket, and walks. Whenever they come near a place worth hearing about, the watch buzzes with a short title, direction and distance. A tap plays the short story (16–30 seconds, longer for more important places) in the AirPods; another tap goes deeper. When they stop for a while, a short story about where they stand is waiting on the lock screen.
 
 It should feel like a generous guide who knows which places matter, not a stream of notifications.
 
@@ -13,7 +13,7 @@ It should feel like a generous guide who knows which places matter, not a stream
 
 - **Start:** the owner opens the app and switches walking mode on. *(owner)*
 - **Photos during a walk:** while walking mode runs, the owner can still open the app and take photos for a photo story. Walking mode keeps running. *(owner)*
-- **Buzz → story:** a tap on the watch plays the story in the AirPods. Another tap continues to the next level (spec levels: 20 s, +30 s, +2 min). *(owner, spec)* The Ultra 1 Action button is an optional extra, not required.
+- **Buzz → story:** a tap on the watch plays the story in the AirPods. Another tap continues to the next level (levels: 40–75 words by place tier, then 200, then 300 words; guide-voice design section 5). *(owner, spec)* The Ultra 1 Action button is an optional extra, not required.
 - **Pace:** a setting, **buzzes per hour, 5 to 60**. The owner expects a guide to buzz often ("perhaps more than 30"). *(owner)*
 - **Skip:** a skip control on the watch while a story plays. A skipped place never buzzes again. *(owner)*
 - **No buzzes about boring places.** Being buzzed about dull places is what would make the owner switch walking mode off. *(owner)*
@@ -100,7 +100,7 @@ The list lives in one place in the code, with its own tests, so changing it is a
 ### 7.5 The walking story
 
 - Same story style, levels and memory priors as phase 1, but made from position, walking direction and the chosen place instead of a photo. Style, lengths and the request's contents (address, walking direction, where the walker came from, stories told lately, Apple Maps places): see the guide-voice design (`2026-10-28-guide-voice-design.md`, sections 4–7).
-- **Prepared when the buzz goes out:** the 20-second text and its speech are fetched as soon as the place is chosen, so a tap plays within a second or two *(Claude's call)*. An ignored buzz therefore costs one small text request and one short speech request (roughly a cent or less; the cost counter shows the real figure). If the owner taps before it is ready, it plays as soon as it is.
+- **Prepared when the buzz goes out:** the first-level text (40–75 words by place tier, guide-voice design section 5) and its speech are fetched as soon as the place is chosen, so a tap plays within a second or two *(Claude's call)*. An ignored buzz therefore costs one small text request and one short speech request (roughly a cent or less; the cost counter shows the real figure). If the owner taps before it is ready, it plays as soon as it is.
 - "More" fetches the next level the same way as phase 1's "Tell me more".
 - Audio plays through the phone to the AirPods (or the phone speaker if none are connected), with the phase-1 audio session handling.
 

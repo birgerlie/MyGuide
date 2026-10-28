@@ -92,6 +92,7 @@ Length depends on what triggered the story and, for app-triggered stories, on ho
 | "Even more" (level 3) | 300 | 2 min | as many as the facts carry |
 
 - **Tier for a buzz:** the buzzed place's tier. **For a stop story:** the best tier among the OSM/Wikipedia places in its request; 40 words if none (including the "nothing here, but nearby" case of section 9). Never-tier places and Apple Maps places count as no tier.
+- **A buzz about a place with no facts** (no OSM fact tags, summary or article text) gets 40 words whatever its tier: less to say, less to invent. *(Ruling at the final review)*
 - **Stop stories are capped at 50 words** (tier 1 and 2 both give 50) so they still fit the Live Activity layout (`WalkingLiveActivity`, about 8 lines). *(Claude's call: keeps widget work out of this change.)*
 - Every level ends with the one nudge (each level may be the last one heard), different from earlier levels' nudges. *(Claude's call)*
 - Today `StoryLevel.targetSeconds` fixes length per level. It becomes a function of the story kind, level and tier; `StoryLevel` keeps identifying the level. Audio level cards, cost estimates and the walking flow that read `targetSeconds` follow the new length.
@@ -129,7 +130,8 @@ Task: Tell the user about the subject they are passing.
 - Reverse geocoded with the existing `MKReverseGeocodingRequest` path, extended with the **district/neighbourhood** when MapKit returns one *(the builder verifies which `MKAddress` / `MKAddressRepresentations` field gives it on iOS 26; if none does, the field has no district)*.
 - **Walking buzz stories get the position too** (today they get none). Use the route lookup (6.5) when it is within 50 m of the current position; otherwise a new lookup, with the existing 8 s limit.
 - Photo requests keep the coordinates and their accuracy after the address, as today.
-- On failure or timeout: `Position: address lookup failed` plus coordinates, so the model knows to be cautious.
+- On failure or timeout: `Position: address lookup failed` plus coordinates, so the model knows to be cautious. A continuation of a walk story saved before its address was looked up (a buzz story from before this design) says `Position: unknown` plus coordinates.
+- The direction a buzz notification is worded with (route direction, else GPS course) is the one its story is told with.
 
 ### 6.3 Time
 `Time:` 24-hour local time and English weekday, phone's time zone (`12:40 Wednesday`). English regardless of story language *(Claude's call: the request is English; only the answer is localised)*.
@@ -148,7 +150,8 @@ Task: Tell the user about the subject they are passing.
 
 ### 6.6 Subject and facts
 - `Subject:` the buzzed place, the matched photo candidate (continuations), or none (first photo level, stop story).
-- `Facts about <name>:` for the subject (buzz; matched photo continuation) and, for a stop story, for the best-tier place listed *(Claude's call)*. Contents in 7.1 and 7.2.
+- `Facts about <name>:` for the subject (buzz; matched photo continuation) and, for a stop story, for the best-tier place listed *(Claude's call)*. Contents in 7.1 and 7.2, each on one line. With no facts: `Facts about <name>: none found`.
+- A stop continuation whose position has no place within 500 m any more says `Facts: none found` and asks the model to continue only with what it genuinely knows about the spot and to stop short; it does not search Apple Maps again. *(Ruling at the final review)*
 - **Photo first level:** the model must still identify the subject, so every candidate keeps its Wikipedia summary (600 characters, as today) and its OSM fact tags, in today's ranked order (in view first, nearest first). No 4,000-character fetch before identification, so no candidate is favoured by having more text *(Claude's call)*. **Photo continuation:** the matched candidate gets `Facts about` with the full text; with no match, the up-to-3 places of today's `factCandidates` keep their summaries and tags.
 - `Nearby:` the other places as today (buzz: up to 4 best-tier-then-nearest; stop: within 150 m, up to 5; photo: the ranked candidates with in view/out of view), each with kind, distance, side, and its OSM fact tags on an indented line when it has any.
 
@@ -179,7 +182,7 @@ Task: Tell the user about the subject they are passing.
 
 ### 7.3 Apple Maps places
 - One `MKLocalPointsOfInterestRequest` per first-level story: within **150 m** for walking and stop stories, **250 m** for photos *(Claude's call)*. Categories: museum, landmark, castle, fortress, monument, park, national park, library, university, theater, music venue, stadium, zoo, aquarium, planetarium, spring, beach, bakery, restaurant, café, brewery, winery, market (the builder skips any category that does not exist on iOS 26).
-- Listed as `Also on Apple Maps:` with name, category, distance and side, at most 8, nearest first, dropping names that match an already listed place (case- and diacritic-insensitive).
+- Listed as `Also on Apple Maps:` with name, category, distance and side, at most 8, dropping names that match an already listed place (case- and diacritic-insensitive). Other categories come before food, nearest first within each, and at most 2 food places are listed, so food never crowds out sights. *(Ruling at the final review)*
 - Food categories are there only to ground the meal-time line; the instructions forbid recommending them.
 - 8 s limit; on failure the field is left out silently (it is supplementary). Continuations reuse the first level's result.
 

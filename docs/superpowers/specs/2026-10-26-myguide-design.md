@@ -61,7 +61,7 @@ The best human guides tell stories about people, not dates and buildings, and th
 | Distribution | Personal use first; free Apple developer account until the app works, then possibly the paid $99/year account |
 | Source | Public open-source GitHub repo under the owner's personal account, MIT license |
 | Story output | Spoken audio **and** text on screen |
-| Story lengths | By story kind, level and place tier (guide-voice design, section 5): app-triggered first level (walking buzz, stop story) **75 / 60 / 40 words** for tier 1 / 2 / 3 or none, stop stories at most **50**; owner-triggered (photo first level, any "tell me more") **200 words**; "even more" **300 words**. Word counts assume ≈150 spoken words per minute. |
+| Story lengths | By story kind, level and place tier (guide-voice design, section 5): app-triggered first level (walking buzz, stop story) **75 / 60 / 40 words** for tier 1 / 2 / 3 or none, **2–3 points**; stop stories at most **50**, and **40** when they only point to a place worth the detour; a buzz about a place with no facts gets **40**; owner-triggered (photo first level, any "tell me more") **200 words**, **3–4 points**; "even more" **300 words**, as many points as the facts carry. Word counts assume ≈150 spoken words per minute. |
 | Story style | Private guide: most striking thing first, specific checkable points across history, architecture, food and science, one nudge at the end; see the guide-voice design (`2026-10-28-guide-voice-design.md`) |
 | Language | English by default; Norwegian as a setting |
 | Walking buzzes | Famous historic sites and hidden stories only; never shops or restaurants |
@@ -100,9 +100,9 @@ The best human guides tell stories about people, not dates and buildings, and th
 4. One OpenAI vision request receives the photo, the position, the heading, the candidate places and their summaries, the story language, the active theme (if any) and the list of stories already told about these places. It must:
    - identify what is in the photo, preferring candidates that match position and heading;
    - say plainly when it is unsure what the subject is;
-   - write the **20-second** first story in the style rules of section 6, labelling legend and uncertainty.
+   - write the first story (about **200 words**, section 6 "Story lengths") in the style rules of section 6, labelling legend and uncertainty.
 5. The story appears as text immediately and is spoken with OpenAI text-to-speech. Audio plays through the phone speaker or connected AirPods.
-6. "Tell me more" generates the **+30 second** level; "even more" generates the **+2 minute** level. Each level continues the previous one rather than restarting, and avoids what has been said before.
+6. "Tell me more" generates the second level (about **200 words**); "even more" generates the third (about **300 words**). Each level continues the previous one rather than restarting, and avoids what has been said before.
 7. "Show me how it looked" generates a labelled AI reconstruction image of the scene in the relevant era.
 8. The story, photo thumbnail, place, position and time are saved to memory.
 
@@ -120,7 +120,7 @@ The best human guides tell stories about people, not dates and buildings, and th
 - Switched on manually. Uses background location.
 - Points of interest come from OSM historic/tourism tags plus Wikipedia geosearch, filtered to exclude shops, restaurants and cafés, and filtered by the active theme.
 - On approaching a not-yet-told point of interest, the watch plays a distinct haptic and shows a short title with direction and distance ("Where Caesar was stabbed, 50 m left").
-- Action button (via Shortcut) or a tap starts the 20-second story in the owner's AirPods; pressing again continues to the next level.
+- Action button (via Shortcut) or a tap starts the short first-level story (40–75 words by place tier, section 6 "Story lengths") in the owner's AirPods; pressing again continues to the next level.
 - Rate limit so dense areas do not cause constant buzzing.
 - **Stop detection:** when the owner has been stationary for about a minute, the app prepares a text story about the spot and noteworthy places nearby (with a suggestion to divert past them if they are close) and posts it to the lock screen: by updating the Live Activity started with walking mode, or by a time-sensitive notification (see section 7).
 
