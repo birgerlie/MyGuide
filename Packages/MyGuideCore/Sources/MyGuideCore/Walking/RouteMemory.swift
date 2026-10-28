@@ -9,7 +9,8 @@ public struct CameFrom: Sendable, Equatable {
     public var distance: Double
     /// From the current position to that point.
     public var bearing: Double
-    /// The current street, when it covered the whole stretch since then.
+    /// The current street, when it covered the whole stretch since then: set only with at least one newer successful
+    /// lookup, and every newer lookup (failed or without a street name counts as unknown) on the current street.
     public var along: String?
 
     public init(street: String, minutesAgo: Int, distance: Double, bearing: Double, along: String?) {
@@ -130,6 +131,7 @@ public struct RouteMemory: Sendable {
             guard lookup.street != nil else { return false }
             let path = newest.offset - lookup.offset
             return path >= Self.minimumCameFromPath - Self.slack
+                && GeoMath.distance(newest.sample.coordinate, lookup.position) >= Self.minimumCameFromPath
                 && path <= Self.windowPath + Self.slack
                 && max(0, now.timeIntervalSince(lookup.at)) <= Self.windowTime
         }
@@ -137,8 +139,10 @@ public struct RouteMemory: Sendable {
         let lookup = lookups[index]
         let age = max(0, now.timeIntervalSince(lookup.at))
         var along: String?
+        let newer = lookups[(index + 1)...]
         if let currentStreet, currentStreet != street,
-           lookups[(index + 1)...].allSatisfy({ $0.address == nil || $0.street == currentStreet }) {
+           newer.contains(where: { $0.address != nil }),
+           newer.allSatisfy({ $0.street == currentStreet }) {
             along = currentStreet
         }
         return CameFrom(street: street, minutesAgo: Int(age / 60),
@@ -155,12 +159,12 @@ public struct RouteMemory: Sendable {
             newest.sample.at.timeIntervalSince(at) > Self.keepTime || newest.offset - offset > Self.keepPath
         }
         points.removeAll { stale($0.sample.at, $0.offset) }
-        let lastSuccess = lookups.lastIndex { $0.address != nil }
         let lastIndex = lookups.count - 1
-        var index = 0
-        lookups.removeAll { lookup in
-            defer { index += 1 }
-            return index != lastIndex && index != lastSuccess && stale(lookup.at, lookup.offset)
+        let lastSuccess = lookups.lastIndex { $0.address != nil }
+        var kept: [Lookup] = []
+        for (index, lookup) in lookups.enumerated() {
+            if index == lastIndex || index == lastSuccess || !stale(lookup.at, lookup.offset) { kept.append(lookup) }
         }
+        lookups = kept
     }
 }

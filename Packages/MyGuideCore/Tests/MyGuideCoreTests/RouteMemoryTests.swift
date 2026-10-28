@@ -105,7 +105,8 @@ import Testing
     }
 
     @Test func cameFromOldestStreetInWindowWithAlong() throws {
-        // lookups: "Stortorvet 1" at 0 m (t=0), "Kirkegata 3" at 100 m (t=72), "Kirkegata 15" at 200 m (t=144);
+        // samples every 10 m / 8 s; lookups: "Stortorvet 1" at 0 m (t=0), "Kirkegata 3" at 100 m (t=80),
+        // "Kirkegata 15" at 200 m (t=160);
         // now t=180 at 220 m north: came from Stortorvet: path 220 ≤ 300, age 180 ≤ 300; distance 220 m,
         // bearing 180 (south), floor(180/60) = 3 min; along Kirkegata (both newer lookups are Kirkegata).
         var r = RouteMemory()
@@ -225,8 +226,8 @@ import Testing
 
     @Test func oldSamplesAreTrimmedButLastLookupSurvives() {
         // 50 samples, 10 m apart, 50 s apart → 490 m path, 2450 s. Trimming keeps ≤ 400 m path and ≤ 600 s.
-        // The lookup at 0 m is long gone from the window, but spacing still counts from it:
-        // path since it is 490 ≥ 100 → needs a lookup (and not "no lookup yet" reset by trimming).
+        // Path since the lookup at 0 m is 490 ≥ 100 → needs a lookup. This only checks that trimming the track does
+        // not break bearing or spacing; the keep-exceptions for lookups are pinned by the two standing-still tests.
         var r = RouteMemory()
         r.add(sample(north: 0, t: 0)); r.recordLookup(nil, at: Self.t0)
         for i in 1...49 { r.add(sample(north: Double(i) * 10, t: Double(i) * 50)) }
@@ -238,6 +239,70 @@ import Testing
         // 5 more metres... still within spacing after trimming
         r.add(sample(north: 495, t: 2500))
         #expect(!r.needsStreetLookup)
+    }
+
+    @Test func failedLookupSurvivesStandingStillForOverTenMinutes() {
+        // failed lookup at t=0, then samples at the same spot until t=700 (> 600 s keepTime): the lookup is stale
+        // by age but is the last one, so spacing still counts from it: path 0 < 100 → no new lookup needed.
+        // Without the keep-exception the lookup is dropped and `needsStreetLookup` would be true ("no lookup yet").
+        var r = RouteMemory()
+        r.add(sample(north: 0, t: 0)); r.recordLookup(nil, at: Self.t0)
+        for t in stride(from: 100.0, through: 700, by: 100) { r.add(sample(north: 0, t: t)) }
+        #expect(!r.needsStreetLookup)
+    }
+
+    @Test func successfulLookupSurvivesStandingStillForOverTenMinutes() {
+        // successful lookup at t=0, then a failed one at t=100 (so the first is neither the last lookup), then standing
+        // still until t=800: the first is stale by age but is the last successful one → still reusable at 0 m < 50 m.
+        var r = RouteMemory()
+        r.add(sample(north: 0, t: 0)); r.recordLookup(address("Stortorvet 1"), at: Self.t0)
+        r.add(sample(north: 0, t: 100)); r.recordLookup(nil, at: Self.t0.addingTimeInterval(100))
+        for t in stride(from: 200.0, through: 800, by: 100) { r.add(sample(north: 0, t: t)) }
+        #expect(r.recentAddress(near: .at())?.line == "Stortorvet 1")
+    }
+
+    @Test func alongNeedsASuccessfulNewerLookupOnTheCurrentStreet() throws {
+        let now = Self.t0.addingTimeInterval(200)
+        // came-from is the newest successful lookup (the one at 0 m; the later one is failed) → no evidence
+        var a = RouteMemory()
+        a.add(sample(north: 0, t: 0)); a.recordLookup(address("Stortorvet 1"), at: Self.t0)
+        a.add(sample(north: 100, t: 70)); a.recordLookup(nil, at: Self.t0.addingTimeInterval(70))
+        a.add(sample(north: 200, t: 140))
+        #expect(try #require(a.context(address: address("Kirkegata 5"), course: nil, now: now).cameFrom).along == nil)
+
+        // Stortorvet, two failed lookups, current Kirkegata → unknown in between → nil
+        var b = RouteMemory()
+        b.add(sample(north: 0, t: 0)); b.recordLookup(address("Stortorvet 1"), at: Self.t0)
+        b.add(sample(north: 70, t: 50)); b.recordLookup(nil, at: Self.t0.addingTimeInterval(50))
+        b.add(sample(north: 140, t: 100)); b.recordLookup(nil, at: Self.t0.addingTimeInterval(100))
+        b.add(sample(north: 200, t: 140))
+        #expect(try #require(b.context(address: address("Kirkegata 5"), course: nil, now: now).cameFrom).along == nil)
+
+        // Stortorvet, Kirkegata lookup, current Kirkegata → along Kirkegata
+        var c = RouteMemory()
+        c.add(sample(north: 0, t: 0)); c.recordLookup(address("Stortorvet 1"), at: Self.t0)
+        c.add(sample(north: 100, t: 70)); c.recordLookup(address("Kirkegata 3"), at: Self.t0.addingTimeInterval(70))
+        c.add(sample(north: 200, t: 140))
+        #expect(try #require(c.context(address: address("Kirkegata 5"), course: nil, now: now).cameFrom).along == "Kirkegata")
+
+        // a newer successful lookup without a street name is unknown too → nil
+        var d = RouteMemory()
+        d.add(sample(north: 0, t: 0)); d.recordLookup(address("Stortorvet 1"), at: Self.t0)
+        d.add(sample(north: 100, t: 70)); d.recordLookup(Address(line: nil, city: "Trondheim"), at: Self.t0.addingTimeInterval(70))
+        d.add(sample(north: 200, t: 140))
+        #expect(try #require(d.context(address: address("Kirkegata 5"), course: nil, now: now).cameFrom).along == nil)
+    }
+
+    @Test func loopBackToTheLookupIsNotCameFrom() {
+        // lookup at 0 m; out to 100 m north and back to 10 m north: path 190 ≥ 30, but straight line 10 < 30 → nil.
+        // At 50 m north on the way back (path 150, straight 50 ≥ 30) it still counts.
+        var r = RouteMemory()
+        r.add(sample(north: 0, t: 0)); r.recordLookup(address("Stortorvet 1"), at: Self.t0)
+        r.add(sample(north: 100, t: 70))
+        r.add(sample(north: 50, t: 110))
+        #expect(r.context(address: nil, course: nil, now: Self.t0.addingTimeInterval(110)).cameFrom?.street == "Stortorvet")
+        r.add(sample(north: 10, t: 140))
+        #expect(r.context(address: nil, course: nil, now: Self.t0.addingTimeInterval(140)).cameFrom == nil)
     }
 
     @Test func resetClearsEverything() {
