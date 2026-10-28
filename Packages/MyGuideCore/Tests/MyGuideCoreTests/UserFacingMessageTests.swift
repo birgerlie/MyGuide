@@ -19,6 +19,7 @@ import Testing
         (ImageProcessingError.unreadableImage, "Couldn't read this photo."),
         (PhotoStoryError.noFurtherLevel, "That's the whole story for this place."),
         (ImageProcessingError.encodeFailed, "Couldn't read this photo."),
+        (DayStoryError.noPhotos, "None of this day's photos could be read."),
         (CancellationError(), ""),
     ])
     func messages(error: Error, expected: String) { #expect(UserFacingMessage.message(for: error) == expected) }

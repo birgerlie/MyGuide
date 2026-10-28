@@ -25,6 +25,10 @@ public enum UserFacingMessage {
             case .noPosition: return "This photo has no location. Use where you are now?"
             case .noFurtherLevel: return "That's the whole story for this place."
             }
+        case let e as DayStoryError:
+            switch e {
+            case .noPhotos: return "None of this day's photos could be read."
+            }
         case let e as ImageProcessingError:
             switch e {
             case .unreadableImage, .encodeFailed: return "Couldn't read this photo."

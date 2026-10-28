@@ -37,6 +37,8 @@
 	<string>In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MyGuide uses your exact position and compass heading to work out what you are looking at.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MyGuide saves the day story pages you choose to save to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MyGuide reads when and where a picked photo was taken, to tell its story and to place it in your diary.</string>
 	<key>NSSupportsLiveActivities</key>

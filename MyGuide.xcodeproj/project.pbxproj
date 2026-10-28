@@ -34,6 +34,7 @@
 		6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */; };
 		6C3FDF42EAD1B48C0D631C87 /* BuzzNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */; };
 		6CAFAF4562FB87C72F4F72F4 /* WalkingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9399C561071230F13BDD5526 /* WalkingPanel.swift */; };
+		7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AAB6A3685B614A563229E1E /* DayStoryModel.swift */; };
 		7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AC3F6758B70A451EA067EB /* SelfCheckView.swift */; };
 		905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */; };
 		97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */; };
@@ -98,6 +99,7 @@
 
 /* Begin PBXFileReference section */
 		0127669306FC88F71BBCDBF8 /* StoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryView.swift; sourceTree = "<group>"; };
+		0AAB6A3685B614A563229E1E /* DayStoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayStoryModel.swift; sourceTree = "<group>"; };
 		0D420089BC27852F1213A205 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		11AC3F6758B70A451EA067EB /* SelfCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCheckView.swift; sourceTree = "<group>"; };
 		18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
@@ -174,6 +176,7 @@
 		0D3471D25E9454F50E8D45FA /* Diary */ = {
 			isa = PBXGroup;
 			children = (
+				0AAB6A3685B614A563229E1E /* DayStoryModel.swift */,
 				25E304A4B1D4048860FAE2FD /* DayStoryView.swift */,
 				1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */,
 				32CB088E737DE4DD25A20C41 /* DiaryView.swift */,
@@ -500,6 +503,7 @@
 				4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */,
 				08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */,
 				FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */,
+				7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */,
 				AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */,
 				2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */,
 				46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */,

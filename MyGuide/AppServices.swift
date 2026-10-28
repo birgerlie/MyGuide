@@ -128,6 +128,38 @@ final class AppServices {
                               articles: articles)
     }
 
+    /// Throws `OpenAIError.missingAPIKey` when no key is stored. Photos are read from memory on the main actor.
+    func makeDayStoryFlow() throws -> DayStoryFlow {
+        let memory = memory
+        return DayStoryFlow(openAI: try makeOpenAI()) { id in
+            await MainActor.run { Self.photoJPEG(id: id, memory: memory) }
+        }
+    }
+
+    /// The stored full-size JPEG of a diary photo (`capture:<uuid>` or `library:<uuid>`); nil when the photo is gone,
+    /// the id is malformed or memory fails (logged).
+    func photoJPEG(id: String) -> Data? {
+        Self.photoJPEG(id: id, memory: memory)
+    }
+
+    private static func photoJPEG(id: String, memory: MemoryStore) -> Data? {
+        do {
+            switch DiaryPhotoID(id) {
+            case .capture(let uuid):
+                var descriptor = FetchDescriptor<CaptureRecord>(predicate: #Predicate { $0.id == uuid })
+                descriptor.fetchLimit = 1
+                return try memory.context.fetch(descriptor).first?.photoJPEG
+            case .library(let uuid):
+                return try memory.libraryPhoto(id: uuid)?.photoJPEG
+            case nil:
+                return nil
+            }
+        } catch {
+            logMemoryFailure("diary photo load failed", error)
+            return nil
+        }
+    }
+
     /// A memory failure must never block a story: it is logged and the flow is told there are no priors.
     private static func priorLookup(memory: MemoryStore) -> PriorStoryLookup {
         { placeIDs, near, excluding in
