@@ -787,11 +787,8 @@ final class WalkingController {
         case .notDetermined: return .notDetermined
         case .denied: return .denied
         case .authorized, .provisional, .ephemeral:
-            // Never `.timeSensitiveOff` on this build: the free developer account cannot sign the Time Sensitive
-            // Notifications entitlement, so the setting is always off and would block walking mode for good.
-            // Restore `settings.timeSensitiveSetting == .disabled ? .timeSensitiveOff : .allowed` when the paid
-            // account exists.
-            return .allowed
+            // Time Sensitive switched off lets a Focus hold buzzes back: a reminder, never a block (`canStart`).
+            return settings.timeSensitiveSetting == .disabled ? .timeSensitiveOff : .allowed
         @unknown default: return .denied
         }
     }

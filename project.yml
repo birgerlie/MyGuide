@@ -35,8 +35,10 @@ targets:
         NSPhotoLibraryUsageDescription: "MyGuide reads when and where a picked photo was taken, to tell its story and to place it in your diary."
         NSPhotoLibraryAddUsageDescription: "MyGuide saves the day story pages you choose to save to your photo library."
         NSMotionUsageDescription: "MyGuide notices when you stop and start walking, so walking mode can pause itself and save battery."
-    # Time Sensitive notifications need the paid developer account (the free Personal Team cannot sign
-    # that entitlement), so buzzes are delivered at the normal "active" level for now.
+    entitlements:
+      path: MyGuide/MyGuide.entitlements
+      properties:
+        com.apple.developer.usernotifications.time-sensitive: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.birgerlie.MyGuide
