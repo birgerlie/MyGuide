@@ -317,7 +317,7 @@ final class WalkingController {
         }
         let course = fix.course >= 0 ? fix.course : nil
         // The buzz's side ("50 m left") and its story use the same direction: the route's, else the GPS course
-        // (spec 6.4). The route already has this fix.
+        // (spec 6.4). The route was fed above, so it has this fix when it counts as a route fix.
         let direction = route.walkingBearing ?? course
         let buzz = engine?.evaluate(places: feed.places, position: position, accuracy: fix.horizontalAccuracy,
                                     course: direction, now: now)

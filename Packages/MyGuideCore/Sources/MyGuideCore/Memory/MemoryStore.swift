@@ -319,19 +319,19 @@ public enum MemoryError: Error, Equatable {
     }
 
     private func upsertPlace(_ candidate: Candidate, takenAt: Date, deepestLevel: Int, heardNow: Bool) throws {
-        let now = now()
+        let heardAt = now()
         if let place = try place(id: candidate.id) {
             place.name = candidate.name
             place.latitude = candidate.coordinate.latitude
             place.longitude = candidate.coordinate.longitude
             place.firstSeenAt = min(place.firstSeenAt, takenAt)
             place.deepestLevelHeard = max(place.deepestLevelHeard, deepestLevel)
-            if heardNow { place.lastHeardAt = now }
+            if heardNow { place.lastHeardAt = heardAt }
         } else {
             context.insert(PlaceRecord(id: candidate.id, name: candidate.name,
                                        latitude: candidate.coordinate.latitude,
                                        longitude: candidate.coordinate.longitude, firstSeenAt: takenAt,
-                                       deepestLevelHeard: deepestLevel, lastHeardAt: deepestLevel > 0 ? now : nil))
+                                       deepestLevelHeard: deepestLevel, lastHeardAt: deepestLevel > 0 ? heardAt : nil))
         }
     }
 

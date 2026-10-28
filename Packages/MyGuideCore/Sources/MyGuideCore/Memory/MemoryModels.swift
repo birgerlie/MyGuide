@@ -52,7 +52,8 @@ import SwiftData
     public var text: String
     /// Copy of the owner's `placeID`, so priors can be fetched by place without a join.
     public var placeID: String?
-    /// The owner's `takenAt` / `createdAt` plus the level index in seconds, so levels sort in telling order.
+    /// When the level was stored (`MemoryStore`'s clock); levels stored in one save share it, so order by level too.
+    /// Levels stored before this rule carry their capture's `takenAt` / walk story's `createdAt` plus the level index.
     public var createdAt: Date
     public var capture: CaptureRecord?
     public var walkStory: WalkStoryRecord?
