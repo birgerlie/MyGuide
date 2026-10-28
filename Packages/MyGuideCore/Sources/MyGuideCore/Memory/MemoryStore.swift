@@ -208,7 +208,8 @@ public enum MemoryError: Error, Equatable {
 
         return fetched
             .filter { excludingSession == nil || ($0.capture?.id != excludingSession && $0.walkStory?.id != excludingSession) }
-            .sorted { ($0.createdAt, $0.level) > ($1.createdAt, $1.level) }
+            // Text breaks ties so the order (and so the request) does not depend on the fetch order.
+            .sorted { ($0.createdAt, $0.level, $0.text) > ($1.createdAt, $1.level, $1.text) }
             .compactMap { story -> RecentStory? in
                 guard let level = StoryLevel(rawValue: story.level) else { return nil }
                 if let capture = story.capture {

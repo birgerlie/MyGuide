@@ -85,11 +85,14 @@ public struct Grounding: Sendable, Equatable, Codable {
     public var candidates: [RankedCandidate]
     public var address: Address?
     public var failedSources: [GroundingSource]
+    public var applePlaces: [ApplePlace]?
 
-    public init(candidates: [RankedCandidate], address: Address?, failedSources: [GroundingSource]) {
+    public init(candidates: [RankedCandidate], address: Address?, failedSources: [GroundingSource],
+                applePlaces: [ApplePlace]? = nil) {
         self.candidates = candidates
         self.address = address
         self.failedSources = failedSources
+        self.applePlaces = applePlaces
     }
 }
 

@@ -45,6 +45,17 @@ import Testing
         let content = (((b["input"] as? [[String: Any]])?.first)?["content"] as? [[String: Any]]) ?? []
         #expect(content.count == 1)
     }
+    @Test func promptCacheKeyIsSentOnlyWhenGiven() async throws {
+        let http = StubHTTPClient { _ in (200, Self.okBody) }
+        let client = OpenAIClient(apiKey: "k", http: http)
+        _ = try await client.respond(model: "m", reasoningEffort: nil, instructions: "s", text: "t", imageJPEG: nil,
+                                     schemaName: "s", schema: Self.schema, promptCacheKey: "myguide-story-v1")
+        _ = try await client.respond(model: "m", reasoningEffort: nil, instructions: "s", text: "t", imageJPEG: nil,
+                                     schemaName: "s", schema: Self.schema)
+        #expect(http.requests.count == 2)
+        #expect(http.requests[0].jsonBody["prompt_cache_key"] as? String == "myguide-story-v1")
+        #expect(http.requests[1].jsonBody.keys.contains("prompt_cache_key") == false)
+    }
     @Test func parsesOutputTextAndUsage() async throws {
         let r = try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (200, Self.okBody) }))
         #expect(String(decoding: r.json, as: UTF8.self) == #"{"story":"Hi"}"#)

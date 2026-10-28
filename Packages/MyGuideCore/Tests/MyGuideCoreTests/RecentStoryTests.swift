@@ -28,6 +28,19 @@ import Testing
     @Test func firstSentenceTreatsNewlineAsWhitespaceAfterPunctuation() {
         #expect(RecentStories.firstSentence("First line.\nSecond.") == "First line.")
     }
+    @Test func firstSentenceTrimsAndCollapsesWhitespace() {
+        // Leading/trailing whitespace goes; runs of spaces, tabs and newlines become one space.
+        #expect(RecentStories.firstSentence("  \n Built\n\nin   1697. It burned. ") == "Built in 1697.")
+        #expect(RecentStories.firstSentence("\tNo end\nhere  ") == "No end here")
+        #expect(RecentStories.firstSentence(" \n\t ") == "")
+    }
+    @Test func collapsedWhitespaceCountsOnceTowardsTheLimit() {
+        // 160 "a" split by a 5-newline run: collapsed to 80 + 1 + 79 = 160 characters, so not truncated.
+        let text = String(repeating: "a", count: 80) + "\n\n\n\n\n" + String(repeating: "a", count: 79)
+        let out = RecentStories.firstSentence(text)
+        #expect(out == String(repeating: "a", count: 80) + " " + String(repeating: "a", count: 79))
+        #expect(out.count == 160)
+    }
     @Test func longSingleSentenceIsTruncatedTo160() {
         // 60 words of "word" + space: 300 characters with no sentence end; cut at the last space at or before 160.
         let text = String(repeating: "word ", count: 60).trimmingCharacters(in: .whitespaces)
@@ -58,6 +71,14 @@ import Testing
     @Test func lineFormatForAStopStoryUsesThisSpot() {
         let s = RecentStory(toldAt: Self.at, placeName: nil, level: .evenMore, text: "A quiet corner! Nothing more.", prepared: false)
         #expect(RecentStories.line(s, timeZone: Self.utc) == "- 13:58 this spot level 3: \"A quiet corner!\"")
+    }
+    @Test func lineReplacesDoubleQuotesInsideTheQuote() {
+        let s = RecentStory(toldAt: Self.at, placeName: "Gate", level: .first, text: #"They called it "the Hole". It stayed."#, prepared: false)
+        #expect(RecentStories.line(s, timeZone: Self.utc) == #"- 13:58 Gate level 1: "They called it 'the Hole'.""#)
+    }
+    @Test func lineIsOneLineForAMultiLineStory() {
+        let s = RecentStory(toldAt: Self.at, placeName: "Gate", level: .first, text: "\nFirst\nline. Second.", prepared: false)
+        #expect(RecentStories.line(s, timeZone: Self.utc) == #"- 13:58 Gate level 1: "First line.""#)
     }
     @Test func lineUsesTheGivenTimeZone() {
         // 13:58 UTC; Oslo on 1970-01-12 is UTC+1 (CET), so 14:58.

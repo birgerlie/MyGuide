@@ -19,6 +19,7 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
     }
 
     /// Structured-output call to the Responses API. Returns the model's JSON text and token usage.
+    /// `promptCacheKey`, when given, is sent as `prompt_cache_key` so requests sharing a prefix land on the same cache.
     public func respond(
         model: String,
         reasoningEffort: String?,
@@ -26,7 +27,8 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         text: String,
         imageJPEG: Data?,
         schemaName: String,
-        schema: JSONValue
+        schema: JSONValue,
+        promptCacheKey: String? = nil
     ) async throws -> (json: Data, usage: TokenUsage) {
         var content: [JSONValue] = [["type": "input_text", "text": .string(text)]]
         if let imageJPEG {
@@ -49,6 +51,9 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         ]
         if let reasoningEffort {
             body["reasoning"] = ["effort": .string(reasoningEffort)]
+        }
+        if let promptCacheKey {
+            body["prompt_cache_key"] = .string(promptCacheKey)
         }
 
         let data = try await post(path: "responses", body: .object(body), timeout: 60)

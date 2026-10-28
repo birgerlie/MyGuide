@@ -33,7 +33,9 @@ public enum RecentStories {
 
     /// Up to and including the first ". ", "! " or "? " (or the whole text), then `TextTrim.truncate` to `sentenceLimit`.
     /// Only punctuation followed by whitespace ends a sentence, so abbreviations such as "St. Olav" cut early.
-    public static func firstSentence(_ text: String) -> String {
+    /// Whitespace is trimmed and every run of it (newlines included) becomes one space first, so the result is one line.
+    public static func firstSentence(_ story: String) -> String {
+        let text = story.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         var end = text.endIndex
         var index = text.startIndex
         while index < text.endIndex {
@@ -48,11 +50,12 @@ public enum RecentStories {
     }
 
     /// `- 11:58 Akershus Fortress level 1: "…"`; `this spot` stands for a missing name, ` (prepared)` ends a prepared story.
+    /// A `"` inside the sentence becomes `'` so the quote stays unambiguous.
     public static func line(_ story: RecentStory, timeZone: TimeZone) -> String {
         let name = story.placeName ?? "this spot"
         let tail = story.prepared ? " (prepared)" : ""
         return "- \(GuideText.clock(story.toldAt, timeZone: timeZone)) \(name) level \(story.level.rawValue): "
-            + "\"\(firstSentence(story.text))\"\(tail)"
+            + "\"\(firstSentence(story.text).replacingOccurrences(of: "\"", with: "'"))\"\(tail)"
     }
 
     /// Priors whose (level, text) is not among `recent`, so a story is not listed twice.

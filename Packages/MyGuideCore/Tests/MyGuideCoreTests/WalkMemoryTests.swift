@@ -650,6 +650,16 @@ import Testing
         #expect(try store.recentStories(since: since, excludingSession: b.id).map(\.text) == ["photo", "stop"])
         #expect(try store.recentStories(since: since, excludingSession: photo.id).map(\.text) == ["stop", "one"])
     }
+    @Test func equalTimeAndLevelAreOrderedByTextWhateverTheInsertionOrder() throws {
+        // Two stop stories, both level 1 at t0: the tiebreaker is the text, descending ("b" before "a").
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["a"]), tripID: Self.trip)
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["b"]), tripID: Self.trip)
+        #expect(try store.recentStories(since: Self.t0 - 10, excludingSession: nil).map(\.text) == ["b", "a"])
+        let other = try WalkMemoryTests()
+        try other.store.saveWalkStory(Self.stopStory(north: 20, levels: ["b"]), tripID: Self.trip)
+        try other.store.saveWalkStory(Self.stopStory(north: 20, levels: ["a"]), tripID: Self.trip)
+        #expect(try other.store.recentStories(since: Self.t0 - 10, excludingSession: nil).map(\.text) == ["b", "a"])
+    }
     @Test func unheardBuzzStoriesDoNotCrowdOutTheLimit() throws {
         // 12 ignored buzz stories newer than one stop story: filtered before the limit of 10, so the stop story remains.
         try store.saveWalkStory(Self.stopStory(north: 20, levels: ["stop"], at: 0), tripID: Self.trip)

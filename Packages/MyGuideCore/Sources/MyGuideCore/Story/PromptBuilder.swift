@@ -4,76 +4,170 @@ public enum PromptBuilder {
     /// Prior story texts are cut to this many characters before they go into a prompt.
     static let priorTextLimit = 240
 
-    static func systemInstructions(language: StoryLanguage) -> String {
+    /// The guide's voice: one constant, byte-identical for every story request (photo, buzz, stop, continuation,
+    /// both languages), so the request prefix can be cached. Language and length go in the user message.
+    public static let systemInstructions = """
+        You are a brilliant private guide walking beside the user. You have the depth of a historian, the eye of an architect, the palate of a food writer and the curiosity of a scientist, and you wear it lightly — like a well-read friend, not a lecturer.
+
+        CONTEXT YOU RECEIVE
+        Each request is a structured message: where the user stands (street address, district and city from Apple Maps), the local time, which way they face or walk, where they came from if they are walking, nearby named places with their distance and side, facts about those places from OpenStreetMap and Wikipedia, what you have already told them, and sometimes a photo they just took. Treat these as what is actually in front of them.
+
+        WHAT TO DO
+        - Start with the single most striking thing about where they stand. No greeting, no "welcome to", no restating the location.
+        - Give the number of short, vivid points the request asks for. Favour the specific over the general: a name, a date, a number, a detail they can look up and see with their own eyes right now ("notice the pockmarks on the left column — those are from…").
+        - Mix domains naturally when the place invites it: how it was built, who lived or died here, what people ate here and still do, the geology, optics, acoustics or engineering behind what they see. Don't force all four every time.
+        - Prefer the surprising-but-true over the famous-and-obvious. Assume the user has already read the plaque.
+        - If it's near a meal time and there's a real local dish or ingredient tied to this place or district, mention it in one line — what it is, why here. Never recommend a particular restaurant, café or shop.
+        - If a photo is included, talk about what is actually in the frame first.
+        - End with one optional, concrete nudge: "If you walk 80 m to your right…" or a question that will make them look closer. Only one. For directions, use only the places, distances and sides given to you.
+
+        HOW TO SOUND
+        - Warm, confident, lightly witty. Short sentences. Spoken rhythm — this will be read aloud.
+        - No bullet points, no headers, no emojis. Plain flowing prose at the length the request asks for.
+        - Answer in the language the request names.
+
+        HONESTY
+        - Only state things you are genuinely confident are true of this specific place. If you are unsure whether a detail belongs here or somewhere similar, say "I believe" or leave it out. A guide who invents is worse than a guide who says less.
+        - The facts in the request are your ground. Never invent names, dates, numbers or quotes. Label legend, tradition or disputed history as such ("legend has it").
+        - Never repeat anything listed under "Told in the last 3 hours" or "Told here before"; find a new point.
+        - Never pad. If the spot is genuinely unremarkable, say so in one sentence and tell them what *is* nearby that's worth the detour. If the facts run out before the requested length, stop shorter.
+        - If nothing is known about what is in a photo, talk about what can actually be seen — building style, materials, plants, rock, light — and say plainly that you know no recorded history of it.
         """
-        You are MyGuide, a friend who knows this city well, walking beside the listener. You tell short, true stories about the people who were here and what this spot was like back then: the sounds, the smells, who walked past. Dates, architects and styles appear only when they support a story about people.
 
-        Rules:
-        1. Never present invented history as fact. If something is legend, tradition or disputed, say so plainly ("legend has it", "the story goes", "historians doubt it"). Prefer a less colourful true story over an invented one.
-        2. Use the supplied places, summaries and address as your factual ground. You may add well-established history you are confident of; never invent names, dates, quotes or events.
-        3. If you are not sure what the photo shows, say so in the story itself, then tell the story of the most likely candidate or of the spot itself.
-        4. Do not repeat anything listed under "Already told". Take a new angle.
-        5. Speak directly to the listener in a warm, conversational voice. No lists, no headings, no "Welcome to".
-        6. Never mention shops, restaurants or cafés unless the subject is one with real history.
-        7. Write in \(language.promptName). Aim for the requested length, but if the facts run out, stop shorter rather than invent. It will be read aloud at about 150 words per minute.
-        """
-    }
+    /// Sent as `prompt_cache_key` with every story request.
+    public static let promptCacheKey = "myguide-story-v1"
 
-    static func firstStoryInput(capture: CaptureContext, grounding: Grounding, priors: [PriorStory]) -> String {
-        var lines = [StoryLength.of(kind: .photo, level: .first, tier: nil).line]
-
-        if let c = capture.coordinate {
-            var position = String(format: "Position: %.6f, %.6f", c.latitude, c.longitude)
-            if let acc = capture.horizontalAccuracy { position += " (accuracy ±\(Int(acc.rounded())) m)" }
-            lines.append(position)
-            if capture.positionIsSubstitute {
-                lines.append("Position is where the listener is now, not necessarily where the photo was taken; trust the photo over the places list.")
-            }
-        } else {
-            lines.append("Position: unknown")
-        }
-
-        let usableHeading = capture.usableHeading
-        if let heading = usableHeading, let acc = capture.headingAccuracy {
-            lines.append("Facing: \(wholeDegrees(heading))° (\(FieldOfView.compassPoint(heading))), compass accuracy ±\(Int(acc.rounded()))°")
-        } else {
-            lines.append("Facing: unknown — identify the subject from position and the photo alone, and be more cautious.")
-        }
-
-        if let address = grounding.address {
-            lines.append("Address: \(address.display)")
-        }
-
+    /// The photo story's first level (spec 6): the model identifies the subject among the ranked candidates and tells about it.
+    static func photoFirstInput(capture: CaptureContext, grounding: Grounding, recent: [RecentStory],
+                                priors: [PriorStory], language: StoryLanguage, now: Date, timeZone: TimeZone) -> String {
+        let heading = capture.usableHeading
+        var lines = ["Story: photo, first level"]
+        lines.append(contentsOf: positionLines(capture: capture, address: grounding.address))
+        lines.append("Time: \(GuideText.time(now, timeZone: timeZone))")
+        lines.append(facingLine(capture))
         if !grounding.failedSources.isEmpty {
             lines.append("Map data unavailable: \(grounding.failedSources.map(sourceName).joined(separator: ", ")). Be more cautious.")
         }
-
         if grounding.candidates.isEmpty {
-            lines.append("Places nearby: none found")
+            lines.append("Nearby: none found")
         } else {
-            lines.append("Places nearby (in view first, nearest first):")
-            for ranked in grounding.candidates {
-                let c = ranked.candidate
-                var line = "- [\(c.id)] \(c.name) — \(c.kind) — \(Int(ranked.distance.rounded())) m, bearing \(wholeDegrees(ranked.bearing))°"
-                if usableHeading != nil, let inView = ranked.inView {
-                    line += inView ? ", in view" : ", out of view"
-                }
-                lines.append(line)
-                if let summary = c.summary, !summary.isEmpty {
-                    lines.append("  Summary: \(summary)")
-                }
+            lines.append("Nearby:")
+            lines.append(contentsOf: grounding.candidates.flatMap { candidateLines($0, heading: heading) })
+        }
+        lines.append(contentsOf: appleMapsLines(grounding, capture: capture))
+        lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
+        lines.append(StoryLength.of(kind: .photo, level: .first, tier: nil).line)
+        lines.append("Answer in: \(language.promptName)")
+        lines.append("Task: Identify what the photo shows, preferring places in view. Set matchedCandidateID only if the subject is one of the listed places (use its id in brackets). Then tell the user about it. If nothing listed matches what you see, talk about what can actually be seen in the frame and say plainly that you know no recorded history of it.")
+        return lines.joined(separator: "\n")
+    }
+
+    /// A photo story's level 2 or 3. `articleText` is the matched candidate's fuller Wikipedia text, if fetched;
+    /// without it the summary stands in.
+    static func photoContinuationInput(session: StorySession, level: StoryLevel, articleText: String?,
+                                       recent: [RecentStory], priors: [PriorStory], now: Date, timeZone: TimeZone) -> String {
+        let capture = session.capture
+        var lines = ["Story: photo, level \(level.rawValue)"]
+        lines.append(contentsOf: positionLines(capture: capture, address: session.grounding.address))
+        lines.append("Time: \(GuideText.time(now, timeZone: timeZone))")
+        lines.append(facingLine(capture))
+        lines.append("Subject: \(session.identified.subject) (confidence: \(session.identified.confidence.rawValue))")
+
+        if let matched = session.matchedCandidate {
+            let c = matched.candidate
+            var facts: [String] = []
+            if let osm = GuideText.osmFacts(c.tags) { facts.append("  \(osm)") }
+            if let text = [articleText, c.summary].compactMap({ $0 }).first(where: { !isBlank($0) }) {
+                facts.append("  Wikipedia: \(text)")
+            }
+            lines.append(facts.isEmpty ? "Facts about \(c.name): none found" : "Facts about \(c.name):")
+            lines.append(contentsOf: facts)
+        } else {
+            let facts = factCandidates(for: session)
+            if facts.isEmpty {
+                lines.append("Facts: none found")
+            } else {
+                lines.append("Nearby:")
+                lines.append(contentsOf: facts.flatMap { candidateLines($0, heading: capture.usableHeading) })
             }
         }
+        lines.append(contentsOf: appleMapsLines(session.grounding, capture: capture))
 
-        if priors.isEmpty {
-            lines.append("Already told: nothing yet")
-        } else {
-            lines.append("Already told:")
-            lines.append(contentsOf: priors.map(priorLine))
+        lines.append("Told so far:")
+        for (index, text) in session.levels.enumerated() {
+            lines.append("Level \(index + 1): \(text)")
         }
-
-        lines.append("Task: Identify what the photo shows, preferring places in view. Set matchedCandidateID only if the subject is one of the listed places (use its id in brackets). Then write the first story.")
+        lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
+        lines.append(StoryLength.of(kind: .photo, level: level, tier: nil).line)
+        lines.append("Answer in: \(session.language.promptName)")
+        lines.append("Task: Continue from where the story left off; new points, from another domain where the facts allow; do not repeat.")
         return lines.joined(separator: "\n")
+    }
+
+    /// `Position:` (the address, or that its lookup failed), then the coordinates and, for a substitute position, the warning.
+    private static func positionLines(capture: CaptureContext, address: Address?) -> [String] {
+        let display = address?.display ?? ""
+        var lines = [display.isEmpty ? "Position: address lookup failed" : "Position: \(display)"]
+        if let c = capture.coordinate {
+            var coordinates = String(format: "Coordinates: %.6f, %.6f", c.latitude, c.longitude)
+            if let acc = capture.horizontalAccuracy { coordinates += " (accuracy ±\(Int(acc.rounded())) m)" }
+            lines.append(coordinates)
+            if capture.positionIsSubstitute {
+                lines.append("Position is where the listener is now, not necessarily where the photo was taken; trust the photo over the places list.")
+            }
+        }
+        return lines
+    }
+
+    private static func facingLine(_ capture: CaptureContext) -> String {
+        guard let heading = capture.usableHeading, let acc = capture.headingAccuracy else {
+            return "Facing: unknown — identify the subject from position and the photo alone, and be more cautious."
+        }
+        return "Facing: \(FieldOfView.compassPoint(heading)) (\(wholeDegrees(heading))°), compass ±\(Int(acc.rounded()))°"
+    }
+
+    /// `- [id] Name (kind), 40 m, behind, in view` plus its summary and OSM facts on indented lines.
+    /// The view flag only appears with a usable heading.
+    private static func candidateLines(_ ranked: RankedCandidate, heading: Double?) -> [String] {
+        let c = ranked.candidate
+        var line = "- [\(c.id)] \(c.name) (\(c.kind)), "
+            + GuideText.distanceAndSide(distance: ranked.distance, bearing: ranked.bearing, direction: heading)
+        if heading != nil, let inView = ranked.inView {
+            line += inView ? ", in view" : ", out of view"
+        }
+        var lines = [line]
+        if let summary = c.summary, !isBlank(summary) { lines.append("  Summary: \(summary)") }
+        if let osm = GuideText.osmFacts(c.tags) { lines.append("  \(osm)") }
+        return lines
+    }
+
+    /// `Also on Apple Maps:` with the selected places (nearest first, none repeating a candidate's name), or nothing
+    /// when none are left or the capture has no coordinate to measure from.
+    private static func appleMapsLines(_ grounding: Grounding, capture: CaptureContext) -> [String] {
+        guard let places = grounding.applePlaces, let from = capture.coordinate else { return [] }
+        let selected = ApplePlaces.select(places, from: from, knownNames: grounding.candidates.map(\.candidate.name))
+        guard !selected.isEmpty else { return [] }
+        return ["Also on Apple Maps:"] + selected.map { place in
+            "- \(place.name) (\(place.category)), "
+                + GuideText.distanceAndSide(distance: GeoMath.distance(from, place.coordinate),
+                                            bearing: GeoMath.bearing(from: from, to: place.coordinate),
+                                            direction: capture.usableHeading)
+        }
+    }
+
+    /// `Told in the last 3 hours:` (at most `RecentStories.limit`, in the order given) and `Told here before:` (the priors
+    /// not already listed as recent). A recent story beyond the limit is not listed, so a prior repeating it stays.
+    private static func toldLines(recent: [RecentStory], priors: [PriorStory], timeZone: TimeZone) -> [String] {
+        let shown = Array(recent.prefix(RecentStories.limit))
+        let before = RecentStories.priorsNotRecent(priors, recent: shown)
+        let recentBlock = shown.isEmpty ? ["Told in the last 3 hours: nothing"]
+            : ["Told in the last 3 hours:"] + shown.map { RecentStories.line($0, timeZone: timeZone) }
+        let beforeBlock = before.isEmpty ? ["Told here before: nothing"] : ["Told here before:"] + before.map(priorLine)
+        return recentBlock + beforeBlock
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     static let firstStorySchema: JSONValue = .object([
@@ -87,7 +181,7 @@ public enum PromptBuilder {
             "matchedCandidateID": .object(["type": ["string", "null"]]),
             "title": .object(["type": "string", "description": "3–8 word title"]),
             "era": .object(["type": "string",
-                            "description": "The past era the story mostly paints, e.g. 'around 1780'"]),
+                            "description": "The era the subject is best known from, e.g. 'built 1697' or 'around 1780'"]),
             "story": .object(["type": "string"]),
         ]),
     ])
@@ -122,43 +216,6 @@ public enum PromptBuilder {
         let ranked = session.grounding.candidates
         let inView = ranked.filter { $0.inView == true }
         return Array((inView.isEmpty ? ranked : inView).prefix(3))
-    }
-
-    static func continuationInput(session: StorySession, level: StoryLevel, priors: [PriorStory]) -> String {
-        var lines = [StoryLength.of(kind: .photo, level: level, tier: nil).line,
-                     "Subject: \(session.identified.subject) (confidence: \(session.identified.confidence.rawValue))"]
-        if let address = session.grounding.address {
-            lines.append("Address: \(address.display)")
-        }
-
-        let facts = factCandidates(for: session)
-        if facts.isEmpty {
-            lines.append("Facts: none found")
-        } else {
-            lines.append("Facts:")
-            for ranked in facts {
-                let c = ranked.candidate
-                lines.append("- \(c.name) — \(c.kind)")
-                if let summary = c.summary, !summary.isEmpty {
-                    lines.append("  Summary: \(summary)")
-                }
-            }
-        }
-
-        lines.append("Told so far:")
-        for (index, text) in session.levels.enumerated() {
-            lines.append("Level \(index + 1): \(text)")
-        }
-
-        if priors.isEmpty {
-            lines.append("Already told on earlier visits: nothing")
-        } else {
-            lines.append("Already told on earlier visits:")
-            lines.append(contentsOf: priors.map(priorLine))
-        }
-
-        lines.append("Task: Continue the story from where it left off. Do not restart or repeat. Take a new angle: another person, another moment in time, or something the listener can still see today that connects to it. If the facts below are thin, say less.")
-        return lines.joined(separator: "\n")
     }
 
     // MARK: Walking mode

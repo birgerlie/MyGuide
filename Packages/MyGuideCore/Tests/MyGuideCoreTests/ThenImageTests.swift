@@ -3,7 +3,7 @@ import Testing
 @testable import MyGuideCore
 
 @Suite struct ThenImageTests {
-    let s = PromptBuilderTests.session()   // subject Michaelertor, era "around 1890", address Michaelerplatz, Vienna, Austria
+    let s = PromptBuilderTests.session()   // subject Michaelertor, era "around 1890", address Michaelerplatz, Innere Stadt, Vienna, Austria
 
     @Test func labelAndRequestConstants() {
         #expect(ThenImage.label == "AI reconstruction — not a real photo")
@@ -11,7 +11,7 @@ import Testing
     }
     @Test func promptNamesSubjectPlaceEraAndStyle() {
         let p = PromptBuilder.thenImagePrompt(session: s)
-        #expect(p.hasPrefix("Historical reconstruction illustration of Michaelertor at Michaelerplatz, Vienna, Austria, as it looked around 1890."))
+        #expect(p.hasPrefix("Historical reconstruction illustration of Michaelertor at Michaelerplatz, Innere Stadt, Vienna, Austria, as it looked around 1890."))
         #expect(p.contains("Painterly illustration style with visible brushwork, clearly not a photograph."))
         #expect(p.contains("No text, no captions, no modern objects."))
     }

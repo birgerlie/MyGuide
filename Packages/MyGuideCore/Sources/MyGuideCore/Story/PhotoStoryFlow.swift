@@ -20,15 +20,28 @@ public struct PhotoStoryFlow: Sendable {
     private let openAI: OpenAIClient
     private let models: OpenAIModels
     private let priors: PriorStoryLookup
+    private let recent: RecentStoryLookup
+    private let pointsOfInterest: PointsOfInterestSearching?
+    private let articles: ArticleTextSource?
+    private let timeZone: TimeZone
     private let now: @Sendable () -> Date
 
+    /// `pointsOfInterest` and `articles` are supplementary: without them (or when they fail) the story is told without
+    /// Apple Maps places or the fuller Wikipedia text. `timeZone` is the one the request's `Time:` is written in.
     public init(grounding: GroundingService, openAI: OpenAIClient, models: OpenAIModels = .current,
                 priors: @escaping PriorStoryLookup = { _, _, _ in [] },
+                recent: @escaping RecentStoryLookup = { _, _ in [] },
+                pointsOfInterest: PointsOfInterestSearching? = nil, articles: ArticleTextSource? = nil,
+                timeZone: TimeZone = .current,
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.grounding = grounding
         self.openAI = openAI
         self.models = models
         self.priors = priors
+        self.recent = recent
+        self.pointsOfInterest = pointsOfInterest
+        self.articles = articles
+        self.timeZone = timeZone
         self.now = now
     }
 
@@ -39,17 +52,25 @@ public struct PhotoStoryFlow: Sendable {
         let upload = try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: Self.uploadLongSide, quality: Self.jpegQuality)
         let thumbnail = try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: Self.thumbnailLongSide, quality: Self.jpegQuality)
 
-        let found = try await grounding.ground(capture, language: language)
+        // The Apple Maps search runs alongside the grounding; it fails silently and never throws but for cancellation.
+        async let applePlaces = ApplePlaces.fetch(pointsOfInterest, around: coordinate, radius: ApplePlaces.photoRadius)
+        var found = try await grounding.ground(capture, language: language)
+        found.applePlaces = try await applePlaces
+
+        let at = now()
         let told = await priors(found.candidates.map(\.candidate.id), coordinate, nil)
+        let lately = await recent(at - RecentStories.window, nil)
 
         let (json, usage) = try await openAI.respond(
             model: models.story,
             reasoningEffort: models.storyReasoningEffort,
-            instructions: PromptBuilder.systemInstructions(language: language),
-            text: PromptBuilder.firstStoryInput(capture: capture, grounding: found, priors: told),
+            instructions: PromptBuilder.systemInstructions,
+            text: PromptBuilder.photoFirstInput(capture: capture, grounding: found, recent: lately, priors: told,
+                                                language: language, now: at, timeZone: timeZone),
             imageJPEG: upload,
             schemaName: "first_story",
-            schema: PromptBuilder.firstStorySchema)
+            schema: PromptBuilder.firstStorySchema,
+            promptCacheKey: PromptBuilder.promptCacheKey)
         let identified = try PromptBuilder.decodeFirstStory(json, grounding: found)
         // An empty story must never reach the user.
         guard !identified.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -64,25 +85,33 @@ public struct PhotoStoryFlow: Sendable {
         return (session, [entry])
     }
 
-    /// Adds the next level (spec 8.1.6). Text only: the photo is not sent again.
+    /// Adds the next level (spec 8.1.6). Text only: the photo is not sent again; the first level's Apple Maps places are reused.
     public func continueStory(_ session: StorySession) async throws -> (StorySession, [UsageEntry]) {
         guard let level = session.nextLevel else { throw PhotoStoryError.noFurtherLevel }
+
+        // The fuller article text for the matched place, fetched while the memory lookups run.
+        let title = session.matchedCandidate?.candidate.wikipediaTitle
+        async let articleText: String? = fetchArticle(title)
 
         // Sessions always carry a coordinate (tellFirstStory requires one); without it, skip the lookup.
         var told: [PriorStory] = []
         if let coordinate = session.capture.coordinate {
-            let ids = (PromptBuilder.factCandidates(for: session)).map(\.candidate.id)
+            let ids = PromptBuilder.factCandidates(for: session).map(\.candidate.id)
             told = await priors(ids, coordinate, session.id)
         }
+        let at = now()
+        let lately = await recent(at - RecentStories.window, session.id)
 
         let (json, usage) = try await openAI.respond(
             model: models.story,
             reasoningEffort: models.storyReasoningEffort,
-            instructions: PromptBuilder.systemInstructions(language: session.language),
-            text: PromptBuilder.continuationInput(session: session, level: level, priors: told),
+            instructions: PromptBuilder.systemInstructions,
+            text: PromptBuilder.photoContinuationInput(session: session, level: level, articleText: await articleText,
+                                                       recent: lately, priors: told, now: at, timeZone: timeZone),
             imageJPEG: nil,
             schemaName: "continuation",
-            schema: PromptBuilder.continuationSchema)
+            schema: PromptBuilder.continuationSchema,
+            promptCacheKey: PromptBuilder.promptCacheKey)
         let story = try PromptBuilder.decodeContinuation(json)
 
         var next = session
@@ -90,6 +119,11 @@ public struct PhotoStoryFlow: Sendable {
         let entry = UsageEntry(date: now(), kind: .story, model: models.story,
                                inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
         return (next, [entry])
+    }
+
+    private func fetchArticle(_ title: String?) async -> String? {
+        guard let title, let articles else { return nil }
+        return await articles.text(wikipediaTitle: title)
     }
 
     /// Generates the labelled "then" reconstruction as PNG bytes (spec 8.1.7). The label is drawn by the view.

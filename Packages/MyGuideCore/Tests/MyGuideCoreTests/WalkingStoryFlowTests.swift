@@ -61,6 +61,25 @@ import Testing
         _ = try await flow.buzzStory(Self.buzz, position: Self.here, course: nil, nearby: [], language: .english)
         #expect(String(decoding: http.requests[0].httpBody!, as: UTF8.self).contains("Earlier tale."))
     }
+    @Test func walkingRequestsUseTheGuideVoiceAndNameTheLanguage() async throws {
+        for (language, name) in [(StoryLanguage.norwegian, "Norwegian Bokmål"), (.english, "English")] {
+            let http = Self.http()
+            let flow = Self.flow(http)
+            let (story, _) = try await flow.buzzStory(Self.buzz, position: Self.here, course: nil, nearby: [], language: language)
+            _ = try await flow.continueStory(story)
+            _ = try await flow.stopStory(position: Self.here, address: nil, nearby: [], language: language)
+            #expect(http.requests.count == 3)
+            for request in http.requests {
+                let body = request.jsonBody
+                #expect(body["instructions"] as? String == PromptBuilder.systemInstructions)
+                #expect(body["prompt_cache_key"] as? String == "myguide-story-v1")
+                let input = try #require(body["input"] as? [[String: Any]])
+                let content = try #require(input.first?["content"] as? [[String: Any]])
+                let text = try #require(content.first?["text"] as? String)
+                #expect(text.hasSuffix("\nAnswer in: \(name)"))
+            }
+        }
+    }
     @Test func stopStoryHasNoPlace() async throws {
         let seen = LockedBox<[String]>([])
         let flow = Self.flow(Self.http()) { ids, _, _ in seen.set(ids); return [] }

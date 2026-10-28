@@ -66,14 +66,16 @@ public struct WalkingStoryFlow: Sendable {
     }
 
     private func generate(language: StoryLanguage, input: String) async throws -> (String, String, UsageEntry) {
+        // The instructions no longer name the language; until the walking inputs carry their own `Answer in:`, it is appended here.
         let (json, usage) = try await openAI.respond(
             model: models.story,
             reasoningEffort: models.storyReasoningEffort,
-            instructions: PromptBuilder.systemInstructions(language: language),
-            text: input,
+            instructions: PromptBuilder.systemInstructions,
+            text: input + "\nAnswer in: \(language.promptName)",
             imageJPEG: nil,
             schemaName: "walk_story",
-            schema: PromptBuilder.walkStorySchema)
+            schema: PromptBuilder.walkStorySchema,
+            promptCacheKey: PromptBuilder.promptCacheKey)
         let decoded = try PromptBuilder.decodeWalkStory(json)
         let entry = UsageEntry(date: now(), kind: .story, model: models.story,
                                inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
