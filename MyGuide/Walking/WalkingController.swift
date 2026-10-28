@@ -150,6 +150,8 @@ final class WalkingController {
 
     // MARK: - Start and stop
 
+    nonisolated private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "walking")
+
     /// The problem text of a start without prompts that cannot start (spec 5.3).
     static let setupProblem = "Open MyGuide on your phone to finish setting up."
 
@@ -188,15 +190,23 @@ final class WalkingController {
 
         let state = await readiness()
         guard startToken == token else { return nil }
-        problems = state.problems
         if !interactive {
             // Background location updates cannot start with When In Use, so Always is needed (spec 10.2).
             let notificationsReady = state.notifications == .allowed || state.notifications == .timeSensitiveOff
             guard state.location == .always, notificationsReady, state.hasAPIKey else {
+                // Only the walk state carries it: nobody asked on the phone, so its `problems` stay as they were.
+                // No run (and no walk log) exists yet, so the refusal goes to the system log; no personal data.
+                Self.log.notice("""
+                    start without prompts refused: \(Self.setupProblem, privacy: .public) \
+                    location \(String(describing: state.location), privacy: .public), \
+                    notifications \(String(describing: state.notifications), privacy: .public), \
+                    key \(state.hasAPIKey, privacy: .public)
+                    """)
                 startProblem = Self.setupProblem
                 return Self.setupProblem
             }
         }
+        problems = state.problems
         guard WalkingReadiness.canStart(location: state.location, notifications: state.notifications,
                                         hasAPIKey: state.hasAPIKey) else {
             return state.problems.first ?? Self.setupProblem
