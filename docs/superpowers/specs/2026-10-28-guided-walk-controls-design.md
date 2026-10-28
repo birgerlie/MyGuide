@@ -158,10 +158,7 @@ The watch app today is only the phase 2 test screen. Its "Start guided walk" but
    - `paused` and `resumed` take a log-side `WalkPauseReason` (`motion`, `gps`, `manual`), separate from `PauseTrigger`.
    - `started`, `stopped`, `paused` and `resumed` gain an optional `source` (`phone` or `watch`), omitted when automatic.
    - Old lines without `source` still decode; this is tested. Lines with `manual` are unreadable in older builds. That is accepted: only newer builds read them.
-6. **Phone relaunch.**
-   - At launch, once `WatchLink` is active, the phone always pushes its current state, which is `off` after a relaunch.
-   - Every context carries `seq`, a counter persisted in `UserDefaults` and incremented on each push. The watch ignores a context whose `seq` is not newer than the last one it applied, unless the phone was reinstalled (`seq` lower than 10 behind is treated as a reset).
-   - Simpler rule actually used: the context also carries `sentAt`, and the watch applies the newest `sentAt`. `seq` only makes identical states distinct, so `updateApplicationContext` delivers them.
+6. **Phone relaunch.** At launch, once `WatchLink` is active, the phone always pushes its current state (`off` after a relaunch). Every state carries `sentAt`, the phone's clock at sending. The watch applies a state only when its `sentAt` is newer than the last one it applied, and both replies and contexts go through this rule. Because `sentAt` always differs, `updateApplicationContext` never drops a push as identical.
 7. **One workout owner on the watch** (`GuidedWalkModel`). `WorkoutKeeper` becomes idempotent:
    - `ensureRunning()` awaits an in-progress start rather than returning early;
    - `pause()`, `resume()`, and `finish(save:)`.
