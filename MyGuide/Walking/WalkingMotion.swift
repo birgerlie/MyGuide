@@ -7,6 +7,9 @@ import MyGuideCore
 /// rules then use GPS only); it never blocks walking mode.
 @MainActor
 final class WalkingMotion {
+    /// The longest wait for the motion prompt's answer.
+    private static let permissionTimeout: Duration = .seconds(10)
+
     private let manager = CMMotionActivityManager()
     /// Counts starts and stops, so a reading already queued on the main queue for an earlier run is dropped.
     private var generation = 0
@@ -24,15 +27,24 @@ final class WalkingMotion {
     }
 
     /// Shows the motion prompt when access is undetermined, with a one-off activity query over the last minute, and
-    /// waits for the answer (the query's callback), so the next system prompt never overlaps it.
+    /// waits for the answer (the query's callback), so the next system prompt never overlaps it. Waits at most 10 s:
+    /// a callback that never comes must not hold the start up; walking mode then goes on with whatever
+    /// `permission` says (GPS only unless authorized).
     func requestPermissionIfNeeded() async {
         guard Self.permission == .notDetermined else { return }
         let now = Date.now
+        let once = OnceBox<Void>()
+        let timeout = Task {
+            try? await Task.sleep(for: Self.permissionTimeout)
+            once.resume(())
+        }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            once.install(continuation)
             manager.queryActivityStarting(from: now.addingTimeInterval(-60), to: now, to: .main) { _, _ in
-                continuation.resume()
+                once.resume(())
             }
         }
+        timeout.cancel()
     }
 
     /// Starts the activity updates when access is granted; each reading is timed at its delivery (`Date.now`), not

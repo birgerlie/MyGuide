@@ -831,7 +831,7 @@ final class WalkingController {
 }
 
 /// Resumes a continuation exactly once, from whichever caller gets there first.
-private final class OnceBox<T: Sendable>: Sendable {
+final class OnceBox<T: Sendable>: Sendable {
     private struct State {
         var continuation: CheckedContinuation<T, Never>?
         var early: T?
