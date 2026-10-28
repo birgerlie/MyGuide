@@ -1,4 +1,5 @@
 import HealthKit
+import os
 
 enum WorkoutKeeperError: LocalizedError {
     case notAuthorized
@@ -15,8 +16,8 @@ enum WorkoutKeeperError: LocalizedError {
 /// Owns one outdoor walking workout session. It keeps the watch app running with the wrist down, and for a guided
 /// walk it records the walk in Health.
 ///
-/// Every operation is idempotent: `ensureRunning()` joins a start in progress, `pause()` and `resume()` act only in
-/// the matching session state, and `finish()` takes the session out before it suspends, so a second call finds
+/// Every operation is idempotent: `ensureRunning()` joins a start in progress, `pause()` and `resume()` record the
+/// wanted state and act when the session's state allows (the delegate re-applies it after each transition), and `finish()` takes the session out before it suspends, so a second call finds
 /// nothing to finish.
 @MainActor
 @Observable
@@ -27,6 +28,16 @@ final class WorkoutKeeper: NSObject {
         /// The Check screen's haptic test: always discarded, never recovers a session.
         case test
     }
+
+    enum FinishResult {
+        case saved
+        /// Under `minimumSavedDuration`, or a test workout.
+        case discarded
+        /// `endCollection` or `finishWorkout` threw: the walk is not in Health.
+        case failed
+    }
+
+    private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide.watchkitapp", category: "workout")
 
     /// Shorter workouts are discarded: a mis-tap leaves no entry in Fitness. Compared with `builder.elapsedTime`,
     /// which excludes pauses.
@@ -40,6 +51,9 @@ final class WorkoutKeeper: NSObject {
     private var session: HKWorkoutSession?
     @ObservationIgnored private var builder: HKLiveWorkoutBuilder?
     private var startTask: Task<Void, Error>?
+    /// What `pause()` and `resume()` asked for last. A session in transition (prepared → running, a pause in flight)
+    /// cannot act on a request at once, so the delegate re-applies this when the transition lands.
+    @ObservationIgnored private var wantsPaused = false
 
     /// A session exists or is being started.
     var isActive: Bool { session != nil || startTask != nil }
@@ -74,47 +88,65 @@ final class WorkoutKeeper: NSObject {
         newSession.delegate = self
         self.session = newSession
         self.builder = builder
+        // A recovered session keeps its state until the owner asks otherwise.
+        wantsPaused = newSession.state == .paused
     }
 
     func pause() {
-        guard let session, session.state == .running else { return }
-        session.pause()
+        wantsPaused = true
+        applyWantedState()
     }
 
     func resume() {
-        guard let session, session.state == .paused else { return }
-        session.resume()
+        wantsPaused = false
+        applyWantedState()
+    }
+
+    /// Moves the session toward `wantsPaused` when its state allows. Other states (not started, prepared, stopped,
+    /// a transition in flight) wait for the delegate's next state change. Never acts on an ended session.
+    private func applyWantedState() {
+        guard let session else { return }
+        switch (session.state, wantsPaused) {
+        case (.running, true): session.pause()
+        case (.paused, false): session.resume()
+        default: break
+        }
     }
 
     /// Ends the session. Saves the workout when the purpose saves and `builder.elapsedTime` is at least
-    /// `minimumSavedDuration`; otherwise discards it. Returns whether it was saved. A start in progress is awaited
+    /// `minimumSavedDuration`; otherwise discards it. Nil when there was no session. A start in progress is awaited
     /// first, so a stop during the permission prompt still ends the session it produces.
-    func finish() async -> Bool {
+    func finish() async -> FinishResult? {
         if let startTask { _ = try? await startTask.value }
         // Taken out before the first suspension: a concurrent call, or the delegate's ended callback, finds nothing.
-        guard let session, let builder else { return false }
+        guard let session, let builder else { return nil }
         self.session = nil
         self.builder = nil
+        wantsPaused = false
         session.end()
         do {
             try await builder.endCollection(at: Date())
         } catch {
+            Self.log.error("endCollection failed: \(error.localizedDescription, privacy: .public)")
             builder.discardWorkout()
-            return false
+            return .failed
         }
         guard purpose == .guidedWalk, builder.elapsedTime >= Self.minimumSavedDuration else {
             builder.discardWorkout()
-            return false
+            return .discarded
         }
         do {
             try await Self.save(BuilderBox(builder: builder))
-            return true
+            return .saved
         } catch {
-            return false
+            Self.log.error("finishWorkout failed: \(error.localizedDescription, privacy: .public)")
+            return .failed
         }
     }
 
     private func start() async throws {
+        // A pause asked for with no session belongs to no workout; one asked for during this start still applies.
+        wantsPaused = false
         if purpose == .guidedWalk, let recovered = await Self.recoverActiveSession(store) {
             adopt(recovered.session)
             if session != nil { return }
@@ -153,6 +185,14 @@ final class WorkoutKeeper: NSObject {
         }
         self.session = newSession
         self.builder = builder
+        // A pause asked for while the session was starting.
+        applyWantedState()
+    }
+
+    /// The current session's state changed: carry out a pause or resume that its earlier state did not allow.
+    private func sessionStateChanged(_ id: ObjectIdentifier) {
+        guard let session, ObjectIdentifier(session) == id else { return }
+        applyWantedState()
     }
 
     /// The session in the delegate callback ended or failed: finish it the normal way and tell the owner.
@@ -198,9 +238,12 @@ private struct BuilderBox: @unchecked Sendable {
 extension WorkoutKeeper: HKWorkoutSessionDelegate {
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState,
                                     from fromState: HKWorkoutSessionState, date: Date) {
-        guard toState == .ended else { return }
         let id = ObjectIdentifier(workoutSession)
-        Task { @MainActor in await self.sessionEndedOutside(id) }
+        if toState == .ended {
+            Task { @MainActor in await self.sessionEndedOutside(id) }
+        } else {
+            Task { @MainActor in self.sessionStateChanged(id) }
+        }
     }
 
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {

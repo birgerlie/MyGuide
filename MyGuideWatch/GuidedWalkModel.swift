@@ -142,7 +142,7 @@ final class GuidedWalkModel {
         case .ended:
             // Drives are serialized, so a repeated `.ended` target finds no workout and does not call `finish()`.
             guard keeper.isActive else { return }
-            _ = await keeper.finish()
+            if await keeper.finish() == .failed { healthNote = Self.notSavedText }
         case .unchanged:
             break
         }
@@ -156,8 +156,9 @@ final class GuidedWalkModel {
     private static func target(for command: GuidedWalkCommand) -> WorkoutTarget {
         switch command {
         case .start, .resume: .running
-        case .pause: .paused
-        case .stop: .ended
+        // Stop must stay reversible until the phone confirms it: the workout pauses now and is finished only when
+        // an `off` state is applied. An unreachable Stop rolls back to running.
+        case .pause, .stop: .paused
         }
     }
 

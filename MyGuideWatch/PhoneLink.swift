@@ -53,7 +53,12 @@ final class PhoneLink: NSObject {
         }
         guard session.activationState == .activated else { throw PhoneLinkError.notActivated }
         guard session.isReachable else { throw PhoneLinkError.notReachable }
-        return try await Self.sendMessage(UncheckedBox(value: message)).value
+        do {
+            return try await Self.sendMessage(UncheckedBox(value: message)).value
+        } catch let error as WCError where error.code == .notReachable {
+            // The phone went out of reach between the check above and the send.
+            throw PhoneLinkError.notReachable
+        }
     }
 
     /// WatchConnectivity calls the reply and error handlers on its own queue. Handlers written inside this main-actor
