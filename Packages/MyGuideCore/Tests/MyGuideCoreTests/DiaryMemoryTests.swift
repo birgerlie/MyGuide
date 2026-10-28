@@ -115,18 +115,31 @@ import Testing
         #expect(throws: MemoryError.corruptRecord) { try store.dayStory(dayKey: "2026-01-02") }
     }
 
+    /// Version 2's own plan, ending at V2, so the file written with it is stamped V2 (the real plan ends at V3).
+    enum V2OnlyPlan: SchemaMigrationPlan {
+        static var schemas: [any VersionedSchema.Type] { [MemorySchemaV1.self, MemorySchemaV2.self] }
+        static var stages: [MigrationStage] {
+            [.lightweight(fromVersion: MemorySchemaV1.self, toVersion: MemorySchemaV2.self)]
+        }
+    }
+
     @Test func v2StoreOpensAsV3() throws {
         try MigrationTests.withStoreURL { url in
             let s = MigrationTests.session
             let id = UUID()
+            let tripID = UUID()
+            let buzz = WalkMemoryTests.buzz("osm:node/1")
             do {
                 let v2 = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV2.self),
-                                            migrationPlan: MemoryMigrationPlan.self,
+                                            migrationPlan: V2OnlyPlan.self,
                                             configurations: ModelConfiguration(url: url))
                 let store = MemoryStore(context: v2.mainContext)
                 try store.save(s)
-                try store.saveWalkStory(WalkMemoryTests.stopStory(north: 20, levels: ["stop"], id: id),
-                                        tripID: UUID())
+                try store.saveWalkStory(WalkMemoryTests.stopStory(north: 20, levels: ["stop"], id: id), tripID: tripID)
+                _ = try store.touchTrip(now: Date(timeIntervalSince1970: 1_000), city: "Wien")
+                try store.recordBuzz(buzz, tripID: tripID, at: Self.taken)
+                try store.appendTrack([TrackSample(at: Self.taken, coordinate: Coordinate(latitude: 48.2, longitude: 16.36))],
+                                      tripID: tripID)
             }
             let v3 = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV3.self),
                                         migrationPlan: MemoryMigrationPlan.self,
@@ -136,6 +149,9 @@ import Testing
             #expect(captures.count == 1)
             #expect(try store.session(for: try #require(captures.first)) == s)
             #expect(try store.walkStory(id: id)?.levels == ["stop"])
+            #expect(try store.context.fetchCount(FetchDescriptor<TripRecord>()) == 1)
+            #expect(try store.buzzLog().map(\.id) == [buzz.id])
+            #expect(try store.context.fetchCount(FetchDescriptor<TrackPoint>()) == 1)
             let photoID = try #require(try store.importLibraryPhoto(
                 jpeg: TestImages.jpeg(width: 50, height: 50), assetIdentifier: "a", takenAt: Self.taken, coordinate: nil))
             #expect(try store.libraryPhoto(id: photoID) != nil)

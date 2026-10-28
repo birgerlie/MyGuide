@@ -30,16 +30,22 @@ public struct DayStory: Sendable, Equatable {
 /// The diary's memory: photos imported from the library and day stories. Every write saves at once; a failed
 /// save rolls back and rethrows.
 extension MemoryStore {
+    /// Stored sizes of an imported photo: long side in pixels, and JPEG quality.
+    static let libraryPhotoLongSide = 1536
+    static let libraryThumbnailLongSide = 400
+    static let libraryJPEGQuality = 0.7
+
     /// Stores the photo downscaled (long side 1536, thumbnail 400, JPEG 0.7, no EXIF), stamped with `now()` as its
     /// import time. Returns its id, or nil when `assetIdentifier` is already stored. Throws an
     /// `ImageProcessingError` for an unreadable image, storing nothing.
     public func importLibraryPhoto(jpeg: Data, assetIdentifier: String, takenAt: Date,
                                    coordinate: Coordinate?) throws -> UUID? {
         guard try libraryPhotoRecord(assetIdentifier: assetIdentifier) == nil else { return nil }
-        let photo = try ImageProcessing.downscaledJPEG(jpeg, maxLongSide: PhotoStoryFlow.uploadLongSide,
-                                                       quality: PhotoStoryFlow.jpegQuality)
-        let thumbnail = try ImageProcessing.downscaledJPEG(jpeg, maxLongSide: PhotoStoryFlow.thumbnailLongSide,
-                                                           quality: PhotoStoryFlow.jpegQuality)
+        let photo = try ImageProcessing.downscaledJPEG(jpeg, maxLongSide: Self.libraryPhotoLongSide,
+                                                       quality: Self.libraryJPEGQuality)
+        // From the downscaled copy, so the original is decoded once.
+        let thumbnail = try ImageProcessing.downscaledJPEG(photo, maxLongSide: Self.libraryThumbnailLongSide,
+                                                           quality: Self.libraryJPEGQuality)
         let id = UUID()
         try saving {
             context.insert(LibraryPhotoRecord(
@@ -63,7 +69,9 @@ extension MemoryStore {
 
     /// Stores the story, replacing any story of the same `dayKey`.
     public func saveDayStory(_ story: DayStory) throws {
-        let captionsJSON = try JSONEncoder().encode(story.captions)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let captionsJSON = try encoder.encode(story.captions)
         let existing = try dayStoryRecord(dayKey: story.dayKey)
         try saving {
             if let existing {
