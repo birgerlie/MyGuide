@@ -5,7 +5,8 @@ import MyGuideCore
 /// The Live Activity of walking mode: "Walking" with the status line, and a stop story on the lock screen. An
 /// update works with the app in the background; one that cannot be made throws, so the caller can fall back to a
 /// notification. Updates are applied in the order they were made. Every push carries a stale date
-/// (`WalkingStatus.activityStaleDate`), so an activity whose app was ended stops claiming "Walking" on its own.
+/// (`WalkingStatus.activityStaleDate`, or `WalkingStatus.pausedStaleDate` while paused), so an activity whose app was
+/// ended stops claiming "Walking" on its own.
 @MainActor
 final class WalkingActivityController {
     static let headline = "Walking"

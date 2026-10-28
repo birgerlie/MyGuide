@@ -1,5 +1,4 @@
 import CoreLocation
-import CoreMotion
 import MyGuideCore
 import Observation
 import os
@@ -18,7 +17,8 @@ enum WalkingCommand {
 
 /// Walking mode on the phone: follows the walker in the background, keeps the nearby places fresh and
 /// buzzes when one is due. Owned by `AppServices`, so it keeps running with the phone locked.
-/// A memory failure is logged and never stops walking mode. Each run writes its walk log (spec 4).
+/// A memory failure is logged and never stops walking mode. Each run writes its walk log (spec 4), and pauses itself
+/// while the walker stays still (spec 5).
 @MainActor
 @Observable
 final class WalkingController {
@@ -27,14 +27,18 @@ final class WalkingController {
     /// Samples kept while saving keeps failing; the oldest go first.
     private static let trackLimit = 400
     private static let geocodeTimeout: Duration = .seconds(8)
-    private static let autoOffInterval: Duration = .seconds(60)
+    /// The pause, resume and GPS check runs every tick; auto-off and the Live Activity push every 4th (spec 5.6).
+    private static let tickInterval: Duration = .seconds(15)
+    private static let ticksPerAutoOff = 4
 
     private(set) var isOn = false
     /// Why walking mode did not start (or stopped); empty when nothing is in the way.
     private(set) var problems: [String] = []
     private(set) var buzzCount = 0
-    /// The time of the last fix the buzz engine could use; nil until one arrives.
+    /// The time of the last fix the buzz engine could use; nil until one arrives. Not updated while paused.
     private(set) var lastFixAt: Date?
+    /// True while walking mode is paused: no buzzes, fetches, stop detection, track or route (spec 5.4).
+    private(set) var isPaused = false
     /// The walking stories: prepared at buzz time, played, continued and skipped.
     let stories: WalkingStories
 
@@ -43,6 +47,17 @@ final class WalkingController {
     @ObservationIgnored private let makeSource: () -> WalkingPlaceSource
     @ObservationIgnored private let hasAPIKey: () -> Bool
     @ObservationIgnored private let location = WalkingLocation()
+    @ObservationIgnored private let motion = WalkingMotion()
+    /// One per run, made at start and never rebuilt: it holds the pause position and the walking streak.
+    @ObservationIgnored private var pauseDetector: PauseDetector?
+    /// When the pause in progress began; nil while active.
+    @ObservationIgnored private var pausedSince: Date?
+    /// The length of this run's finished pauses, which do not count toward the 4-hour limit.
+    @ObservationIgnored private var pausedTotal: TimeInterval = 0
+    /// The last motion reading, so a `motion` line is written only when the activity or confidence changes.
+    @ObservationIgnored private var lastMotion: MotionReading?
+    /// The run's stop spots (earlier runs of the trip, then each stop told), for a fresh stop detector on resume.
+    @ObservationIgnored private var stopSpots: [Coordinate] = []
     @ObservationIgnored private var engine: BuzzEngine?
     @ObservationIgnored private var stopDetector: StopDetector?
     @ObservationIgnored private let activity = WalkingActivityController()
@@ -50,8 +65,9 @@ final class WalkingController {
     @ObservationIgnored private var feed = PlaceFeed()
     @ObservationIgnored private var source: WalkingPlaceSource?
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
-    /// Checks the auto-off limits every 60 s, for the stretches without a usable fix.
-    @ObservationIgnored private var autoOffTask: Task<Void, Never>?
+    /// The run's 15 s timer: pause and resume, GPS state, auto-off and the Live Activity, for the stretches without
+    /// fixes or motion readings.
+    @ObservationIgnored private var timerTask: Task<Void, Never>?
     @ObservationIgnored private var startedAt: Date?
     @ObservationIgnored private var tripID: UUID?
     @ObservationIgnored private var track: [TrackSample] = []
@@ -74,7 +90,8 @@ final class WalkingController {
     /// The last fix written to the walk log (logged or dropped), so the log thins like the track, on its own.
     @ObservationIgnored private var lastLoggedSample: TrackSample?
     /// The GPS state last written to the walk log. A run starts waiting for GPS, so its first `gps` line is `found`.
-    @ObservationIgnored private var loggedGPS = false
+    /// Nil after a resume: the state is judged afresh and written.
+    @ObservationIgnored private var loggedGPS: Bool? = false
     /// The app state last written to the walk log. A run starts in the foreground (the owner tapped Walk).
     @ObservationIgnored private var loggedForeground = true
     /// Failures during a start, before the run's log is open; written right after its `started` line.
@@ -136,6 +153,9 @@ final class WalkingController {
         guard startToken == token,
               WalkingReadiness.canStart(location: state.location, notifications: state.notifications,
                                         hasAPIKey: state.hasAPIKey) else { return }
+        // Motion before the Always upgrade, waiting for the answer so the two prompts never overlap (spec 5.1).
+        await motion.requestPermissionIfNeeded()
+        guard startToken == token else { return }
         // Only now: nothing blocks, so upgrading to Always is the one thing left to ask.
         location.requestAlways()
 
@@ -166,9 +186,14 @@ final class WalkingController {
         do { excluded.formUnion(try memory.retiredPlaceIDs()) } catch { fail("retired places failed", error) }
         do { excluded.formUnion(try memory.placeIDsBuzzed(tripID: trip)) } catch { fail("buzzed places failed", error) }
 
-        var stopSpots: [Coordinate] = []
+        stopSpots = []
         do { stopSpots = try memory.stopSpots(tripID: trip) } catch { fail("stop spots failed", error) }
         stopDetector = StopDetector(previousStops: stopSpots)
+        pauseDetector = PauseDetector(now: now, motionAvailable: WalkingMotion.permission == .authorized)
+        pausedTotal = 0
+        pausedSince = nil
+        isPaused = false
+        lastMotion = nil
 
         appliedPerHour = Self.configuredPerHour()
         var engine = BuzzEngine(perHour: appliedPerHour, now: now, excluded: excluded)
@@ -195,8 +220,10 @@ final class WalkingController {
         walkLog.log(.started(startFields(state)), at: now)
         for failure in startFailures { walkLog.log(failure.kind, at: failure.at) }
         startFailures = []
+        location.setPaused(false)
         location.start()
-        startAutoOffTimer(run: runToken)
+        motion.start { [weak self] reading in self?.handleMotion(reading) }
+        startTimer(run: run)
     }
 
     /// Turns walking mode off; `reason` goes into the walk log's `stopped` line.
@@ -210,11 +237,19 @@ final class WalkingController {
         guard isOn else { return }
         isOn = false
         runToken = nil
-        autoOffTask?.cancel()
-        autoOffTask = nil
+        timerTask?.cancel()
+        timerTask = nil
         startedAt = nil
         UIDevice.current.isBatteryMonitoringEnabled = false
+        motion.stop()
+        location.setPaused(false)
         location.stop()
+        isPaused = false
+        pausedSince = nil
+        pausedTotal = 0
+        pauseDetector = nil
+        lastMotion = nil
+        stopSpots = []
         flushTrack()
         resetRoute()
         do { try memory.closePendingBuzzes() } catch { fail("closing pending buzzes failed", error) }
@@ -302,26 +337,40 @@ final class WalkingController {
         engine?.noteSkip(at: now)
     }
 
-    // MARK: - Auto-off
+    // MARK: - Timer and auto-off
 
-    private func startAutoOffTimer(run: UUID?) {
-        autoOffTask?.cancel()
-        autoOffTask = Task { [weak self] in
+    /// One 15 s loop per run. A tick from an earlier run (or after stop) returns.
+    private func startTimer(run: UUID) {
+        timerTask?.cancel()
+        timerTask = Task { [weak self] in
+            var ticks = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: Self.autoOffInterval)
+                try? await Task.sleep(for: Self.tickInterval)
                 guard !Task.isCancelled, let self, self.isOn, self.runToken == run else { return }
-                self.checkAutoOff(now: .now)
-                self.noteGPS(now: .now)
-                self.refreshActivity(now: .now)
+                ticks += 1
+                self.tick(ticks, now: .now)
             }
         }
     }
 
-    /// Turns walking mode off after 4 hours or when the battery runs low, and says why in a notification.
+    /// Every tick: the pause and resume check, then the GPS state. Every 4th tick: auto-off and the Live Activity
+    /// (which moves its stale date on, also while paused).
+    private func tick(_ count: Int, now: Date) {
+        applyPause(pauseDetector?.tick(now: now), now: now)
+        noteGPS(now: now)
+        guard count % Self.ticksPerAutoOff == 0 else { return }
+        checkAutoOff(now: now)
+        refreshActivity(now: now)
+    }
+
+    /// Turns walking mode off after 4 hours of active time (pauses do not count), after an hour paused, or when the
+    /// battery runs low, and says why in a notification.
     private func checkAutoOff(now: Date) {
         guard isOn, let startedAt,
-              let reason = AutoOff.reason(activeTime: AutoOff.activeTime(startedAt: startedAt, now: now, pausedTotal: 0, pausedSince: nil),
-                                          pausedFor: nil, batteryLevel: UIDevice.current.batteryLevel)
+              let reason = AutoOff.reason(activeTime: AutoOff.activeTime(startedAt: startedAt, now: now, pausedTotal: pausedTotal,
+                                                                         pausedSince: pausedSince),
+                                          pausedFor: pausedSince.map { now.timeIntervalSince($0) },
+                                          batteryLevel: UIDevice.current.batteryLevel)
         else { return }
         let stopReason: WalkStopReason = switch reason {
         case .timeLimit: .timeLimit
@@ -329,6 +378,57 @@ final class WalkingController {
         case .pausedTooLong: .pausedTooLong
         }
         stop(reason: stopReason, autoOffMessage: AutoOff.message(reason))
+    }
+
+    // MARK: - Pause
+
+    /// A motion reading: logged when the activity or confidence changed, then fed to the pause rules.
+    private func handleMotion(_ reading: MotionReading) {
+        guard isOn, pauseDetector != nil else { return }
+        if reading.activity != lastMotion?.activity || reading.confidence != lastMotion?.confidence {
+            walkLog.log(.motion(reading.activity, confidence: reading.confidence), at: reading.at)
+        }
+        lastMotion = reading
+        applyPause(pauseDetector?.motion(isWalking: reading.isWalking, at: reading.at), now: reading.at)
+    }
+
+    private func applyPause(_ change: PauseChange?, now: Date) {
+        guard isOn else { return }
+        switch change {
+        case .pause(let trigger, let anchor): enterPause(trigger: trigger, anchor: anchor, now: now)
+        case .resume(let trigger): leavePause(trigger: trigger, now: now)
+        case nil: break
+        }
+    }
+
+    /// The one way into a pause: coarse location, the `paused` line, and "Paused" on the Live Activity with a stale
+    /// date the 60 s push keeps moving on. A story playing or preparing goes on.
+    private func enterPause(trigger: PauseTrigger, anchor: Coordinate?, now: Date) {
+        guard !isPaused else { return }
+        isPaused = true
+        pausedSince = now
+        location.setPaused(true)
+        walkLog.log(.paused(trigger, at: anchor), at: now)
+        walkLog.resetQuiet()
+        refreshActivity(now: now)
+    }
+
+    /// The one way out of a pause: best location again, and the route, stop detector (with the run's stop spots),
+    /// track thinning and GPS state start afresh, so the next fix is judged as usual (spec 5.4).
+    private func leavePause(trigger: PauseTrigger, now: Date) {
+        guard isPaused else { return }
+        let paused = pausedSince.map { max(0, now.timeIntervalSince($0)) } ?? 0
+        pausedTotal += paused
+        pausedSince = nil
+        isPaused = false
+        location.setPaused(false)
+        resetRoute()
+        stopDetector = StopDetector(previousStops: stopSpots)
+        lastTrackSample = nil
+        loggedGPS = nil
+        walkLog.log(.resumed(trigger, pausedSeconds: paused), at: now)
+        walkLog.resetQuiet()
+        refreshActivity(now: now)
     }
 
     // MARK: - Fixes
@@ -343,11 +443,19 @@ final class WalkingController {
             noteGPS(now: now)
             return
         }
+        let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
+        // While paused a fix only goes to the resume rule and the log: no engine, feed, stop detector, track, route
+        // or `lastFixAt` (spec 9.3).
+        if isPaused {
+            let change = pauseDetector?.fix(position: position, accuracy: fix.horizontalAccuracy, at: now)
+            logFix(fix, dropped: nil, at: now)
+            applyPause(change, now: now)
+            return
+        }
         // The status says "waiting for GPS" until a fix the engine can use arrives.
         if WalkingFix.isUsable(accuracy: fix.horizontalAccuracy) { lastFixAt = fix.timestamp }
         logFix(fix, dropped: nil, at: now)
         noteGPS(now: now)
-        let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
 
         // Every fix arrives (no distance filter); the stored track keeps one per 5 m or per minute. The route gets
         // those of them taken while walking with a good fix, so standing still makes no path, bearing or lookup.
@@ -393,10 +501,12 @@ final class WalkingController {
             break
         }
         refreshActivity(now: now)
+        applyPause(pauseDetector?.fix(position: position, accuracy: fix.horizontalAccuracy, at: now), now: now)
     }
 
     /// Writes a fix to the walk log, thinned like the stored track (one per 5 m or per minute) but on its own state.
-    /// `dropped` marks a fix the controller does not use. Unknown speed and course (negative) are written as null.
+    /// `dropped` marks a fix the controller does not use; `paused` one taken while paused. Unknown speed and course
+    /// (negative) are written as null.
     private func logFix(_ fix: CLLocation, dropped: FixDrop?, at now: Date) {
         let position = Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
         let sample = TrackSample(at: fix.timestamp, coordinate: position)
@@ -404,12 +514,12 @@ final class WalkingController {
         lastLoggedSample = sample
         walkLog.log(.fix(WalkLogFix(coordinate: position, accuracy: fix.horizontalAccuracy,
                                     speed: fix.speed >= 0 ? fix.speed : nil, course: fix.course >= 0 ? fix.course : nil,
-                                    paused: false, dropped: dropped)), at: now)
+                                    paused: isPaused, dropped: dropped)), at: now)
     }
 
-    /// Writes `gps` when the status changes between waiting for GPS and having GPS.
+    /// Writes `gps` when the status changes between waiting for GPS and having GPS. Nothing while paused.
     private func noteGPS(now: Date) {
-        guard isOn else { return }
+        guard isOn, !isPaused else { return }
         let found = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: false)
             != WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: buzzCount, now: now, paused: false)
         guard found != loggedGPS else { return }
@@ -417,13 +527,15 @@ final class WalkingController {
         walkLog.log(.gps(found: found), at: now)
     }
 
-    /// Shows the status on the Live Activity; it only changes with the buzz count or the GPS state, and is pushed
-    /// again now and then to move its stale date on.
+    /// Shows the status on the Live Activity; it only changes with the buzz count, the GPS state or a pause, and is
+    /// pushed again now and then to move its stale date on. While paused the stale date is now + 120 s.
     private func refreshActivity(now: Date) {
         guard isOn, let startedAt,
-              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: false) else { return }
-        activity.updateStatus(text, buzzCount: buzzCount,
-                              staleDate: WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: startedAt))
+              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, paused: isPaused)
+        else { return }
+        let stale = isPaused ? WalkingStatus.pausedStaleDate(now: now)
+                             : WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: startedAt)
+        activity.updateStatus(text, buzzCount: buzzCount, staleDate: stale)
     }
 
     // MARK: - Route
@@ -474,6 +586,7 @@ final class WalkingController {
     /// the direction is the one walked in, from the route as it was at the stop. The route then starts afresh: after
     /// a stop, "came from" is left out until the walker has walked on (spec 6.5).
     private func tellStop(at spot: Coordinate) {
+        stopSpots.append(spot)
         let run = runToken, now = Date.now
         let snapshot = route
         resetRoute()
@@ -644,19 +757,7 @@ final class WalkingController {
                             build: info?["CFBundleVersion"] as? String ?? "",
                             location: location, notifications: notifications,
                             liveActivities: WalkingActivityController.areActivitiesEnabled,
-                            motion: Self.motionPermission(), perHour: appliedPerHour, battery: battery)
-    }
-
-    /// Read only: walking mode does not ask for motion access in this version.
-    private static func motionPermission() -> MotionPermission {
-        guard CMMotionActivityManager.isActivityAvailable() else { return .unavailable }
-        return switch CMMotionActivityManager.authorizationStatus() {
-        case .authorized: .authorized
-        case .denied: .denied
-        case .restricted: .restricted
-        case .notDetermined: .notDetermined
-        @unknown default: .denied
-        }
+                            motion: WalkingMotion.permission, perHour: appliedPerHour, battery: battery)
     }
 
     private static func notificationState() async -> WalkingReadiness.Notifications {

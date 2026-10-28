@@ -1,8 +1,8 @@
 import MyGuideCore
 import SwiftUI
 
-/// The walking status line, refreshed every second so a stale fix turns into "waiting for GPS",
-/// and the first thing that keeps walking mode from starting, in orange.
+/// The walking status line ("Paused · N buzzes" while walking mode is paused), refreshed every second so a stale fix
+/// turns into "waiting for GPS", and the first thing that keeps walking mode from starting, in orange.
 struct WalkingStatusPill: View {
     let controller: WalkingController
 
@@ -10,7 +10,7 @@ struct WalkingStatusPill: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: 6) {
                 if let text = WalkingStatus.text(isOn: controller.isOn, lastFixAt: controller.lastFixAt,
-                                                 buzzCount: controller.buzzCount, now: context.date, paused: false) {
+                                                 buzzCount: controller.buzzCount, now: context.date, paused: controller.isPaused) {
                     pill(text, color: .white)
                 }
                 if let problem = controller.problems.first {

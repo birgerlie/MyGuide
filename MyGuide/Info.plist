@@ -37,6 +37,8 @@
 	<string>In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MyGuide uses your exact position and compass heading to work out what you are looking at.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>MyGuide notices when you stop and start walking, so walking mode can pause itself and save battery.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MyGuide reads where a picked photo was taken so it can tell its story.</string>
 	<key>NSSupportsLiveActivities</key>

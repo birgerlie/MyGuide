@@ -2,7 +2,8 @@ import CoreLocation
 
 /// The walking controller's own location manager, so the capture screen's `LocationProvider` and the Walking check
 /// screen keep working untouched. Background updates, every fix (no distance filter: standing still must still deliver
-/// fixes, for the stop detector and the GPS status), no automatic pausing.
+/// fixes, for the stop detector and the GPS status), no automatic pausing by CoreLocation. While walking mode is
+/// paused (`setPaused`) it runs coarse, so the app stays alive in the background without GPS at full power.
 @MainActor
 final class WalkingLocation: NSObject {
     /// Every fix CoreLocation delivers, oldest first within one delivery.
@@ -53,6 +54,12 @@ final class WalkingLocation: NSObject {
         manager.showsBackgroundLocationIndicator = true
         activitySession = CLBackgroundActivitySession()
         manager.startUpdatingLocation()
+    }
+
+    /// Paused: hundred-metre accuracy and a 50 m distance filter. Not paused: best accuracy, every fix (spec 5.4).
+    func setPaused(_ paused: Bool) {
+        manager.desiredAccuracy = paused ? kCLLocationAccuracyHundredMeters : kCLLocationAccuracyBest
+        manager.distanceFilter = paused ? 50 : kCLDistanceFilterNone
     }
 
     func stop() {
