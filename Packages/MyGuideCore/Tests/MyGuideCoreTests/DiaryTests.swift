@@ -197,7 +197,11 @@ import Testing
             walk.addressJSON = Data("not json".utf8)
             if walk.kind == "buzz" { walk.placeJSON = Data("not json".utf8) }
         }
-        let entries = try store.diaryEntries()
+        var corrupt: [String] = []
+        let entries = try store.diaryEntries(onCorrupt: { corrupt.append($0) })
+        #expect(corrupt.sorted() == [
+            "capture:\(captureID.uuidString) groundingJSON", "walk:\(buzzID.uuidString) addressJSON",
+            "walk:\(buzzID.uuidString) placeJSON", "walk:\(stopID.uuidString) addressJSON"].sorted())
         #expect(entries.count == 3)
         #expect(entries.allSatisfy { $0.city == nil })
         let buzz = try #require(entries.first { $0.kind == .buzz })
@@ -207,8 +211,8 @@ import Testing
     }
 
     @Test func allKindsGroupIntoDays() throws {
-        // Capture at 1 000 s, stop at t0 = 1 000 000 s, buzz at t0 + 50, library photo at 1 000 s + 1: all on
-        // 1970-01-01 (first and last) or 1970-01-12 (1 000 000 s = 11 d 13 h 46 min 40 s, so the 12th) in UTC.
+        // Capture at 1 000 s and library photo at 1 001 s: 1970-01-01 UTC. Buzz story at t0 + 50 = 1 000 050 s =
+        // 11 d (950 400 s) + 49 650 s: 1970-01-12 UTC. Newest day first.
         try store.save(Self.session(at: 1_000, city: "Wien", level1: "Gate."))
         _ = try store.importLibraryPhoto(jpeg: TestImages.jpeg(width: 50, height: 50), assetIdentifier: "x",
                                          takenAt: Date(timeIntervalSince1970: 1_001), coordinate: nil)
@@ -218,5 +222,59 @@ import Testing
         let first = try #require(days.last), second = try #require(days.first)
         #expect(first.entries.map(\.kind) == [.photoStory, .libraryPhoto])
         #expect(first.city == "Wien" && second.city == nil)
+    }
+
+    @Test func onlyBuzzAndStopWalkKindsAreListed() throws {
+        let stopID = UUID(), oddID = UUID()
+        try store.saveWalkStory(WalkStory(id: stopID, kind: .stop, place: nil, position: .at(north: 1), course: nil,
+                                          language: .english, title: "S", levels: ["Stop."], createdAt: Self.t0,
+                                          address: nil, detail: nil), tripID: Self.trip)
+        try store.saveWalkStory(WalkStory(id: oddID, kind: .stop, place: nil, position: .at(north: 2), course: nil,
+                                          language: .english, title: "S", levels: ["Odd."], createdAt: Self.t0,
+                                          address: nil, detail: nil), tripID: Self.trip)
+        let odd = try #require(try store.context.fetch(FetchDescriptor<WalkStoryRecord>()).first { $0.id == oddID })
+        odd.kind = "future"
+        var corrupt: [String] = []
+        let entries = try store.diaryEntries(onCorrupt: { corrupt.append($0) })
+        #expect(entries.map(\.id) == ["walk:\(stopID.uuidString)"])
+        #expect(corrupt == ["walk:\(oddID.uuidString) kind"])
+    }
+
+    @Test(arguments: [1, 2, 3]) func buzzHeardAtAnyLevelIsListed(level: Int) throws {
+        let id = UUID()
+        try logBuzz(Self.buzzStory(id: id, levels: ["One.", "Two.", "Three."], address: nil), heardLevel: level)
+        #expect(try store.diaryEntries().map(\.id) == ["walk:\(id.uuidString)"])
+    }
+
+    // MARK: - Daylight saving
+
+    @Test func twentyFiveHourDayGroupsAsOneDay() throws {
+        // Oslo leaves summer time on 2026-10-25 at 01:00 UTC, so the 25th runs from 2026-10-24 22:00 UTC
+        // (local 00:00 CEST) to 2026-10-25 23:00 UTC (local 00:00 CET): 25 h.
+        // 2026-10-25 00:00 UTC = 1792886400; start = 1792886400 - 2 h = 1792879200; end = 1792886400 + 23 h
+        // = 1792886400 + 82 800 = 1792969200.
+        let before = Self.entry("before", at: 1_792_879_199)   // 23:59:59 local on the 24th
+        let start = Self.entry("start", at: 1_792_879_200)     // 00:00 local on the 25th
+        let last = Self.entry("last", at: 1_792_969_199)       // 23:59:59 local on the 25th
+        let next = Self.entry("next", at: 1_792_969_200)       // 00:00 local on the 26th
+        let days = Diary.days([next, last, start, before], timeZone: Self.oslo)
+        #expect(days.map(\.id) == ["2026-10-26", "2026-10-25", "2026-10-24"])
+        #expect(days.map { $0.entries.map(\.id) } == [["next"], ["start", "last"], ["before"]])
+        // Day start of the 25th = 1792879200.
+        #expect(days[1].date == Date(timeIntervalSince1970: 1_792_879_200))
+    }
+
+    @Test func twentyThreeHourDayGroupsAsOneDay() throws {
+        // Oslo enters summer time on 2026-03-29 at 01:00 UTC: the 29th runs from 2026-03-28 23:00 UTC to
+        // 2026-03-29 22:00 UTC: 23 h. 2026-03-29 00:00 UTC = 1774742400; start = 1774742400 - 1 h = 1774738800;
+        // end = 1774742400 + 22 h = 1774742400 + 79 200 = 1774821600.
+        let before = Self.entry("before", at: 1_774_738_799)
+        let start = Self.entry("start", at: 1_774_738_800)
+        let last = Self.entry("last", at: 1_774_821_599)
+        let next = Self.entry("next", at: 1_774_821_600)
+        let days = Diary.days([next, last, start, before], timeZone: Self.oslo)
+        #expect(days.map(\.id) == ["2026-03-30", "2026-03-29", "2026-03-28"])
+        #expect(days.map { $0.entries.map(\.id) } == [["next"], ["start", "last"], ["before"]])
+        #expect(days[1].date == Date(timeIntervalSince1970: 1_774_738_800))
     }
 }
