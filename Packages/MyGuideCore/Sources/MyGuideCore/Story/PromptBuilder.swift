@@ -166,8 +166,8 @@ public enum PromptBuilder {
         [facts.isEmpty ? "Facts about \(name): none found" : "Facts about \(name):"] + facts
     }
 
-    /// `Also on Apple Maps:` with the selected places (nearest first, none repeating a name listed in the request), or
-    /// nothing when none are left or there is no position to measure from.
+    /// `Also on Apple Maps:` with the places `ApplePlaces.select` keeps (sights before at most two food places, nearest
+    /// first, none repeating a name listed in the request), or nothing when none are left or there is no position.
     private static func appleMapsLines(_ places: [ApplePlace]?, from: Coordinate?, direction: Double?,
                                        knownNames: [String]) -> [String] {
         guard let places, let from else { return [] }

@@ -81,6 +81,53 @@ import Foundation
         #expect(ApplePlaces.select(places, from: Self.here, knownNames: ["Oslo domkirke kirkegård"]).count == 1)
     }
 
+    @Test func foodComesAfterEveryOtherCategory() {
+        // A restaurant 10 m away and a bakery 15 m away rank after a museum 100 m and a park 120 m away.
+        let places = [Self.place("Restaurant", metresNorth: 10, category: "restaurant"),
+                      Self.place("Museum", metresNorth: 100),
+                      Self.place("Bakery", metresNorth: 15, category: "bakery"),
+                      Self.place("Park", metresNorth: 120, category: "park")]
+        #expect(ApplePlaces.select(places, from: Self.here, knownNames: []).map(\.name)
+                == ["Museum", "Park", "Restaurant", "Bakery"])
+    }
+
+    @Test func foodIsCappedAtTwoNearestFirst() {
+        // Four cafés at 40, 10, 30, 20 m and one park at 50 m: the park, then the two nearest cafés (10 m, 20 m).
+        let cafes = [40.0, 10, 30, 20].map { Self.place("C\(Int($0))", metresNorth: $0, category: "café") }
+        let places = cafes + [Self.place("Park", metresNorth: 50, category: "park")]
+        #expect(ApplePlaces.foodLimit == 2)
+        #expect(ApplePlaces.select(places, from: Self.here, knownNames: []).map(\.name) == ["Park", "C10", "C20"])
+    }
+
+    @Test func foodOnlyStillGivesTwo() {
+        let places = (1...5).map { Self.place("F\($0)", metresNorth: Double($0) * 10, category: "market") }
+        #expect(ApplePlaces.select(places, from: Self.here, knownNames: []).map(\.name) == ["F1", "F2"])
+    }
+
+    @Test func totalStaysAtTheLimitWithFood() {
+        // Seven others (100…700 m) and three food places (1…3 m): 7 others + min(2, 8 − 7 = 1) food = 8.
+        let others = (1...7).map { Self.place("O\($0)", metresNorth: Double($0) * 100, category: "landmark") }
+        let food = (1...3).map { Self.place("F\($0)", metresNorth: Double($0), category: "winery") }
+        let result = ApplePlaces.select(food + others, from: Self.here, knownNames: [])
+        #expect(result.map(\.name) == (1...7).map { "O\($0)" } + ["F1"])
+        // Ten others: 8 others + min(2, 8 − 8 = 0) food = 8, no food at all.
+        let ten = (1...10).map { Self.place("O\($0)", metresNorth: Double($0) * 100, category: "park") }
+        #expect(ApplePlaces.select(food + ten, from: Self.here, knownNames: []).map(\.name) == (1...8).map { "O\($0)" })
+    }
+
+    @Test func everyFoodWordCountsAsFoodWhateverItsCaseOrAccent() {
+        // Each of these is food, so with two parks farther away only the two nearest food places follow the parks.
+        for word in ["bakery", "restaurant", "café", "cafe", "CAFÉ", "brewery", "winery", "market"] {
+            let places = (1...3).map { Self.place("F\($0)", metresNorth: Double($0), category: word) }
+                + [Self.place("P1", metresNorth: 100, category: "park"), Self.place("P2", metresNorth: 200, category: "park")]
+            #expect(ApplePlaces.select(places, from: Self.here, knownNames: []).map(\.name) == ["P1", "P2", "F1", "F2"],
+                    "\(word)")
+        }
+        // Other categories keep the plain nearest-first order.
+        let other = [Self.place("X", metresNorth: 1, category: "theater"), Self.place("Y", metresNorth: 2, category: "music venue")]
+        #expect(ApplePlaces.select(other, from: Self.here, knownNames: []).map(\.name) == ["X", "Y"])
+    }
+
     // MARK: fetch
 
     @Test func fetchWithoutSearcherIsNil() async throws {

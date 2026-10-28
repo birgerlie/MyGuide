@@ -23,6 +23,10 @@ public enum ApplePlaces {
     public static let walkingRadius = 150.0
     public static let photoRadius = 250.0
     public static let limit = 8
+    /// Most food places listed: they only ground the meal-time line (spec 7.3), so they must not crowd out the sights.
+    public static let foodLimit = 2
+    /// The categories (`MapKitPointsOfInterest`'s words, folded) that count as food.
+    static let foodCategories: Set<String> = Set(["bakery", "restaurant", "café", "brewery", "winery", "market"].map(fold))
     public static let timeout: Duration = .seconds(8)
 
     /// Searches with the timeout; nil on failure or timeout (cancellation propagates).
@@ -40,16 +44,29 @@ public enum ApplePlaces {
         }
     }
 
-    /// Nearest first, at most `limit`, dropping names equal (case- and diacritic-insensitive, trimmed) to any of `knownNames`.
-    /// Equal distances keep input order. A name that is empty after trimming never matches.
+    /// The places to list, at most `limit`: every other category before food, nearest first within each group, and at
+    /// most `foodLimit` food places. Names equal (case- and diacritic-insensitive, trimmed) to any of `knownNames` are
+    /// dropped first. Equal distances keep input order. A name that is empty after trimming never matches.
     public static func select(_ places: [ApplePlace], from: Coordinate, knownNames: [String]) -> [ApplePlace] {
         let known = Set(knownNames.map(fold).filter { !$0.isEmpty })
-        var ranked: [(index: Int, place: ApplePlace, distance: Double)] = []
+        var ranked: [(index: Int, place: ApplePlace, distance: Double, isFood: Bool)] = []
         for (index, place) in places.enumerated() where !known.contains(fold(place.name)) {
-            ranked.append((index, place, GeoMath.distance(from, place.coordinate)))
+            ranked.append((index, place, GeoMath.distance(from, place.coordinate), foodCategories.contains(fold(place.category))))
         }
-        ranked.sort { $0.distance != $1.distance ? $0.distance < $1.distance : $0.index < $1.index }
-        return ranked.prefix(limit).map(\.place)
+        ranked.sort { a, b in
+            if a.isFood != b.isFood { return !a.isFood }
+            return a.distance != b.distance ? a.distance < b.distance : a.index < b.index
+        }
+        var selected: [ApplePlace] = []
+        var food = 0
+        for entry in ranked where selected.count < limit {
+            if entry.isFood {
+                guard food < foodLimit else { break }
+                food += 1
+            }
+            selected.append(entry.place)
+        }
+        return selected
     }
 
     private static func fold(_ name: String) -> String {
