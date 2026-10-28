@@ -224,6 +224,8 @@ final class WalkingController {
         walkLog.log(.started(startFields(state)), at: now)
         for failure in startFailures { walkLog.log(failure.kind, at: failure.at) }
         startFailures = []
+        // A story from before this run may hold the engine busy: the log says so from the start.
+        stories.logBusyState()
         location.setPaused(false)
         location.start()
         motion.start { [weak self] reading in self?.handleMotion(reading) }
@@ -635,7 +637,8 @@ final class WalkingController {
                     try await walkLog.posting(.stop, id: story.id) { try await BuzzNotifier.postStop(story, quiet: quiet) }
                     if isOn, runToken == run { walkLog.log(.stopShown(via: .notification)) }
                 } catch {
-                    fail("stop post failed", error)
+                    // Memory log only: the walk log's `notifyFailed` line already holds the error.
+                    AppServices.logMemoryFailure("stop post failed", error)
                 }
             }
         }
@@ -653,7 +656,8 @@ final class WalkingController {
             do {
                 try await self.walkLog.posting(.buzz, id: buzz.id) { try await BuzzNotifier.post(buzz) }
             } catch {
-                self.fail("buzz post failed", error)
+                // Memory log only: the walk log's `notifyFailed` line already holds the error.
+                AppServices.logMemoryFailure("buzz post failed", error)
                 return
             }
             // stop() may have cleared the notifications while this one was being added: take it back.

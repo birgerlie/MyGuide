@@ -189,7 +189,8 @@ final class WalkingStories {
                 // Walking mode went off meanwhile: silent (and the run's log has ended, so this writes nothing then).
                 walkLog?.log(.stopStory(outcome: .failed, title: nil, error: "cancelled"))
             } catch {
-                fail("stop story failed", error)
+                // Memory log, and the walk log's `stopStory` line (no `failure` line beside it).
+                AppServices.logMemoryFailure("stop story failed", error)
                 walkLog?.log(.stopStory(outcome: .failed, title: nil, error: WalkLogEvent.errorText(error)))
             }
         }
@@ -329,8 +330,10 @@ final class WalkingStories {
                 guard playToken == token else { return }
                 playToken = nil
                 listening = nil
+                let reported = unrequested(error)
+                logFailure("story speech failed", reported)
                 feed(.stoppedExternally)
-                report(id, error: unrequested(error))
+                report(id, error: reported)
             }
         }
     }
@@ -342,6 +345,7 @@ final class WalkingStories {
             // An unplayable cached file would fail every retry; drop it so the next try refetches.
             try? FileManager.default.removeItem(at: url)
             listening = nil
+            logFailure("story audio failed", error)
             feed(.stoppedExternally)
             report(id, error: error)
             return
@@ -392,7 +396,10 @@ final class WalkingStories {
                 prepared.setAudio(url, id: id, level: target)
                 endFetchingMore(id, with: .moreReady(id, level: target))
             } catch {
-                remember(failure(error, for: id), for: id)
+                let reported = failure(error, for: id)
+                // The app's own cancellation (a skip, walking mode off) is silent.
+                if !(reported is CancellationError) { logFailure("story more failed", reported) }
+                remember(reported, for: id)
                 // The new level's text may be saved although its speech failed: it stays listenable.
                 endFetchingMore(id, with: .moreFailed(id, storedLevels: prepared.story(id)?.levels.count ?? 0))
             }
@@ -405,7 +412,8 @@ final class WalkingStories {
             do {
                 try await posting(.more, id: id) { try await BuzzNotifier.postMore(id: id, title: title) }
             } catch {
-                fail("more post failed", error)
+                // Memory log only: the walk log's `notifyFailed` line already holds the error.
+                AppServices.logMemoryFailure("more post failed", error)
             }
         }
     }
@@ -439,7 +447,8 @@ final class WalkingStories {
             do {
                 try await posting(.storyFailed, id: id) { try await BuzzNotifier.postFailure(id: id, body: body) }
             } catch {
-                fail("failure post failed", error)
+                // Memory log only: the walk log's `notifyFailed` line already holds the error.
+                AppServices.logMemoryFailure("failure post failed", error)
             }
         }
     }
@@ -449,7 +458,18 @@ final class WalkingStories {
     /// Logs a failure without any story text: to the memory log, and to the walk log while a run is on.
     private func fail(_ context: String, _ error: Error) {
         AppServices.logMemoryFailure(context, error)
+        logFailure(context, error)
+    }
+
+    /// Writes `failure` to the walk log while a run is on (a playback failure, which is no memory failure).
+    private func logFailure(_ context: String, _ error: Error) {
         walkLog?.log(.failure(context: context, error: WalkLogEvent.errorText(error)))
+    }
+
+    /// Writes the busy flag to a run's log right after its `started` line: a story from before the run may hold the
+    /// engine busy, and `busy` is otherwise only written when a playback event comes.
+    func logBusyState() {
+        logBusy()
     }
 
     /// Writes `busy` when the flag differs from the last one written to this run's file.
