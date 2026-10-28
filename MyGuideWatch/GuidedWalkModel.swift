@@ -10,6 +10,7 @@ final class GuidedWalkModel {
     static let notReachableText = "Phone not reachable. Open MyGuide on your phone."
     static let notSavedText = "Not saved to Health"
     static let workoutEndedText = "Workout ended"
+    static let workoutEndedNotSavedText = "\(workoutEndedText) · \(notSavedText)"
 
     /// The last state applied from the phone, nil until the first one arrives.
     private(set) var state: GuidedWalkState?
@@ -43,7 +44,7 @@ final class GuidedWalkModel {
 
     init(link: PhoneLink = .shared) {
         self.link = link
-        keeper.onEnded = { [weak self] in self?.workoutEndedOutside() }
+        keeper.onEnded = { [weak self] result in self?.workoutEndedOutside(result) }
         link.onState = { [weak self] context in
             guard let state = GuidedWalkState(message: context) else { return }
             self?.apply(state)
@@ -59,7 +60,7 @@ final class GuidedWalkModel {
         error = nil
         if command == .start {
             restartBlocked = false
-            if healthNote == Self.workoutEndedText { healthNote = nil }
+            clearWorkoutEndedNote()
         }
         setTarget(Self.target(for: command))
         do {
@@ -87,7 +88,7 @@ final class GuidedWalkModel {
     /// The system launched the app to run a workout (`startWatchApp` on the phone).
     func startForWorkoutLaunch() {
         restartBlocked = false
-        if healthNote == Self.workoutEndedText { healthNote = nil }
+        clearWorkoutEndedNote()
         setTarget(.running)
     }
 
@@ -148,9 +149,15 @@ final class GuidedWalkModel {
         }
     }
 
-    private func workoutEndedOutside() {
+    /// The workout ended from outside. A failed finish means the walk so far is not in Health, which the note says.
+    private func workoutEndedOutside(_ result: WorkoutKeeper.FinishResult?) {
         restartBlocked = true
-        healthNote = Self.workoutEndedText
+        healthNote = result == .failed ? Self.workoutEndedNotSavedText : Self.workoutEndedText
+    }
+
+    /// A new workout is starting: the note about the last one ending from outside no longer applies.
+    private func clearWorkoutEndedNote() {
+        if healthNote == Self.workoutEndedText || healthNote == Self.workoutEndedNotSavedText { healthNote = nil }
     }
 
     private static func target(for command: GuidedWalkCommand) -> WorkoutTarget {

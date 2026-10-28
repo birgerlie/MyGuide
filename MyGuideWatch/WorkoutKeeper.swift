@@ -45,7 +45,9 @@ final class WorkoutKeeper: NSObject {
     static let minimumSavedDuration: TimeInterval = 60
 
     /// The session ended or failed from outside: the system, or another app's workout. Not called for `finish()`.
-    @ObservationIgnored var onEnded: (@MainActor () -> Void)?
+    /// Given how finishing it went: `.failed` means the walk is not in Health; nil when a concurrent `finish()` took
+    /// the session first (that call reports its own result).
+    @ObservationIgnored var onEnded: (@MainActor (FinishResult?) -> Void)?
 
     @ObservationIgnored private let purpose: Purpose
     @ObservationIgnored private let store = HKHealthStore()
@@ -196,11 +198,11 @@ final class WorkoutKeeper: NSObject {
         applyWantedState()
     }
 
-    /// The session in the delegate callback ended or failed: finish it the normal way and tell the owner.
+    /// The session in the delegate callback ended or failed: finish it the normal way and tell the owner how that went.
     private func sessionEndedOutside(_ id: ObjectIdentifier) async {
         guard let session, ObjectIdentifier(session) == id else { return }
-        _ = await finish()
-        onEnded?()
+        let result = await finish()
+        onEnded?(result)
     }
 
     /// HealthKit calls the completion on its own queue. A closure written inside this main-actor class would inherit
