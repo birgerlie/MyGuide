@@ -14,6 +14,31 @@ public struct Buzz: Sendable, Equatable {
     public var usedOverride: Bool
 }
 
+/// Why the engine did not buzz (design 4.3), in the order the reasons are checked.
+public enum QuietReason: String, Sendable, Codable, CaseIterable {
+    case badAccuracy, noneDue, busy, skipQuiet, allExcluded, budget
+}
+
+/// A place that is due (within the due/drop radius) at the moment of a decision.
+public struct DuePlace: Sendable, Equatable, Codable {
+    public var id: String
+    public var name: String
+    public var tier: PlaceTier
+    public var distance: Double
+    /// Already buzzed, heard or retired.
+    public var excluded: Bool
+}
+
+public enum BuzzDecision: Sendable, Equatable {
+    case buzz(Buzz)
+    case quiet(QuietReason, due: [DuePlace])
+
+    public var buzz: Buzz? {
+        if case .buzz(let b) = self { return b }
+        return nil
+    }
+}
+
 /// Decides which nearby place, if any, deserves a buzz right now (design 7.4).
 /// A place is "due" from 60 m until it is more than 120 m away; the budget paces buzzes, and a top-tier place
 /// the walker is passing by can override the budget at most once per 10 minutes.
@@ -55,7 +80,13 @@ public struct BuzzEngine: Sendable {
 
     public mutating func evaluate(places: [WalkingPlace], position: Coordinate, accuracy: Double,
                                   course: Double?, now: Date) -> Buzz? {
-        guard WalkingFix.isUsable(accuracy: accuracy) else { return nil }
+        decide(places: places, position: position, accuracy: accuracy, course: course, now: now).buzz
+    }
+
+    /// Like `evaluate`, but says why nothing was buzzed. Quiet reasons are checked in the order of design 4.3.
+    public mutating func decide(places: [WalkingPlace], position: Coordinate, accuracy: Double,
+                                course: Double?, now: Date) -> BuzzDecision {
+        guard WalkingFix.isUsable(accuracy: accuracy) else { return .quiet(.badAccuracy, due: []) }
 
         // Update the due set. A place that is no longer in `places` is forgotten.
         struct Due { var place: WalkingPlace; var distance: Double; var bearing: Double }
@@ -73,15 +104,21 @@ public struct BuzzEngine: Sendable {
         }
         closest = stillDue
 
-        if isBusy { return nil }
-        if let lastSkip, now.timeIntervalSince(lastSkip) < Self.skipQuiet { return nil }
+        let ordered = due.sorted { ($0.place.tier, $0.distance) < ($1.place.tier, $1.distance) }
+        let duePlaces = ordered.map {
+            DuePlace(id: $0.place.candidate.id, name: $0.place.candidate.name, tier: $0.place.tier,
+                     distance: $0.distance, excluded: excluded.contains($0.place.candidate.id))
+        }
 
-        let candidates = due
-            .filter { !excluded.contains($0.place.candidate.id) }
-            .sorted { ($0.place.tier, $0.distance) < ($1.place.tier, $1.distance) }
+        if due.isEmpty { return .quiet(.noneDue, due: []) }
+        if isBusy { return .quiet(.busy, due: duePlaces) }
+        if let lastSkip, now.timeIntervalSince(lastSkip) < Self.skipQuiet { return .quiet(.skipQuiet, due: duePlaces) }
+
+        let candidates = ordered.filter { !excluded.contains($0.place.candidate.id) }
+        if candidates.isEmpty { return .quiet(.allExcluded, due: duePlaces) }
 
         if let first = candidates.first, budget.canSpend(at: now), budget.spend(at: now) {
-            return buzz(first.place, first.distance, first.bearing, course, usedOverride: false)
+            return .buzz(buzz(first.place, first.distance, first.bearing, course, usedOverride: false))
         }
 
         // The first top-tier candidate (tier/distance order) that is far enough and has been passed; the interval
@@ -91,9 +128,9 @@ public struct BuzzEngine: Sendable {
                 && $0.distance > (closest[$0.place.candidate.id] ?? $0.distance) + Self.overridePassingMargin
         }), lastOverride.map({ now.timeIntervalSince($0) >= Self.overrideInterval }) ?? true {
             lastOverride = now
-            return buzz(top.place, top.distance, top.bearing, course, usedOverride: true)
+            return .buzz(buzz(top.place, top.distance, top.bearing, course, usedOverride: true))
         }
-        return nil
+        return .quiet(.budget, due: duePlaces)
     }
 
     private mutating func buzz(_ place: WalkingPlace, _ distance: Double, _ bearing: Double,

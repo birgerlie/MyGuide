@@ -155,4 +155,74 @@ import Testing
         _ = e.evaluate(places: [castle], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0 + 5)  // 61 m: still due
         #expect(e.evaluate(places: [castle], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0 + 720)?.place == castle)
     }
+
+    // MARK: - decide (quiet reasons, design 4.3)
+
+    @Test func badAccuracyIsQuietWithNoDue() {
+        var e = Self.engine()
+        // accuracy 51 > 50 m (maxFixAccuracy) → unusable, even with a place 10 m away; due stays empty.
+        let d = e.decide(places: [Self.place("a", .good, north: 10)], position: .at(), accuracy: 51, course: 0, now: Self.t0)
+        #expect(d == .quiet(.badAccuracy, due: []))
+    }
+    @Test func noneDueWhenNothingWithin60m() {
+        var e = Self.engine()
+        // 70 m > 60 m due radius.
+        let d = e.decide(places: [Self.place("a", .good, north: 70)], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        #expect(d == .quiet(.noneDue, due: []))
+    }
+    @Test func busyListsDuePlaces() {
+        var e = Self.engine()
+        e.isBusy = true
+        let d = e.decide(places: [Self.place("a", .good, north: 40)], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.busy, let due) = d, due.count == 1 else { Issue.record("expected busy, got \(d)"); return }
+        #expect(due[0].id == "a" && due[0].name == "a" && due[0].tier == .good && !due[0].excluded)
+        // `.at(north: 40)` is 40 m by construction (Support/Metres.swift).
+        #expect(abs(due[0].distance - 40) < 0.01)
+    }
+    @Test func skipQuietWithin60s() {
+        var e = Self.engine()
+        let a = Self.place("a", .good, north: 40), b = Self.place("b", .good, north: 50)
+        #expect(e.decide(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0).buzz?.place == a)
+        e.noteSkip(at: Self.t0)
+        // 59 s since the skip < 60 s skipQuiet.
+        let d = e.decide(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 59)
+        guard case .quiet(.skipQuiet, let due) = d else { Issue.record("expected skipQuiet, got \(d)"); return }
+        #expect(due.map(\.id) == ["a", "b"])
+    }
+    @Test func allExcludedFlagsExcluded() {
+        var e = Self.engine(excluded: ["a"])
+        let d = e.decide(places: [Self.place("a", .good, north: 40)], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.allExcluded, let due) = d, due.count == 1 else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(due[0].id == "a" && due[0].excluded)
+    }
+    @Test func budgetWhenSpent() {
+        var e = Self.engine(perHour: 20)
+        let a = Self.place("a", .good, north: 40), b = Self.place("b", .good, north: 50)
+        #expect(e.decide(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0).buzz?.place == a)
+        // 20/h → 3600 / 20 = 180 s spacing; 179 s < 180 s, so the budget is spent. b is good tier: no override.
+        let d = e.decide(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 179)
+        guard case .quiet(.budget, let due) = d else { Issue.record("expected budget, got \(d)"); return }
+        // Tier then distance: both good, a at 40 m before b at 50 m.
+        #expect(due.map(\.id) == ["a", "b"])
+        #expect(due.map(\.excluded) == [true, false])
+    }
+    @Test func dueOrderedByTierThenDistance() {
+        var e = Self.engine()
+        e.isBusy = true
+        // y is top tier at 50 m, x is good tier at 10 m: tier wins over distance.
+        let d = e.decide(places: [Self.place("x", .good, north: 10), Self.place("y", .top, north: 50)],
+                         position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.busy, let due) = d else { Issue.record("expected busy, got \(d)"); return }
+        #expect(due.map(\.id) == ["y", "x"])
+    }
+    @Test func evaluateStillMatchesDecide() {
+        var viaEvaluate = Self.engine(), viaDecide = Self.engine()
+        let a = Self.place("a", .good, north: 40), b = Self.place("b", .top, north: 50)
+        // t0: both buzz b (top); t0+179: budget spent for both; t0+180: a.
+        for dt in [0.0, 179, 180] {
+            let x = viaEvaluate.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + dt)
+            let y = viaDecide.decide(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + dt).buzz
+            #expect(x?.place == y?.place && x?.detail == y?.detail && x?.usedOverride == y?.usedOverride)
+        }
+    }
 }
