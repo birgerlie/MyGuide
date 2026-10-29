@@ -8,9 +8,9 @@ enum PhoneLinkError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notActivated: "Phone link not active"
-        case .notReachable: "Phone not reachable"
-        case .unexpectedReply: "Unexpected reply from the phone"
+        case .notActivated: WatchTexts.linkNotActive
+        case .notReachable: WatchTexts.phoneNotReachable
+        case .unexpectedReply: WatchTexts.unexpectedReply
         }
     }
 }

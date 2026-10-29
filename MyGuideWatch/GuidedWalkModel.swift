@@ -7,10 +7,11 @@ import MyGuideCore
 @MainActor
 @Observable
 final class GuidedWalkModel {
-    static let notReachableText = "Phone not reachable. Open MyGuide on your phone."
-    static let notSavedText = "Not saved to Health"
-    static let workoutEndedText = "Workout ended"
-    static let workoutEndedNotSavedText = "\(workoutEndedText) · \(notSavedText)"
+    // In the watch's language (`WatchTexts`); fixed for the life of the process, so the notes compare equal.
+    static var notReachableText: String { WatchTexts.notReachable }
+    static var notSavedText: String { WatchTexts.notSaved }
+    static var workoutEndedText: String { WatchTexts.workoutEnded }
+    static var workoutEndedNotSavedText: String { "\(workoutEndedText) · \(notSavedText)" }
 
     /// The last state applied from the phone, nil until the first one arrives.
     private(set) var state: GuidedWalkState?

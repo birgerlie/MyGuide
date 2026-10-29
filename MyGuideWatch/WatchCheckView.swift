@@ -11,8 +11,8 @@ final class WatchCheckModel {
 
     private(set) var workoutRunning = false
     private(set) var workoutStarting = false
-    private(set) var status = "Not started"
-    private(set) var pingStatus = "Not tried"
+    private(set) var status = WatchTexts.notStarted
+    private(set) var pingStatus = WatchTexts.notTried
 
     @ObservationIgnored private let workout = WorkoutKeeper(purpose: .test)
     @ObservationIgnored private var buzzTask: Task<Void, Never>?
@@ -25,13 +25,13 @@ final class WatchCheckModel {
         do {
             try await workout.ensureRunning()
         } catch {
-            status = "Test failed: \(error.localizedDescription)"
+            status = WatchTexts.testFailed(error.localizedDescription)
             return
         }
         // Stopped while the permission prompt was up (a guided walk started).
         guard workout.isActive else { return }
         workoutRunning = true
-        status = "Test running. Lower your wrist: a double buzz every 30 s for 2 min."
+        status = WatchTexts.testRunning
         buzzTask = Task { [weak self] in
             for index in 0..<Self.buzzCount {
                 if index > 0 {
@@ -41,7 +41,7 @@ final class WatchCheckModel {
                 do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
                 WKInterfaceDevice.current().play(.success)
             }
-            self?.status = "Test running. Buzzes done."
+            self?.status = WatchTexts.buzzesDone
         }
     }
 
@@ -53,7 +53,7 @@ final class WatchCheckModel {
         buzzTask?.cancel()
         buzzTask = nil
         workoutRunning = false
-        status = "Stopped"
+        status = WatchTexts.stopped
     }
 
     /// Ends the test workout, if any, before a guided walk workout starts.
@@ -63,20 +63,21 @@ final class WatchCheckModel {
     }
 
     func ping() async {
-        pingStatus = "Pinging…"
+        pingStatus = WatchTexts.pinging
         let start = ContinuousClock.now
         do {
             let reply = try await PhoneLink.shared.send(["type": "ping"])
             guard reply["type"] as? String == "pong" else { throw PhoneLinkError.unexpectedReply }
             let elapsed = ContinuousClock.now - start
             let ms = Int((Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded())
-            pingStatus = "Pong in \(ms) ms"
+            pingStatus = WatchTexts.pong(ms: ms)
         } catch {
-            pingStatus = "Failed: \(error.localizedDescription)"
+            pingStatus = WatchTexts.pingFailed(error.localizedDescription)
         }
     }
 }
 
+/// The design colours with the system font (spec 15); the words follow the watch's language.
 struct WatchCheckView: View {
     let model: WatchCheckModel
     /// HealthKit allows one workout session: the test cannot start during a guided walk workout.
@@ -87,17 +88,23 @@ struct WatchCheckView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(model.status).font(.footnote)
                 if model.workoutRunning {
-                    Button("Stop") { Task { await model.stopWorkout() } }
+                    Button(WatchTexts.stop) { Task { await model.stopWorkout() } }
+                        .buttonStyle(WatchButtonStyle())
                 } else {
-                    Button("Start haptic test") { Task { await model.startWorkout() } }
+                    Button(WatchTexts.startHapticTest) { Task { await model.startWorkout() } }
+                        .buttonStyle(WatchButtonStyle(primary: true))
                         .disabled(model.workoutStarting || guidedWalkActive)
                     if guidedWalkActive {
-                        Text("Not available during a guided walk.").font(.footnote).foregroundStyle(.secondary)
+                        Text(WatchTexts.notDuringWalk).font(.footnote).opacity(0.75)
                     }
                 }
-                Button("Ping phone") { Task { await model.ping() } }
-                Text(model.pingStatus).font(.footnote).foregroundStyle(.secondary)
+                Button(WatchTexts.pingPhone) { Task { await model.ping() } }
+                    .buttonStyle(WatchButtonStyle())
+                Text(model.pingStatus).font(.footnote).opacity(0.75)
             }
+            .foregroundStyle(WatchColour.ivory)
         }
+        .navigationTitle(WatchTexts.check)
+        .containerBackground(WatchColour.forest.gradient, for: .navigation)
     }
 }

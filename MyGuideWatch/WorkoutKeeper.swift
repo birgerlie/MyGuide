@@ -7,8 +7,8 @@ enum WorkoutKeeperError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notAuthorized: "Not allowed to save workouts"
-        case .endedWhileStarting: "The workout ended while starting"
+        case .notAuthorized: WatchTexts.notAuthorized
+        case .endedWhileStarting: WatchTexts.endedWhileStarting
         }
     }
 }

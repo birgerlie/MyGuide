@@ -1,7 +1,9 @@
 import MyGuideCore
 import SwiftUI
 
-/// Main screen "Guided walk": the phone's walk state, the time walked, and the controls (spec 6.1).
+/// Main screen "Guided walk": the phone's walk state, the time walked, and the controls (spec 6.1). In the design
+/// colours with the system font (spec 15): forest green behind, ivory text, the main command ivory and the others
+/// stone. Words follow the watch's language (`WatchTexts`).
 struct GuidedWalkView: View {
     let model: GuidedWalkModel
     let check: WatchCheckModel
@@ -10,11 +12,11 @@ struct GuidedWalkView: View {
 
     private var label: String {
         switch model.pending {
-        case .start: "Starting…"
-        case .pause: "Pausing…"
-        case .resume: "Resuming…"
-        case .stop: "Stopping…"
-        case nil: model.state?.label ?? "Off"
+        case .start: WatchTexts.starting
+        case .pause: WatchTexts.pausing
+        case .resume: WatchTexts.resuming
+        case .stop: WatchTexts.stopping
+        case nil: WatchTexts.label(model.state)
         }
     }
 
@@ -35,44 +37,53 @@ struct GuidedWalkView: View {
                         }
                     }
                     if let healthNote = model.healthNote {
-                        Text(healthNote).font(.footnote).foregroundStyle(.secondary)
+                        Text(healthNote).font(.footnote).opacity(0.75)
                     }
                     buttons
                         .disabled(model.pending != nil)
                     if let problem {
-                        Text(problem).font(.footnote).foregroundStyle(.orange)
+                        // A symbol with the coral, so the problem never rests on colour alone.
+                        Label(problem, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(WatchColour.coral)
                     }
-                    NavigationLink("Check") {
+                    NavigationLink(WatchTexts.check) {
                         WatchCheckView(model: check, guidedWalkActive: model.hasWorkout)
                     }
+                    .buttonStyle(WatchButtonStyle())
                     .padding(.top, 8)
                 }
+                .foregroundStyle(WatchColour.ivory)
             }
-            .navigationTitle("Guided walk")
+            .navigationTitle(WatchTexts.title)
+            .containerBackground(WatchColour.forest.gradient, for: .navigation)
         }
+        .tint(WatchColour.coral)
     }
 
     @ViewBuilder private var buttons: some View {
         switch phase {
         case .off:
-            command("Start", systemImage: "figure.walk", .start)
+            command(WatchTexts.start, systemImage: "figure.walk", .start, primary: true)
         case .starting:
-            command("Stop", systemImage: "stop.fill", .stop)
+            command(WatchTexts.stop, systemImage: "stop.fill", .stop)
         case .walking:
-            command("Pause", systemImage: "pause.fill", .pause)
-            command("Stop", systemImage: "stop.fill", .stop)
+            command(WatchTexts.pause, systemImage: "pause.fill", .pause, primary: true)
+            command(WatchTexts.stop, systemImage: "stop.fill", .stop)
         case .pausedAuto, .pausedManual:
-            command("Resume", systemImage: "play.fill", .resume)
-            command("Stop", systemImage: "stop.fill", .stop)
+            command(WatchTexts.resume, systemImage: "play.fill", .resume, primary: true)
+            command(WatchTexts.stop, systemImage: "stop.fill", .stop)
         }
     }
 
-    private func command(_ title: String, systemImage: String, _ command: GuidedWalkCommand) -> some View {
+    private func command(_ title: String, systemImage: String, _ command: GuidedWalkCommand,
+                         primary: Bool = false) -> some View {
         Button {
             Task { await model.send(command) }
         } label: {
             Label(title, systemImage: systemImage)
         }
+        .buttonStyle(WatchButtonStyle(primary: primary))
     }
 
     /// `h:mm:ss`, whole seconds rounded down. 3725 s → "1:02:05"; 59.9 s → "0:00:59".
