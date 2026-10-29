@@ -795,3 +795,70 @@ The rules (spec 6.2 with 12.3, 6.3, 6.4):
 - [ ] **Step 2: Rewrite `WalkStoryView`.**
 - [ ] **Step 3:** app build plus core `swift test`.
 - [ ] **Step 4: Commit** `feat(walk-story): walk story screen in the design, shared story components`.
+
+### Task 13: Walking fixes from the Rome walk — 30-day rule, read counts, speech on demand, reset, OSM resilience (core + app)
+
+Executed right after Task 6, before Task 7. The binding text is spec section 13.
+
+**Files:**
+- Modify: `Packages/MyGuideCore/Sources/MyGuideCore/Memory/WalkMemory.swift`. Change `retiredPlaceIDs(now:)`, add
+  `resetPlaceNotifications()`, and remove the trip exclusion's caller.
+- Modify: `Packages/MyGuideCore/Sources/MyGuideCore/Grounding/OverpassClient.swift`. Add the fallback endpoint.
+- Modify: `Packages/MyGuideCore/Sources/MyGuideCore/Walking/WalkingPlaceSource.swift`. Report an OSM failure.
+- Modify: `Packages/MyGuideCore/Sources/MyGuideCore/Grounding/NearbyPlaces.swift` and `NearbyList.swift`. Carry the
+  OSM places forward.
+- Modify: `Packages/MyGuideCore/Sources/MyGuideCore/WalkLog/WalkLogEvent.swift`. `fetched` gains
+  `osmFailed: Bool`.
+- Modify: `MyGuide/Walking/WalkingController.swift`, `WalkingStories.swift`, `WalkStoryView.swift`,
+  `WalkingPanel.swift` (or the status texts), and `MyGuide/Settings/SettingsView.swift`.
+- Test: `WalkMemoryTests`, `OverpassClientTests`, `WalkingPlaceSourceTests`, `NearbyPlacesTests`,
+  `WalkLogEventTests`.
+
+**Interfaces:**
+- Produces:
+  ```swift
+  extension MemoryStore {
+      public static let placeRestDays = 30
+      /// Retired: (deepestLevelHeard ≥ 1 and lastHeardAt ≥ now − 30 d) or (skippedAt ≥ now − 30 d). A heard place with
+      /// lastHeardAt nil (stored before lastHeardAt existed) is not retired.
+      public func retiredPlaceIDs(now: Date) throws -> Set<String>
+      /// Sets lastHeardAt and skippedAt to nil on every place; deepestLevelHeard, stories, buzz log untouched.
+      public func resetPlaceNotifications() throws
+  }
+  // OverpassClient: endpoints [overpass-api.de, overpass.kumi.systems]; the second is tried once when the first throws
+  // (HTTP non-2xx, timeout, malformed). Cancellation is never retried.
+  public struct PlaceSearchResult: Sendable, Equatable { public var candidates: [Candidate]; public var osmFailed: Bool }
+  // WalkingPlaceSource.candidates(...) returns PlaceSearchResult (both failing still throws the OSM error).
+  // NearbyList gains `osmFailed: Bool` (Codable, default false when decoding old files).
+  // NearbyPlaces.refresh: when osmFailed and the previous list (same language) is ≤ 7 days old with centre ≤ 500 m away,
+  // its "osm:" candidates are merged in (CandidateRanker.merge) and osmFailed stays true for the log.
+  // WalkLogEvent.Kind.fetched gains `osmFailed: Bool` (encoded as "osmFailed"; old lines decode as false).
+  ```
+- App:
+  - `WalkingController` builds the exclusions from `retiredPlaceIDs(now:)` only. The trip's `placeIDsBuzzed` is
+    no longer excluded; the in-run `engine.exclude` on delivery stays.
+  - `WalkingStories.prepare` stops after the text (no `speechFile` for level 1). `tellMe` / `listen` fetch the
+    speech on demand, as `more` already does, and the playback state waits while loading.
+  - Opening `WalkStoryView` for a buzz or chosen story marks level 1 read through `memory.markHeard`. That sets
+    `lastHeardAt`.
+  - `WalkingPanel` shows «Du har hørt om alt i nærheten» / «You've heard about everything nearby» while the last
+    quiet reason is `allExcluded`.
+  - Settings has a «Nullstill stedsvarsler» / «Reset place notifications» button with a confirmation dialog:
+    - dialog text «Alle steder kan gi varsel igjen. Fortellinger og dagbok beholdes.» / «Every place can notify
+      you again. Stories and diary are kept.»;
+    - on confirm it calls `resetPlaceNotifications()` and `WalkingController.resetExclusions()`, which clears the
+      running engine's exclusions.
+
+- [ ] **Step 1: Write the failing core tests:**
+  - `retiredWithinThirtyDays`: heard 29 d 23 h ago is retired; 30 d 1 h ago is not; skipped likewise; heard with
+    lastHeardAt nil is not retired.
+  - `resetMakesEveryPlaceEligibleAndKeepsHistory`.
+  - `overpassFallsBackToSecondEndpointOnce`: the first returns 502, the second answers, so 2 requests; both fail
+    gives a throw after 2 requests; cancellation makes 1 request and no retry.
+  - `osmFailureReportedWhenWikipediaAnswers`.
+  - `previousOSMPlacesCarriedForward`: centre 400 m and 6 days carries; 600 m or 8 days does not.
+  - `fetchedEventCarriesOSMFailedAndOldLinesDecode`.
+- [ ] **Step 2:** run them; they FAIL.
+- [ ] **Step 3: Implement the core part**, then the app changes.
+- [ ] **Step 4:** full core `swift test` and the app build.
+- [ ] **Step 5: Commit** `fix(walking): 30-day place rest, reading counts, speech on demand, reset button, OSM fallback`.

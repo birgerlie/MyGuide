@@ -311,3 +311,22 @@ for text, coral for the active-audio and walking marks.
    - MORE: the BUZZ card with «NESTE DEL» as its label.
 10. **Failure reasons.** A fixed set of translated categories: no network, the AI service failed, no API key, timed
     out, other. Each existing error maps to one of them.
+
+## 13. Walking fixes from the Rome walk (owner, 2026-10-29)
+
+The walk log of 29 Oct showed no notifications for two reasons:
+- OpenStreetMap returned nothing and the failure was silent, so only 15 Wikipedia places of the lowest tier were found;
+- every one of them was already heard, skipped or buzzed in the trip (which has lasted since 27 Oct).
+
+The owner decided:
+
+1. **30 days.** A place counts as used for 30 days after it was heard **or read**, or after it was skipped. After that it may buzz again. *(Owner: «30 dager er sikkert fint».)*
+2. **Read counts.** Opening a walk story in the app counts as reading it, the same as hearing level 1. The expanded notification cannot write to the app's store, so it does not count. *(Owner: «varsel kan komme om jeg ikke har lest den».)*
+3. **A buzz that was not read may come again.** The trip-wide "already buzzed" exclusion goes. Within one walking run, a buzzed place still does not buzz twice.
+4. **No audio unless asked.** A notification never starts audio. Speech for a buzz is no longer made in advance: it is fetched when the owner presses «Lytt» / «Tell me». *(Owner: «trenger absolutt ikke å spille av lyd».)* Spec 12.1's chosen-place «Lytt» still plays at once after fetching.
+5. **Reset button.** Settings → «Nullstill stedsvarsler» / «Reset place notifications», with a confirmation. It makes every place eligible again and deletes no stories, diary entries or buzz history. *(Owner: «lag en resett knapp … vi tester jo hele tiden».)*
+6. **OpenStreetMap resilience.**
+   - A failed OpenStreetMap request is logged even when Wikipedia answers.
+   - A second endpoint is tried once on failure: `https://overpass.kumi.systems/api/interpreter`.
+   - When both fail, the previous list's OpenStreetMap places are carried forward if that list is at most 7 days old and its centre is within 500 m.
+7. **Honest status.** When the engine is quiet because every due place is used, the walking panel says «Du har hørt om alt i nærheten» / «You've heard about everything nearby».
