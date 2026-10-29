@@ -137,7 +137,7 @@ struct HomeScreen: View {
 
     private var explore: some View {
         ZStack {
-            AroundMap(model: around, position: $mapPosition, language: screenLanguage)
+            AroundMap(model: around, position: $mapPosition, tour: services.walking.tour, language: screenLanguage)
             // The free part of the map (inside the safe area, above the sheet), whatever the map itself does with
             // safe areas: the pill and the camera button are placed in it. Transparent to touches; the buttons are
             // not.
@@ -288,12 +288,13 @@ struct HomeScreen: View {
         return model
     }
 
-    /// «Start turen» on the tour preview: hands the tour to `AppServices.offerTour` and shows the map at its root.
-    /// The active tour (tours task T5) takes it with `takePendingTour()` and starts walking mode on it.
+    /// «Start turen» on the tour preview: shows the map at its root, where the tour panel follows the tour, and starts
+    /// walking mode on the tour (`WalkingController.startTour`). A start that is refused leaves the tour on the panel
+    /// with the reason under it.
     private func startTour(_ tour: RoutedTour) {
-        services.offerTour(tour)
         path = []
         tab = .explore
+        Task { await services.walking.startTour(tour) }
     }
 
     /// On top of whatever the selected tab shows; a walk story already on top is swapped for the new one.

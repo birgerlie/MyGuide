@@ -134,24 +134,28 @@ struct AroundSheet: View {
     // MARK: - Walking
 
     /// Off: «Gå en tur» starts a walk. Running: the walking panel. Paused (spec 16.4): «Fortsett turen» resumes the
-    /// walk already there (never a second one), with its status under it and a quiet way to end it.
+    /// walk already there (never a second one), with its status under it and a quiet way to end it. With a tour (tours
+    /// spec 6) the tour panel comes first, and under it the walking panel or, while walking mode is paused or off (a
+    /// restored tour), «Fortsett turen»; the tour panel's «Avslutt turen» is then the one way to end.
     @ViewBuilder
     private var walkSection: some View {
-        if walking.isOn, !walking.isPaused {
+        if let tour = walking.tour {
+            TourPanel(walking: walking, tour: tour, position: model.position, language: language)
+            if walking.isOn, !walking.isPaused {
+                WalkingPanel(walking: walking, language: language, showsStop: false)
+            } else if !tour.isFinished {
+                VStack(spacing: Theme.Spacing.unit) {
+                    walkButton
+                    if walking.isOn { pausedStatus }
+                }
+            }
+        } else if walking.isOn, !walking.isPaused {
             WalkingPanel(walking: walking, language: language)
         } else {
             VStack(spacing: Theme.Spacing.unit) {
                 walkButton
                 if walking.isOn {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        if let status = WalkingStatus.text(isOn: true, lastFixAt: walking.lastFixAt,
-                                                           buzzCount: walking.buzzCount, now: context.date,
-                                                           pause: walking.pauseKind, language: language) {
-                            Label(status, systemImage: "pause.circle")
-                                .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
-                                .opacity(0.75)
-                        }
-                    }
+                    pausedStatus
                     Button(AroundTexts.stopWalk(language)) { walking.stop() }
                         .font(Theme.Font.bodyMedium)
                         .underline()
@@ -174,9 +178,24 @@ struct AroundSheet: View {
         }
     }
 
+    /// The paused walk's status, refreshed every second.
+    private var pausedStatus: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let status = WalkingStatus.text(isOn: true, lastFixAt: walking.lastFixAt,
+                                               buzzCount: walking.buzzCount, now: context.date,
+                                               pause: walking.pauseKind, language: language) {
+                Label(status, systemImage: "pause.circle")
+                    .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
+                    .opacity(0.75)
+            }
+        }
+    }
+
     /// The wide coral button: «Gå en tur» starts walking mode; while a walk is paused, «Fortsett turen» resumes it.
+    /// With a tour and walking mode off (restored, or stopped by the app), «Fortsett turen» starts walking mode on it.
     private var walkButton: some View {
         let paused = walking.isOn
+        let continues = paused || walking.tour != nil
         return Button {
             if paused {
                 walking.resume(source: .phone)
@@ -185,10 +204,10 @@ struct AroundSheet: View {
             }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: paused ? "play.fill" : "figure.walk")
+                Image(systemName: continues ? "play.fill" : "figure.walk")
                     .font(.system(size: 22, weight: .semibold))
                     .accessibilityHidden(true)
-                Text(paused ? AroundTexts.continueWalk(language) : AroundTexts.goForAWalk(language))
+                Text(continues ? AroundTexts.continueWalk(language) : AroundTexts.goForAWalk(language))
                     .font(.custom(Theme.FontName.medium, size: 20, relativeTo: .title3))
                 Spacer(minLength: 0)
                 if walking.isStarting {

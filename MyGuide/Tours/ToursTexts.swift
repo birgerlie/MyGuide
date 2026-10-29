@@ -241,4 +241,48 @@ enum ToursTexts {
     static func mapLabel(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Kart over turen" : "Map of the tour"
     }
+    // MARK: During a tour (tours spec 6)
+
+    static func skipStop(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Hopp over stopp" : "Skip stop"
+    }
+
+    static func endTour(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Avslutt turen" : "End the tour"
+    }
+
+    static func endTourQuestion(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Avslutte turen?" : "End the tour?"
+    }
+
+    /// «Du har 4 stopp igjen.» / «You have 4 stops left.»
+    static func stopsLeft(_ count: Int, _ language: StoryLanguage) -> String {
+        let stops = TourFormat.stops(count, language: language)
+        return language == .norwegian ? "Du har \(stops) igjen." : "You have \(stops) left."
+    }
+
+    static func keepGoing(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Fortsett" : "Keep going"
+    }
+
+    /// «2 av 6 stopp», for VoiceOver beside the shorter «2 av 6».
+    static func progressLabel(done: Int, total: Int, _ language: StoryLanguage) -> String {
+        language == .norwegian ? "\(done) av \(total) stopp" : "\(done) of \(total) stops"
+    }
+
+    /// A stop on the map for VoiceOver: «Stopp 2, Pantheon, neste» / «…, besøkt» / «…, hoppet over».
+    static func stopLabel(_ number: Int, _ name: String, state: StopState, _ language: StoryLanguage) -> String {
+        let base = "\(stopNumber(number, language)), \(name)"
+        switch (state, language) {
+        case (.next, .norwegian): return "\(base), neste"
+        case (.next, .english): return "\(base), next"
+        case (.visited, .norwegian): return "\(base), besøkt"
+        case (.visited, .english): return "\(base), visited"
+        case (.skipped, .norwegian): return "\(base), hoppet over"
+        case (.skipped, .english): return "\(base), skipped"
+        case (.ahead, _): return base
+        }
+    }
+
+    enum StopState { case next, visited, skipped, ahead }
 }

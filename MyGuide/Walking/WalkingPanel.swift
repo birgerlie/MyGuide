@@ -9,6 +9,8 @@ import SwiftUI
 struct WalkingPanel: View {
     let walking: WalkingController
     let language: StoryLanguage
+    /// False during a tour: the tour panel's «Avslutt turen» ends the walk with the tour.
+    var showsStop = true
 
     private var stories: WalkingStories { walking.stories }
 
@@ -39,12 +41,14 @@ struct WalkingPanel: View {
                 }
                 .buttonStyle(.themeSecondary)
                 // Secondary, not forest: ending the walk is not the main action here.
-                Button {
-                    walking.stop()
-                } label: {
-                    Label(AroundTexts.stopWalk(language), systemImage: "stop.fill")
+                if showsStop {
+                    Button {
+                        walking.stop()
+                    } label: {
+                        Label(AroundTexts.stopWalk(language), systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.themeSecondary)
                 }
-                .buttonStyle(.themeSecondary)
             }
         }
         .foregroundStyle(Theme.Colour.text)

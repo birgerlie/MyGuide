@@ -265,24 +265,35 @@ private struct TourStopRow: View {
 }
 
 /// A stop's number in a circle: forest with ivory digits, or, for the next stop, a larger coral circle with forest
-/// digits and an ivory ring (size and ring, not colour alone).
+/// digits and an ivory ring (size and ring, not colour alone). During a tour a visited stop shows a check mark instead
+/// of its number and a skipped one is faded, both smaller than the next.
 struct StopNumberBadge: View {
     let number: Int
     let isNext: Bool
+    var visited = false
+    var skipped = false
 
     static let size: CGFloat = 28
     static let nextSize: CGFloat = 34
 
     var body: some View {
-        Text("\(number)")
-            .font(.custom(Theme.FontName.medium, size: isNext ? 16 : 14, relativeTo: .caption))
-            .monospacedDigit()
-            .foregroundStyle(isNext ? Theme.Colour.forest : Theme.Colour.ivory)
-            .frame(width: isNext ? Self.nextSize : Self.size, height: isNext ? Self.nextSize : Self.size)
-            .background(isNext ? Theme.Colour.coral : Theme.Colour.forest, in: Circle())
-            .overlay(Circle().strokeBorder(Theme.Colour.ivory, lineWidth: isNext ? 2 : 1.5))
-            .frame(width: Self.nextSize, height: Self.nextSize)
-            .accessibilityHidden(true)
+        Group {
+            if visited {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .bold))
+            } else {
+                Text("\(number)")
+                    .font(.custom(Theme.FontName.medium, size: isNext ? 16 : 14, relativeTo: .caption))
+                    .monospacedDigit()
+            }
+        }
+        .foregroundStyle(isNext ? Theme.Colour.forest : Theme.Colour.ivory)
+        .frame(width: isNext ? Self.nextSize : Self.size, height: isNext ? Self.nextSize : Self.size)
+        .background(isNext ? Theme.Colour.coral : Theme.Colour.forest, in: Circle())
+        .overlay(Circle().strokeBorder(Theme.Colour.ivory, lineWidth: isNext ? 2 : 1.5))
+        .opacity(skipped ? 0.45 : 1)
+        .frame(width: Self.nextSize, height: Self.nextSize)
+        .accessibilityHidden(true)
     }
 }
 

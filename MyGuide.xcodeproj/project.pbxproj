@@ -100,6 +100,7 @@
 		CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262854964F0668D9EA23A15A /* TellMeIntent.swift */; };
 		D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D718A718A1BAB633570C16E /* WalkingCheckView.swift */; };
+		D3286E67112125C2C97C1B4F /* TourPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F73C3D0028C6400F9AD3F3 /* TourPanel.swift */; };
 		DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
 		DEA013A61090F530F1145FC8 /* MyGuideNotificationContent.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 217D212EDC5E2D502B4F362C /* MyGuideNotificationContent.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DFDF2CE095968F322A0273DA /* PhoneHeadingProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C1BE4968CEF097E30E75A /* PhoneHeadingProvider.swift */; };
@@ -118,6 +119,7 @@
 		F8DE2811C1B6D114F0707472 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68E63B23D5D4103DCC816284 /* Assets.xcassets */; };
 		FF0E80F8AF923A70D8B6E274 /* AroundTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00B654124830A6916016517 /* AroundTexts.swift */; };
 		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
+		FFFCF4F64A35033134C3D7FA /* TourStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82057538CC983F53E8E969B /* TourStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -247,10 +249,12 @@
 		B45F5DE6901B1AF2435EA646 /* WatchDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDesign.swift; sourceTree = "<group>"; };
 		B4805A2814E968920A68F144 /* TourRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TourRouter.swift; sourceTree = "<group>"; };
 		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
+		B82057538CC983F53E8E969B /* TourStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TourStore.swift; sourceTree = "<group>"; };
 		BB4CC90AED36E7BE9B9CF85E /* WalkingCheckTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckTexts.swift; sourceTree = "<group>"; };
 		C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitPointsOfInterest.swift; sourceTree = "<group>"; };
 		C1DDCA86FDC346959CC0CBB7 /* AroundModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundModel.swift; sourceTree = "<group>"; };
 		CEB5D94A78BCC8888CEB0790 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D0F73C3D0028C6400F9AD3F3 /* TourPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TourPanel.swift; sourceTree = "<group>"; };
 		D4F54BE4CD7C5098E4E6DACF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DC982992B37C30453C7F88D8 /* WalkingStories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingStories.swift; sourceTree = "<group>"; };
 		DE66C7AF4C2AC3FACB6E6C93 /* RootTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabs.swift; sourceTree = "<group>"; };
@@ -581,10 +585,12 @@
 			children = (
 				019A13E17BDBAD531CB33B40 /* DestinationSearch.swift */,
 				0A73709B779C58B549DA4E0E /* TourBuilderModel.swift */,
+				D0F73C3D0028C6400F9AD3F3 /* TourPanel.swift */,
 				3556DD853CE1BC72CA58C83E /* TourPreviewView.swift */,
 				B4805A2814E968920A68F144 /* TourRouter.swift */,
 				2BC6F16DA3A26DFDE1AC86FF /* ToursTab.swift */,
 				63A45DD2897816AE5CA64139 /* ToursTexts.swift */,
+				B82057538CC983F53E8E969B /* TourStore.swift */,
 			);
 			path = Tours;
 			sourceTree = "<group>";
@@ -864,8 +870,10 @@
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
 				DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */,
 				8B7E6D8608D5BF5E586060EA /* TourBuilderModel.swift in Sources */,
+				D3286E67112125C2C97C1B4F /* TourPanel.swift in Sources */,
 				407555736A8866E4B476EAC6 /* TourPreviewView.swift in Sources */,
 				A970E7A2D72A564F9913516D /* TourRouter.swift in Sources */,
+				FFFCF4F64A35033134C3D7FA /* TourStore.swift in Sources */,
 				319A18DB62844B411715A8EF /* ToursTab.swift in Sources */,
 				244C83493BD73DABBF5047ED /* ToursTexts.swift in Sources */,
 				34BB99A458D0273BFCE0B045 /* UILanguage.swift in Sources */,

@@ -58,21 +58,6 @@ final class AppServices {
     private(set) lazy var tourBuilder = TourBuilderModel(
         location: location, memory: memory, placeImages: placeImages,
         source: TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http)))
-    /// The tour «Start turen» handed over, until something starts it: `offerTour` sets it, `takePendingTour` hands
-    /// it out once.
-    private(set) var pendingTour: RoutedTour?
-
-    /// Called by «Start turen» (`HomeScreen.startTour`); a newer tour replaces one not yet taken.
-    func offerTour(_ tour: RoutedTour) {
-        pendingTour = tour
-    }
-
-    /// The tour waiting to start, cleared as it is handed out, so it starts once. The active tour (tours task T5)
-    /// is its reader.
-    func takePendingTour() -> RoutedTour? {
-        defer { pendingTour = nil }
-        return pendingTour
-    }
 
     /// Why memory is held in RAM only this run; nil when the persistent store opened.
     let memoryFallback: MemoryFallback?

@@ -39,6 +39,10 @@ final class WalkingActivityController {
     private var staleDate: Date?
     private var pushedStaleDate: Date?
     private var buzzCount = 0
+    /// «Neste: Pantheon» while a tour runs, shown in place of «Gåmodus» / «Walking»; nil without a tour. Set by the
+    /// walking controller, which owns the tour; kept across starts and ends, so it is right from an activity's first
+    /// push.
+    private var nextStopLine: String?
     /// True while the activity shows a stop story. Status changes leave it up until the next buzz, a pause or a resume.
     private var showingStop = false
     private var stopBuzzCount = 0
@@ -102,6 +106,16 @@ final class WalkingActivityController {
         place = candidate
         guard activity != nil else { return }
         showingStop = false
+        let next = walkingShown(storyLanguage: AppServices.currentStoryLanguage())
+        if next != shown { push(next, alert: nil) }
+    }
+
+    /// Shows «Neste: X» (or, with nil, the walking status again) in the headline. Nothing is pushed while a stop story
+    /// is on show or when the line did not change; the next status push carries it.
+    func setNextStop(_ line: String?) {
+        guard line != nextStopLine else { return }
+        nextStopLine = line
+        guard activity != nil, !showingStop else { return }
         let next = walkingShown(storyLanguage: AppServices.currentStoryLanguage())
         if next != shown { push(next, alert: nil) }
     }
@@ -184,10 +198,11 @@ final class WalkingActivityController {
 
     /// The walking status with the latest place, or the waiting text before the first (spec 7.5). No distance: it
     /// would be stale between updates. The status is in the iPhone's language, the factual line in `storyLanguage`.
+    /// While a tour runs the status is «Neste: X» (tours spec 6), in the same field, so the widget is unchanged.
     private func walkingShown(storyLanguage: StoryLanguage) -> Shown {
         let norwegian = UILanguage.current == .norwegian
         let headline = isPaused ? WalkingActivityAttributes.pausedHeadline(norwegian: norwegian)
-                                : (norwegian ? "Gåmodus" : "Walking")
+                                : (nextStopLine ?? (norwegian ? "Gåmodus" : "Walking"))
         guard let place else {
             return Shown(headline: headline, body: norwegian ? "Ser etter steder rundt deg" : "Looking for places around you",
                          storyID: nil, placeName: nil, placeFact: nil)

@@ -8,9 +8,14 @@ import SwiftUI
 /// On the first fix the map frames about `ownerSpan` metres around the owner, once, and follows them from there
 /// until they pan or zoom by hand (spec 16.2); then it never re-centres by itself. The round locate button re-centres, follows the owner
 /// again and resumes automatic selection (spec 16.1); MapKit's compass sits above it.
+///
+/// During a tour (tours spec 6) the map also shows its route as forest lines (straight stand-ins dashed) and its stops
+/// as numbered pins, the next one coral, in place of their place markers (the selected place keeps its pin); a tap on
+/// a stop chooses it as a marker tap does.
 struct AroundMap: View {
     let model: AroundModel
     @Binding var position: MapCameraPosition
+    let tour: ActiveTour?
     let language: StoryLanguage
 
     /// Metres across the narrow side of the map when it frames the owner.
@@ -33,6 +38,7 @@ struct AroundMap: View {
                         .foregroundStyle(Theme.Colour.forest.opacity(0.12))
                         .stroke(Theme.Colour.forest.opacity(0.45), lineWidth: 1)
                 }
+                if let tour { tourContent(tour) }
                 UserAnnotation {
                     OwnerDot(coneRotation: model.heading.map { $0 - cameraHeading })
                 }
@@ -128,9 +134,64 @@ struct AroundMap: View {
         }
     }
 
+    /// The places to mark: a tour's stops have their own pins, unless selected.
     private var orderedPlaces: [WalkingPlace] {
-        guard let selectedID else { return model.places }
-        return model.places.filter { $0.candidate.id != selectedID } + model.places.filter { $0.candidate.id == selectedID }
+        let stopIDs = Set(tour?.stops.map(\.id) ?? [])
+        let places = model.places.filter { !stopIDs.contains($0.candidate.id) || $0.candidate.id == selectedID }
+        guard let selectedID else { return places }
+        return places.filter { $0.candidate.id != selectedID } + places.filter { $0.candidate.id == selectedID }
+    }
+
+    // MARK: - Tour
+
+    @MapContentBuilder
+    private func tourContent(_ tour: ActiveTour) -> some MapContent {
+        ForEach(Array(tour.routed.legs.enumerated()), id: \.offset) { _, leg in
+            MapPolyline(coordinates: leg.path.map(\.clCoordinate))
+                .stroke(Theme.Colour.forest,
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round,
+                                           dash: leg.approximate ? [6, 8] : []))
+        }
+        if tour.routed.plan.kind == .aToB {
+            Annotation(ToursTexts.destinationPin(language), coordinate: tour.routed.plan.end.clCoordinate) {
+                Image(systemName: "flag.checkered")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Colour.forest)
+                    .frame(width: 28, height: 28)
+                    .background(Theme.Colour.ivory, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.Colour.forest, lineWidth: 2))
+                    .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+                    .accessibilityLabel(ToursTexts.destinationPin(language))
+            }
+            .annotationTitles(.hidden)
+        }
+        ForEach(Array(tour.stops.enumerated()), id: \.element.id) { index, stop in
+            stopPin(stop, number: index + 1, state: Self.state(of: stop, in: tour))
+        }
+    }
+
+    private func stopPin(_ stop: TourStop, number: Int, state: ToursTexts.StopState) -> some MapContent {
+        Annotation(coordinate: stop.coordinate.clCoordinate, anchor: .center) {
+            Button {
+                model.choose(stop.id)
+            } label: {
+                StopNumberBadge(number: number, isNext: state == .next, visited: state == .visited,
+                                skipped: state == .skipped)
+                    .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+                    .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(ToursTexts.stopLabel(number, stop.name, state: state, language))
+        } label: {
+            EmptyView()
+        }
+    }
+
+    private static func state(of stop: TourStop, in tour: ActiveTour) -> ToursTexts.StopState {
+        if tour.visited.contains(stop.id) { return .visited }
+        if tour.skipped.contains(stop.id) { return .skipped }
+        return tour.next?.id == stop.id ? .next : .ahead
     }
 
     private var selectedID: String? {

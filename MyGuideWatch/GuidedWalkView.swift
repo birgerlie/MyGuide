@@ -1,9 +1,10 @@
 import MyGuideCore
 import SwiftUI
 
-/// Main screen "Guided walk": the phone's walk state, the time walked, and the controls (spec 6.1). In the design
-/// colours with the system font (spec 15): forest green behind, ivory text, the main command ivory and the others
-/// stone. Words follow the watch's language (`WatchTexts`).
+/// Main screen "Guided walk": the phone's walk state, the time walked, the next stop while the phone runs a tour, and
+/// the controls (spec 6.1). In the design colours with the system font (spec 15): forest green behind, ivory text, the
+/// main command ivory and the others stone. Words follow the watch's language (`WatchTexts`); the next stop's line is
+/// the phone's, in the iPhone's language, as a buzz's line is.
 struct GuidedWalkView: View {
     let model: GuidedWalkModel
     let check: WatchCheckModel
@@ -37,6 +38,12 @@ struct GuidedWalkView: View {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             Text(Self.formatted(state.activeTime(now: context.date)))
                                 .font(.title2.monospacedDigit())
+                        }
+                        // A tour on the phone: its next stop and distance, worded by the phone (tours spec 7).
+                        if let nextStop = state.nextStop {
+                            Label(nextStop.line, systemImage: "mappin.and.ellipse")
+                                .font(.footnote)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     if let healthNote = model.healthNote {
