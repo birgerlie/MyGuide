@@ -73,3 +73,46 @@ import Testing
         }
     }
 }
+
+@Suite struct ListAgeLineTests {
+    @Test func noLineUpToTenMinutes() {
+        // Spec 5: marked only when older than 10 minutes (600 s); 600 s itself is not older.
+        #expect(AroundText.listAgeLine(seconds: nil, language: .norwegian) == nil)
+        #expect(AroundText.listAgeLine(seconds: 0, language: .norwegian) == nil)
+        #expect(AroundText.listAgeLine(seconds: 600, language: .english) == nil)
+    }
+
+    @Test func minutesUnderTwoHours() {
+        // 601 s → ⌊601 / 60⌋ = 10 min; 3 599 s → ⌊59.98⌋ = 59 min; 7 199 s → ⌊119.98⌋ = 119 min.
+        #expect(AroundText.listAgeLine(seconds: 601, language: .norwegian) == "Steder fra for 10 min siden")
+        #expect(AroundText.listAgeLine(seconds: 601, language: .english) == "Places from 10 min ago")
+        #expect(AroundText.listAgeLine(seconds: 3_599, language: .norwegian) == "Steder fra for 59 min siden")
+        #expect(AroundText.listAgeLine(seconds: 7_199, language: .english) == "Places from 119 min ago")
+    }
+
+    @Test func hoursUnderTwoDays() {
+        // 7 200 s → 7 200 / 3 600 = 2 h; 172 799 s → ⌊47.9997⌋ = 47 h.
+        #expect(AroundText.listAgeLine(seconds: 7_200, language: .norwegian) == "Steder fra for 2 timer siden")
+        #expect(AroundText.listAgeLine(seconds: 7_200, language: .english) == "Places from 2 hours ago")
+        #expect(AroundText.listAgeLine(seconds: 172_799, language: .norwegian) == "Steder fra for 47 timer siden")
+    }
+
+    @Test func daysFromTwoDays() {
+        // 172 800 s → 172 800 / 86 400 = 2 days; 950 400 s → 11 days.
+        #expect(AroundText.listAgeLine(seconds: 172_800, language: .norwegian) == "Steder fra for 2 dager siden")
+        #expect(AroundText.listAgeLine(seconds: 172_800, language: .english) == "Places from 2 days ago")
+        #expect(AroundText.listAgeLine(seconds: 950_400, language: .english) == "Places from 11 days ago")
+    }
+
+    @Test func unknownAgesHaveNoLine() {
+        // A negative age (list dated in the future) and a non-finite one say nothing rather than something wrong.
+        #expect(AroundText.listAgeLine(seconds: -5, language: .norwegian) == nil)
+        #expect(AroundText.listAgeLine(seconds: .infinity, language: .norwegian) == nil)
+        #expect(AroundText.listAgeLine(seconds: .nan, language: .english) == nil)
+    }
+
+    @Test func hugeAgesAreClampedNotTrapped() {
+        // Clamped to 1e9 s: ⌊1e9 / 60⌋ = 16 666 666 min; ⌊16 666 666 / 1 440⌋ = 11 574 days.
+        #expect(AroundText.listAgeLine(seconds: 1e300, language: .english) == "Places from 11574 days ago")
+    }
+}

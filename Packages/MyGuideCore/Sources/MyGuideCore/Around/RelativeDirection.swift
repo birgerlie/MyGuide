@@ -56,6 +56,28 @@ public enum AroundText {
         }
         return "\(d) m · \(RelativeDirection(offset: relative).words(language))"
     }
+
+    /// How old the shown list is, once it is older than `staleListAge` (spec 5): "Steder fra for 12 min siden" /
+    /// "Places from 12 min ago". Whole minutes under two hours, whole hours under two days, then whole days, all
+    /// rounded down. nil up to `staleListAge`, and for an unknown age (nil, negative or not finite).
+    public static func listAgeLine(seconds: TimeInterval?, language: StoryLanguage) -> String? {
+        guard let seconds, seconds.isFinite, seconds > staleListAge else { return nil }
+        let nb = language == .norwegian
+        // Clamped before converting, so a huge age cannot trap in Int(_:).
+        let minutes = Int(min(seconds, 1_000_000_000) / 60)
+        let age: String
+        if minutes < 120 {
+            age = "\(minutes) min"
+        } else if minutes < 48 * 60 {
+            age = "\(minutes / 60) \(nb ? "timer" : "hours")"
+        } else {
+            age = "\(minutes / (24 * 60)) \(nb ? "dager" : "days")"
+        }
+        return nb ? "Steder fra for \(age) siden" : "Places from \(age) ago"
+    }
+
+    /// A list older than this (seconds) is marked with its age: 10 × 60.
+    public static let staleListAge: TimeInterval = 600
 }
 
 extension BuzzText {

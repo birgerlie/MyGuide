@@ -12,16 +12,26 @@ public enum WalkingStatus {
     public static let staleRefreshStep: TimeInterval = 30
 
     /// Nil when walking mode is off. Paused wins over waiting for GPS: manual reads "Paused · N buzzes", auto "Paused · not moving · N buzzes". A missing or stale fix reads as waiting for GPS (120 s is still fresh).
-    public static func text(isOn: Bool, lastFixAt: Date?, buzzCount: Int, now: Date, pause: WalkingPauseKind? = nil) -> String? {
+    /// Norwegian ("Går · N varsler", "Pauset · står stille · N varsler", "Går · venter på GPS") follows the same rules;
+    /// the Live Activity keeps the English default.
+    public static func text(isOn: Bool, lastFixAt: Date?, buzzCount: Int, now: Date, pause: WalkingPauseKind? = nil,
+                            language: StoryLanguage = .english) -> String? {
         guard isOn else { return nil }
-        let buzzes = "\(buzzCount) \(buzzCount == 1 ? "buzz" : "buzzes")"
+        let nb = language == .norwegian
+        let buzzes = nb
+            ? "\(buzzCount) \(buzzCount == 1 ? "varsel" : "varsler")"
+            : "\(buzzCount) \(buzzCount == 1 ? "buzz" : "buzzes")"
+        let walking = nb ? "Går" : "Walking"
+        let paused = nb ? "Pauset" : "Paused"
         switch pause {
-        case .manual: return "Paused · \(buzzes)"
-        case .auto: return "Paused · not moving · \(buzzes)"
+        case .manual: return "\(paused) · \(buzzes)"
+        case .auto: return "\(paused) · \(nb ? "står stille" : "not moving") · \(buzzes)"
         case nil: break
         }
-        guard let lastFixAt, now.timeIntervalSince(lastFixAt) <= staleAfter else { return "Walking · waiting for GPS" }
-        return "Walking · \(buzzes)"
+        guard let lastFixAt, now.timeIntervalSince(lastFixAt) <= staleAfter else {
+            return "\(walking) · \(nb ? "venter på GPS" : "waiting for GPS")"
+        }
+        return "\(walking) · \(buzzes)"
     }
 
     /// When the Live Activity stops claiming "Walking" (the widget then shows that walking is paused): `staleAfter`

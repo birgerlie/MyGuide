@@ -5,7 +5,8 @@ import SwiftUI
 
 /// The diary's long-running work: the one photo import and the open day stories. It lives in `AppServices`, not in
 /// the screens, because a screen covered by a pushed walk story disappears without leaving the stack; its work must
-/// go on and its result must be there when it comes back. Home stops the work when its route leaves the stack.
+/// go on and its result must be there when it comes back. The diary is the root of its tab and never leaves, so an
+/// import always runs to its end; Home drops a day story when its route leaves the stack.
 @MainActor
 @Observable
 final class DiaryWork {
@@ -29,8 +30,6 @@ final class DiaryWork {
         importSummary = nil
         importTask = Task {
             let summary = await LibraryImport.run(items, memory: memory)
-            // Cancelled: the diary left the stack, and `cancelImport()` has already cleared the task.
-            guard !Task.isCancelled else { return }
             importTask = nil
             importSummary = summary
         }
@@ -40,13 +39,6 @@ final class DiaryWork {
     func takeImportSummary() -> LibraryImport.Summary? {
         defer { importSummary = nil }
         return importSummary
-    }
-
-    /// Stops a running import between photos (those saved stay saved) and drops an unshown summary.
-    func cancelImport() {
-        importTask?.cancel()
-        importTask = nil
-        importSummary = nil
     }
 
     // MARK: - Day stories

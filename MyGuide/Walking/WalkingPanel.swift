@@ -1,30 +1,58 @@
 import MyGuideCore
 import SwiftUI
 
-/// The walking story that is playing or ready, above the capture controls: its title (tap to open it), Play/Stop,
-/// More and, for a buzz story, Skip. Above it, while the engine is quiet because every due place is used, a line
-/// says so (spec 13.7).
+/// Walking mode in the «Rundt deg» sheet, in the place of «Gå en tur» while a walk runs (spec 14): the status
+/// ("Går · 2 varsler", refreshed every second so a stale fix turns into "venter på GPS"), the «hørt om alt» line while
+/// the engine is quiet because every due place is used (spec 13.7), the walking story that is playing or ready (its
+/// title opens it; Lytt/Stopp, Mer and, for a buzz story, Hopp over), and Pause/Fortsett and Avslutt turen.
 struct WalkingPanel: View {
     let walking: WalkingController
-
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    let language: StoryLanguage
 
     private var stories: WalkingStories { walking.stories }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                if let text = WalkingStatus.text(isOn: walking.isOn, lastFixAt: walking.lastFixAt,
+                                                 buzzCount: walking.buzzCount, now: context.date,
+                                                 pause: walking.pauseKind, language: language) {
+                    Label(text, systemImage: walking.isPaused ? "pause.circle" : "figure.walk.motion")
+                        .font(Theme.Font.bodyMedium)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
             // Hidden while paused (`heardEverythingNearby` is false then): no decisions are made, so it could be stale.
             if walking.heardEverythingNearby {
-                Label(Self.heardEverythingText(storyLanguage), systemImage: "checkmark.circle")
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
+                Label(Self.heardEverythingText(language), systemImage: "checkmark.circle")
+                    .font(Theme.Font.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
             }
             storyRow
+            HStack(spacing: 12) {
+                Button {
+                    if walking.isPaused {
+                        walking.resume(source: .phone)
+                    } else {
+                        walking.pause(source: .phone)
+                    }
+                } label: {
+                    Label(walking.isPaused ? AroundTexts.resume(language) : AroundTexts.pause(language),
+                          systemImage: walking.isPaused ? "play.fill" : "pause.fill")
+                }
+                .buttonStyle(.themeSecondary)
+                Button {
+                    walking.stop()
+                } label: {
+                    Label(AroundTexts.stopWalk(language), systemImage: "stop.fill")
+                }
+                .buttonStyle(.themePrimary(.forest))
+            }
         }
+        .foregroundStyle(Theme.Colour.text)
+        .padding(Theme.Spacing.margin)
+        .background(Theme.Colour.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.Colour.stone))
     }
 
     static func heardEverythingText(_ language: StoryLanguage) -> String {
@@ -35,33 +63,40 @@ struct WalkingPanel: View {
     private var storyRow: some View {
         if let story = stories.featuredStory {
             let playing = stories.listening?.id == story.id
-            HStack(spacing: 12) {
+            HStack(spacing: Theme.Spacing.unit) {
                 Button {
                     stories.open(story.id)
                 } label: {
                     Text(story.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .font(.custom(Theme.FontName.display, size: 17, relativeTo: .headline))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: Theme.minimumTouchHeight, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 Button {
                     if playing { stories.stopListening() } else { stories.tellMe(story.id) }
                 } label: {
-                    icon(playing ? "stop.fill" : "play.fill")
+                    Image(systemName: playing ? "stop.fill" : "play.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Theme.Colour.forest)
+                        .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
+                        .background(Theme.Colour.coral, in: Circle())
                 }
-                .accessibilityLabel(playing ? "Stop story" : "Play story")
+                .buttonStyle(.plain)
+                .accessibilityLabel(playing ? AroundTexts.stop(language) : AroundTexts.listen(language))
                 Button {
                     stories.more(story.id)
                 } label: {
                     if stories.fetchingMore.contains(story.id) {
-                        ProgressView().tint(.white).frame(width: 44, height: 44)
+                        ProgressView().tint(Theme.Colour.text).frame(width: 44, height: 44)
                     } else {
                         icon("forward.fill")
                     }
                 }
-                .accessibilityLabel("More")
+                .buttonStyle(.plain)
+                .accessibilityLabel(AroundTexts.more(language))
                 .disabled(!stories.canMore(story.id))
                 // A stop story has no place to skip.
                 if story.canSkip {
@@ -70,19 +105,18 @@ struct WalkingPanel: View {
                     } label: {
                         icon("xmark")
                     }
-                    .accessibilityLabel("Skip")
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(AroundTexts.skip(language))
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
         }
     }
 
     private func icon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.title3)
-            .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Theme.Colour.text)
+            .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
+            .contentShape(Rectangle())
     }
 }

@@ -1,101 +1,92 @@
+import MapKit
 import MyGuideCore
-import PhotosUI
 import SwiftData
 import SwiftUI
 import UIKit
 
-/// Where the navigation stack can go from Home. One path for all of it, so a new photo story can replace the camera
-/// in a single change and a walking notification can open its story from any screen.
+/// Where a tab's navigation stack can go. Both tabs push the same routes, so a walking notification can open its
+/// story on top of whatever is showing and a new photo story can replace the camera in a single change.
 enum HomeRoute: Hashable {
     case camera
     case history
-    case diary
     case settings
-    /// The story in `HomeScreen.pushedModel`: a fresh photo story, or a stored one opened from the card.
+    /// The story in `HomeScreen.pushedModel`: a fresh photo story, or a stored one opened from «Sist oppdaget».
+    /// Pushed only on the Utforsk stack.
     case photoStory
     case walkStory(UUID)
     /// The day story of a diary day, by `Diary.dayKey`.
     case dayStory(String)
 }
 
-/// The app's first screen: the latest story (photo or walk), the walking controls and a button to the camera.
-/// The camera is off until asked for, so opening the app costs no camera power.
+/// The app's root (spec 14): the tab bar with «Utforsk», the «Rundt deg» map with its sheet and camera button, and
+/// «Dagbok», the diary with History and Settings in its top bar. Each tab has its own stack. This screen is the one
+/// owner of the shared `LocationProvider` (start, stop and `onFix`), of the camera's running and of the map model's
+/// appear/disappear, all driven from what is on top. The camera is off until asked for, so opening the app costs no
+/// camera power.
 struct HomeScreen: View {
     let services: AppServices
 
+    @State private var tab: RootTab = .explore
     @State private var path: [HomeRoute] = []
-    /// Owned here for every screen that needs a position: the camera HUD and a story's "Use where I am now".
-    @State private var location = LocationProvider()
+    @State private var diaryPath: [HomeRoute] = []
+    /// Owned here for every screen that needs a position: the map, the camera HUD and a story's "Use where I am now".
+    @State private var location: LocationProvider
+    /// What the map shows and selects; reads `location`, which this screen runs.
+    @State private var around: AroundModel
     /// The photo story on the `.photoStory` route.
     @State private var pushedModel: StoryViewModel?
-    /// Speaks the latest photo story from the card; separate from `pushedModel`, which is the full screen's.
-    @State private var cardModel: StoryViewModel?
-    /// The story shown, resolved by `refreshCard`; nil with `resolved` set means there is none yet (first run).
-    @State private var latest: LatestStory?
-    @State private var latestPhoto: CaptureRecord?
-    @State private var latestWalkTitle: String?
-    @State private var resolved = false
-    @State private var cardThumbnail: UIImage?
-    @State private var cardSessionLevels: [String] = []
-    @State private var cardWalkStory: WalkStory?
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var isBusy = false
+    /// Kept across tab switches and pushed screens (spec 16.8): follows the owner until they pan.
+    @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    @State private var sheetExpanded = false
+    /// The Utforsk tab's height, so the expanded sheet leaves part of the map in view.
+    @State private var exploreHeight: CGFloat = 0
     @State private var errorText: String?
-    @Query(HomeScreen.latestPhoto) private var photos: [CaptureRecord]
-    @Query(HomeScreen.latestWalk) private var walks: [WalkStoryRecord]
-    /// Read when a library photo is picked, so a change in Settings never affects a photo already in flight.
+    @Query(HomeScreen.recentPhotos) private var photos: [CaptureRecord]
+    @Query(HomeScreen.recentWalks) private var walks: [WalkStoryRecord]
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @Environment(\.scenePhase) private var scenePhase
 
-    static let firstRunText = "Take a photo of a building or turn on walking mode to hear its story."
+    /// How many stories «Sist oppdaget» shows.
+    static let recentCount = 3
+    /// The share of the Utforsk tab the expanded sheet's lists may take.
+    static let listShare: CGFloat = 0.35
+    /// Room the camera button needs above it (MapKit's compass and locate controls, the MyGuide pill); with less,
+    /// it hides (spec 16.5).
+    static let cameraClearance: CGFloat = 150
 
-    private static var latestPhoto: FetchDescriptor<CaptureRecord> {
+    init(services: AppServices) {
+        self.services = services
+        let location = LocationProvider()
+        _location = State(initialValue: location)
+        _around = State(initialValue: AroundModel(services: services, location: location))
+    }
+
+    private static var recentPhotos: FetchDescriptor<CaptureRecord> {
         var descriptor = FetchDescriptor<CaptureRecord>(sortBy: [SortDescriptor(\.takenAt, order: .reverse)])
-        descriptor.fetchLimit = 1
+        descriptor.fetchLimit = recentCount
         return descriptor
     }
 
-    private static var latestWalk: FetchDescriptor<WalkStoryRecord> {
+    private static var recentWalks: FetchDescriptor<WalkStoryRecord> {
         var descriptor = FetchDescriptor<WalkStoryRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
-        descriptor.fetchLimit = 1
+        descriptor.fetchLimit = recentCount
         return descriptor
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            ScrollView {
-                VStack(spacing: 16) {
-                    if let fallback = services.memoryFallback {
-                        // Rounded, not a capsule: the background-launch text wraps over two or three lines.
-                        MemoryUnavailableNotice(fallback: fallback).clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    WalkingStatusPill(controller: services.walking)
-                    if services.walking.isOn { WalkingPanel(walking: services.walking) }
-                    content
-                }
-                .padding()
+        RootTabs(selection: $tab, language: storyLanguage) {
+            NavigationStack(path: $path) {
+                explore
+                    .navigationDestination(for: HomeRoute.self, destination: destination)
             }
-            .safeAreaInset(edge: .bottom) { actions }
-            .navigationTitle("MyGuide")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: HomeRoute.diary) { Image(systemName: "book") }
-                        .accessibilityLabel("Diary")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: HomeRoute.history) { Image(systemName: "clock.arrow.circlepath") }
-                        .accessibilityLabel("History")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: HomeRoute.settings) { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Settings")
-                }
+        } diary: {
+            NavigationStack(path: $diaryPath) {
+                diary
+                    .navigationDestination(for: HomeRoute.self, destination: destination)
             }
-            .navigationDestination(for: HomeRoute.self, destination: destination)
         }
-        .alert("Couldn't use the photo", isPresented: errorPresented) {
-            Button("OK", role: .cancel) {}
+        .alert(AroundTexts.openFailed(storyLanguage), isPresented: errorPresented) {
+            Button(AroundTexts.ok(storyLanguage), role: .cancel) {}
         } message: {
             Text(errorText ?? "")
         }
@@ -111,27 +102,24 @@ struct HomeScreen: View {
             if path.contains(.camera), !old.contains(.camera) { services.camera.setZoom(1) }
             // The story screen is being dropped (navigated back): stop its work silently.
             if !path.contains(.photoStory) { setPushedModel(nil) }
-            // Likewise for the diary's work. A screen pushed over the diary or a day story keeps it running.
-            if !path.contains(.diary) { services.diary.cancelImport() }
-            services.diary.keepDayStories(Set(path.compactMap { route in
-                if case .dayStory(let dayKey) = route { dayKey } else { nil }
-            }))
-            if path.isEmpty {
-                Task { await refreshCard() }
-            } else {
-                cardModel?.stopSpeech()
-            }
+            keepDayStories()
         }
+        .onChange(of: diaryPath) { keepDayStories() }
         // Location runs while the map or the camera is on top, or while a story offers "Use where I am now".
         .onChange(of: locationWanted, initial: true) { _, wanted in
             if wanted {
-                // Fixes while the map, the camera (or a story's "Use where I am now") is up keep the nearby list current.
+                // Fixes while the map or the camera (or a story's "Use where I am now") is up keep the nearby list
+                // current.
                 let services = services
                 location.onFix = { services.noteForegroundFix($0) }
                 location.start()
             } else {
                 location.stop()
             }
+        }
+        // The phone heading and the map model's tick run only while the map is on screen.
+        .onChange(of: mapVisible, initial: true) { _, visible in
+            if visible { around.appear() } else { around.disappear() }
         }
         // The camera runs only while its screen is on top and the app is not in the background. Driven from here,
         // not by the camera screen's appear/disappear, so a rebuilt or duplicated screen can never start a second
@@ -143,180 +131,118 @@ struct HomeScreen: View {
                 Task { await services.camera.stop() }
             }
         }
-        .onChange(of: pickerItem) { _, item in
-            guard let item else { return }
-            pickerItem = nil
-            Task { await usePicked(item) }
-        }
-        // The queries are the fallback and the trigger: a new walk story changes them at once; a story told from
-        // Home's stack is picked up when Home comes back to the top.
-        .task(id: [photos.first?.id, walks.first?.id]) { await refreshCard() }
     }
 
-    // MARK: - Content
+    // MARK: - Utforsk
 
-    @ViewBuilder
-    private var content: some View {
-        switch latest {
-        case .photo:
-            if let record = latestPhoto {
-                card(title: record.title, thumbnail: cardThumbnail, levels: cardSessionLevels,
-                     playing: cardModel.map { $0.speechState(for: 0) != .idle } ?? false,
-                     canPlay: cardModel != nil,
-                     play: { cardModel?.toggleSpeech(level: 0) }, open: openPhotoStory)
-            }
-        case .walk(let id):
-            if let title = latestWalkTitle { walkCard(id: id, title: title) }
-        case nil where resolved:
-            Text(Self.firstRunText)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 40)
-        case nil:
-            EmptyView()
-        }
-    }
-
-    private func walkCard(id: UUID, title: String) -> some View {
-        let stories = services.walking.stories
-        // The prepared copy gains levels as they arrive; the stored one covers stories no longer prepared.
-        let live = stories.story(id)
-        let walkStory = [live, cardWalkStory].compactMap { $0 }.max { $0.levels.count < $1.levels.count }
-        let playing = stories.listening?.id == id
-        return card(title: title, thumbnail: nil, levels: walkStory?.levels ?? [],
-                    playing: playing, canPlay: playing || stories.canListen(id, level: 1),
-                    play: { if playing { stories.stopListening() } else { stories.listen(id, level: 1) } },
-                    open: { openWalkStory(id) })
-    }
-
-    /// The latest story: tap anywhere on the text to open it; the speaker plays the first level.
-    private func card(title: String, thumbnail: UIImage?, levels: [String], playing: Bool, canPlay: Bool,
-                      play: @escaping () -> Void, open: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Latest story")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Button(action: open) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let thumbnail {
-                        Image(uiImage: thumbnail)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+    private var explore: some View {
+        ZStack {
+            AroundMap(model: around, position: $mapPosition, language: storyLanguage)
+            // The free part of the map (inside the safe area, above the sheet), whatever the map itself does with
+            // safe areas: the pill and the camera button are placed in it. Transparent to touches; the buttons are
+            // not.
+            Color.clear
+                .allowsHitTesting(false)
+                .overlay(alignment: .topLeading) { appPill }
+                .overlay(alignment: .bottomTrailing) {
+                    // Hidden when the sheet leaves no room for it under the map's controls (spec 16.5).
+                    ViewThatFits(in: .vertical) {
+                        cameraButton.padding(.top, Self.cameraClearance)
+                        Color.clear.frame(width: 0, height: 0)
                     }
-                    Text(title)
-                        .font(.title2.bold())
-                        .multilineTextAlignment(.leading)
-                    if let first = levels.first {
-                        Text(first)
-                            .font(.body)
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
-                    }
-                    Text("Show all")
-                        .font(.subheadline.weight(.semibold))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Opens the full story.")
-            Button(action: play) {
-                Label(playing ? "Stop" : "Play", systemImage: playing ? "stop.fill" : "play.fill")
-            }
-            .buttonStyle(.bordered)
-            .disabled(!playing && !canPlay)
-            .accessibilityLabel(playing ? "Stop story" : "Play story")
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        // The map keeps its attribution and controls above the sheet, and draws under it.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            AroundSheet(model: around, walking: services.walking, placeImages: services.placeImages,
+                        memoryFallback: services.memoryFallback, authorization: location.authorization,
+                        language: storyLanguage, recent: recentStories, isExpanded: $sheetExpanded,
+                        maxListHeight: exploreHeight * Self.listShare, openSelected: openSelectedPlace,
+                        openCamera: openCamera, openRecent: openRecent)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { exploreHeight = $0 }
+        .toolbar(.hidden, for: .navigationBar)
     }
 
-    /// Camera, library and walking mode, always within reach of the thumb.
-    private var actions: some View {
-        HStack(spacing: 12) {
-            PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .current,
-                         photoLibrary: .shared()) {
-                Image(systemName: "photo.on.rectangle")
-                    .font(.title2)
-                    .frame(width: 56, height: 56)
-                    .background(.quaternary, in: Circle())
-            }
-            .accessibilityLabel("Pick a photo")
-            .disabled(isBusy)
-            Button {
-                path.append(.camera)
-            } label: {
-                Label("Camera", systemImage: "camera.fill")
-                    .font(.title3.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 56)
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .accessibilityLabel("Open camera")
-            // A picked photo is still loading: opening the camera now would race its story onto the stack.
-            .disabled(isBusy)
-            if services.walking.isOn {
-                pauseButton
-            }
-            walkButton
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.bar)
+    /// «MyGuide» in Playfair on an ivory pill (spec 14).
+    private var appPill: some View {
+        Text(AroundTexts.appName())
+            .font(.custom(Theme.FontName.display, size: 22, relativeTo: .title2))
+            .foregroundStyle(Theme.Colour.forest)
+            .padding(.horizontal, Theme.Spacing.margin)
+            .padding(.vertical, Theme.Spacing.unit)
+            .background(Theme.Colour.ivory, in: Capsule())
+            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+            .padding(.leading, Theme.Spacing.margin)
+            .padding(.top, Theme.Spacing.unit)
+            .accessibilityAddTraits(.isHeader)
     }
 
-    /// Turns walking mode on or off; accent colour while it runs.
-    private var walkButton: some View {
-        let isOn = services.walking.isOn
-        return Button {
-            if isOn {
-                services.walking.stop()
-            } else {
-                Task { await services.walking.start() }
+    /// The large coral camera button with «Hva ser jeg på?» under it (spec 14, 16.5).
+    private var cameraButton: some View {
+        Button(action: openCamera) {
+            VStack(spacing: 6) {
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(Theme.Colour.forest)
+                    .frame(width: 72, height: 72)
+                    .background(Theme.Colour.coral, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.Colour.ivory, lineWidth: 2))
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                Text(AroundTexts.lookingAt(storyLanguage))
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Colour.forest)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Theme.Colour.ivory, in: Capsule())
+                    .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                    .fixedSize()
             }
-        } label: {
-            Image(systemName: isOn ? "figure.walk.motion" : "figure.walk")
-                .font(.title2)
-                .foregroundStyle(isOn ? Color.white : Color.primary)
-                .frame(width: 56, height: 56)
-                .background(isOn ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary), in: Circle())
+            .contentShape(Rectangle())
         }
-        .accessibilityLabel("Walking mode")
-        .accessibilityValue(isOn ? "On" : "Off")
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(AroundTexts.cameraLabel(storyLanguage))
+        .accessibilityAddTraits(.isButton)
+        .padding(.trailing, Theme.Spacing.margin)
+        .padding(.bottom, Theme.Spacing.margin)
     }
 
-    /// Pauses or resumes walking mode while it is on: a manual pause holds until Resume (spec 5.2).
-    private var pauseButton: some View {
-        let isPaused = services.walking.isPaused
-        return Button {
-            if isPaused {
-                services.walking.resume(source: .phone)
-            } else {
-                services.walking.pause(source: .phone)
-            }
-        } label: {
-            Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                .font(.title2)
-                .foregroundStyle(Color.primary)
-                .frame(width: 56, height: 56)
-                .background(.quaternary, in: Circle())
-        }
-        .accessibilityLabel(isPaused ? "Resume walk" : "Pause walk")
+    private var recentStories: [RecentStory] {
+        RecentStory.newest(photos: photos.map { ($0.id, $0.title, $0.takenAt) },
+                           walks: walks.map { ($0.id, $0.title, $0.createdAt) }, limit: Self.recentCount)
     }
+
+    // MARK: - Dagbok
+
+    private var diary: some View {
+        DiaryView(services: services, location: location, openWalkStory: openWalkStory,
+                  openDayStory: { diaryPath.append(.dayStory($0.id)) })
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink(value: HomeRoute.history) { Image(systemName: "clock.arrow.circlepath") }
+                        .accessibilityLabel(AroundTexts.history(storyLanguage))
+                        // The diary keeps the owner on it while photos are added, so the summary is always seen.
+                        .disabled(services.diary.isImporting)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: HomeRoute.settings) { Image(systemName: "gearshape") }
+                        .accessibilityLabel(AroundTexts.settings(storyLanguage))
+                        .disabled(services.diary.isImporting)
+                }
+            }
+    }
+
+    // MARK: - Destinations
 
     @ViewBuilder
     private func destination(_ route: HomeRoute) -> some View {
         switch route {
         case .camera:
             CaptureScreen(services: services, location: location, onPhoto: photoReady)
+                .toolbar(.hidden, for: .tabBar)
         case .history:
             HistoryView(services: services, location: location)
-        case .diary:
-            DiaryView(services: services, location: location, openWalkStory: openWalkStory,
-                      openDayStory: { path.append(.dayStory($0.id)) })
         case .settings:
             SettingsView(services: services)
         case .photoStory:
@@ -334,10 +260,14 @@ struct HomeScreen: View {
 
     // MARK: - Navigation
 
+    private func openCamera() {
+        path.append(.camera)
+    }
+
     /// A photo was taken or picked on the camera screen: its story takes the camera's place in the stack, so going
-    /// back lands on Home with the camera off. If something was pushed over the camera meanwhile (a walk story), it
-    /// stays on top and the photo story waits under it. If the camera left the stack (the owner went back) the photo
-    /// is dropped before any paid request starts, rather than hijacking the screen.
+    /// back lands on the map with the camera off. If something was pushed over the camera meanwhile (a walk story),
+    /// it stays on top and the photo story waits under it. If the camera left the stack (the owner went back) the
+    /// photo is dropped before any paid request starts, rather than hijacking the screen.
     private func photoReady(_ photo: Data, _ capture: CaptureContext, _ language: StoryLanguage) {
         guard let newPath = StoryPath.replacingCamera(in: path, camera: HomeRoute.camera, with: .photoStory) else {
             return
@@ -358,112 +288,85 @@ struct HomeScreen: View {
         return model
     }
 
-    /// The card's story, in full on its own screen: the stored session, as History reopens it.
-    private func openPhotoStory() {
-        guard let record = latestPhoto else { return }
-        do {
-            let session = try services.memory.session(for: record)
-            setPushedModel(StoryViewModel(session: session, services: services))
-            path.append(.photoStory)
-        } catch {
-            AppServices.logMemoryFailure("open session failed", error)
-            errorText = HistoryView.corruptText
-        }
-    }
-
-    /// On top of whatever is showing; a walk story already on top is swapped for the new one.
+    /// On top of whatever the selected tab shows; a walk story already on top is swapped for the new one.
     private func openWalkStory(_ id: UUID) {
-        if case .walkStory = path.last {
-            path[path.count - 1] = .walkStory(id)
+        switch tab {
+        case .explore: Self.push(.walkStory(id), onto: &path)
+        case .diary: Self.push(.walkStory(id), onto: &diaryPath)
+        }
+    }
+
+    private static func push(_ route: HomeRoute, onto stack: inout [HomeRoute]) {
+        if case .walkStory = route, case .walkStory = stack.last {
+            stack[stack.count - 1] = route
         } else {
-            path.append(.walkStory(id))
+            stack.append(route)
         }
     }
 
-    // MARK: - Actions
-
-    private func usePicked(_ item: PhotosPickerItem) async {
-        let language = storyLanguage
-        isBusy = true
-        defer { isBusy = false }
-        switch await PhotoImport.load(item) {
-        case .success(let loaded):
-            setPushedModel(startStory(photo: loaded.data, capture: loaded.capture, language: language))
-            // Loading took a while: the owner may have opened a walk story meanwhile. The photo story goes under
-            // whatever is open, so it never replaces what they are looking at.
-            path = StoryPath.underneath(path, story: .photoStory)
-        case .failure(let failure):
-            errorText = failure.text
+    /// A tap on the card (spec 5): the place's story on this run when there is one, else «Lytt» starts telling it
+    /// and its screen opens at once, showing it being written.
+    private func openSelectedPlace() {
+        guard case .selected(let selected) = around.selection else { return }
+        let placeID = selected.vector.place.candidate.id
+        let stories = services.walking.stories
+        let language = around.language
+        if let id = stories.storyID(forPlace: placeID, language: language) {
+            openWalkStory(id)
+            return
         }
+        around.listen()
+        if let id = stories.storyID(forPlace: placeID, language: language) { openWalkStory(id) }
     }
 
-    /// Decides the latest story (most recently told, else the newest stored) and loads what its card shows: a photo
-    /// story's session and thumbnail, or a walk story's stored copy. Runs when the stored newest changes and each
-    /// time Home comes back to the top.
-    private func refreshCard() async {
-        cardModel?.stopSpeech()
-        cardModel = nil
-        cardThumbnail = nil
-        cardSessionLevels = []
-        cardWalkStory = nil
-        latestPhoto = nil
-        latestWalkTitle = nil
-        // A ref whose record is gone (deleted from History) is ignored.
-        let told = LatestStoryRef.load().flatMap { ref -> LatestStoryRef? in
-            switch ref.story {
-            case .photo(let id): fetchPhoto(id) != nil ? ref : nil
-            case .walk(let id): fetchWalk(id) != nil ? ref : nil
-            }
-        }
-        latest = LatestStory.newest(told: told, photo: photos.first.map { ($0.id, $0.takenAt) },
-                                    walk: walks.first.map { ($0.id, $0.createdAt) })
-        resolved = true
-        switch latest {
+    /// «Sist oppdaget»: a photo story opens its stored session, as History reopens it; a walk story its screen.
+    private func openRecent(_ story: RecentStory) {
+        switch story.source {
+        case .walk(let id):
+            openWalkStory(id)
         case .photo(let id):
-            guard let record = fetchPhoto(id) else { return }
-            latestPhoto = record
-            cardThumbnail = UIImage(data: record.thumbnailJPEG)
+            guard let record = photos.first(where: { $0.id == id }) else { return }
             do {
                 let session = try services.memory.session(for: record)
-                cardSessionLevels = session.levels
-                cardModel = StoryViewModel(session: session, services: services)
+                setPushedModel(StoryViewModel(session: session, services: services))
+                path.append(.photoStory)
             } catch {
-                AppServices.logMemoryFailure("home card load failed", error)
+                AppServices.logMemoryFailure("open session failed", error)
+                errorText = HistoryView.corruptText
             }
-        case .walk(let id):
-            latestWalkTitle = fetchWalk(id)?.title
-            cardWalkStory = services.walking.stories.storedStory(id)
-        case nil:
-            break
         }
     }
 
-    private func fetchPhoto(_ id: UUID) -> CaptureRecord? {
-        var descriptor = FetchDescriptor<CaptureRecord>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try? services.memory.context.fetch(descriptor).first
-    }
-
-    private func fetchWalk(_ id: UUID) -> WalkStoryRecord? {
-        var descriptor = FetchDescriptor<WalkStoryRecord>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try? services.memory.context.fetch(descriptor).first
+    /// Day story models live while their route is on either stack.
+    private func keepDayStories() {
+        services.diary.keepDayStories(Set((path + diaryPath).compactMap { route in
+            if case .dayStory(let dayKey) = route { dayKey } else { nil }
+        }))
     }
 
     private var errorPresented: Binding<Bool> {
         Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })
     }
 
-    /// Whether location updates should run now (re-evaluated as the scene, the top screen or the story changes): the
-    /// map (home, nothing pushed), the camera, or a story offering "Use where I am now". This screen alone starts and
-    /// stops the shared provider and sets its `onFix`.
+    // MARK: - What runs
+
+    /// Whether location updates should run now (re-evaluated as the scene, the tab, the top screen or the story
+    /// changes): the Utforsk tab showing the map, the camera, or a story offering "Use where I am now". Never while
+    /// the Dagbok tab is selected. This screen alone starts and stops the shared provider and sets its `onFix`.
     private var locationWanted: Bool {
-        scenePhase != .background && (path.isEmpty || path.last == .camera || storyOffersCurrentPosition)
+        scenePhase != .background && tab == .explore
+            && (path.isEmpty || path.last == .camera || storyOffersCurrentPosition)
     }
 
-    /// Whether the camera should run now: its screen is on top (not under a walk story) and the app is visible.
+    /// Whether the map is on screen: the Utforsk tab at its root, with the app not in the background.
+    private var mapVisible: Bool {
+        scenePhase != .background && tab == .explore && path.isEmpty
+    }
+
+    /// Whether the camera should run now: its screen is on top (not under a walk story), its tab is selected and the
+    /// app is visible.
     private var cameraWanted: Bool {
-        scenePhase != .background && path.last == .camera
+        scenePhase != .background && tab == .explore && path.last == .camera
     }
 
     private var storyOffersCurrentPosition: Bool {

@@ -55,6 +55,9 @@ final class WalkingController {
     /// Called with the start's source once a start has succeeded (walking mode is on); not for a refused or cancelled
     /// start. A phone start launches the watch app through it (spec 5.3).
     @ObservationIgnored var onStarted: ((WalkSource) -> Void)?
+    /// Called with each list this run's own network refresh returned (not with a list taken over unchanged); the app
+    /// fetches its pictures ahead (spec 12.6).
+    @ObservationIgnored var onListRefreshed: ((NearbyList) -> Void)?
     /// The walking stories: their text prepared at buzz time, played, continued and skipped.
     let stories: WalkingStories
 
@@ -914,6 +917,7 @@ final class WalkingController {
             switch result {
             case .success(let list) where !Task.isCancelled:
                 // A refresh already under way (the camera's) is joined; its list is centred where that one started.
+                self.onListRefreshed?(list)
                 let places = list.walkingPlaces
                 self.feed.fetchSucceeded(places, at: list.centre, now: .now)
                 self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed))

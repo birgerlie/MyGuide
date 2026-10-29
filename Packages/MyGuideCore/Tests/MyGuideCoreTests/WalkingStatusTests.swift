@@ -78,3 +78,24 @@ import Testing
         #expect(pushed == Self.t0 + 720)
     }
 }
+
+@Suite struct WalkingStatusNorwegianTests {
+    static let t0 = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test func sameRulesInNorwegian() {
+        let nb = StoryLanguage.norwegian
+        #expect(WalkingStatus.text(isOn: false, lastFixAt: Self.t0, buzzCount: 3, now: Self.t0, language: nb) == nil)
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 0, now: Self.t0, language: nb) == "Går · venter på GPS")
+        // 120 s is still fresh, 121 s is stale; 1 → "varsel", otherwise "varsler".
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 1, now: Self.t0 + 120, language: nb) == "Går · 1 varsel")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 1, now: Self.t0 + 121, language: nb) == "Går · venter på GPS")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 0, now: Self.t0, language: nb) == "Går · 0 varsler")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 2, now: Self.t0, pause: .manual, language: nb) == "Pauset · 2 varsler")
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 1, now: Self.t0, pause: .auto, language: nb) == "Pauset · står stille · 1 varsel")
+    }
+
+    @Test func englishIsTheDefault() {
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 2, now: Self.t0, language: .english)
+                == WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 2, now: Self.t0))
+    }
+}

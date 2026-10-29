@@ -31,6 +31,8 @@ final class AppServices {
     /// The one nearby list (spec 7): walking mode, the camera and background wakes all ask it. The same instance as
     /// `BackgroundPlaces` uses, so a list prepared in the background is the one the camera finds.
     let nearby: NearbyPlaces = AppServices.sharedNearby
+    /// The one place picture cache (spec 7.3, 12.6): the map card, walk stories and notifications share it.
+    let placeImages: PlaceImages = AppServices.sharedPlaceImages
     /// The one camera. It lives here, not in the camera screen, so exactly one capture session exists however
     /// often SwiftUI rebuilds the pushed screen, and the preview always shows the session that runs. Home starts
     /// and stops it by what is on top of its stack.
@@ -75,6 +77,8 @@ final class AppServices {
         let walking = walking
         let watchLink = watchLink
         walking.onStateChange = { watchLink.pushState($0.message) }
+        // Pictures ahead for walking mode's lists too, so a walk with the phone in the pocket gets them (spec 12.6).
+        walking.onListRefreshed = { Self.prefetchPlaceImages(for: $0) }
         walking.onStarted = { source in
             // Only with the watch app installed on a paired watch: otherwise the launch fails, and every phone walk
             // would log that failure.
@@ -168,6 +172,24 @@ final class AppServices {
         now: { Date() },
         onStoreError: { error in logNearbyFailure("nearby list save failed", error) })
 
+    /// Caches/place-images: pictures can be fetched again, so the system may purge them.
+    nonisolated static var placeImagesDirectory: URL {
+        URL.cachesDirectory.appending(path: "place-images", directoryHint: .isDirectory)
+    }
+
+    /// Thread-safe like `sharedNearby`; over the shared HTTP client.
+    nonisolated static let sharedPlaceImages = PlaceImages(directory: placeImagesDirectory,
+                                                           client: WikipediaClient(http: sharedHTTP))
+
+    /// Fetches the pictures of a fresh list's article-text places (the top and good places nearest its centre, as
+    /// `NearbyPlaces` picks them for texts) in the background (spec 12.6). Already cached, "no image" and cooling-down
+    /// titles cost nothing; failures are held back by `PlaceImages` itself.
+    nonisolated static func prefetchPlaceImages(for list: NearbyList) {
+        let titles = NearbyPlaces.articleTitles(for: list.candidates, around: list.centre)
+        guard !titles.isEmpty else { return }
+        Task.detached(priority: .utility) { await sharedPlaceImages.prefetch(titles) }
+    }
+
     /// The story language setting as it is now; refreshes of the nearby list use it.
     nonisolated static func currentStoryLanguage() -> StoryLanguage {
         UserDefaults.standard.string(forKey: storyLanguageKey).flatMap(StoryLanguage.init(rawValue:)) ?? .english
@@ -227,9 +249,9 @@ final class AppServices {
     /// Whether a foreground refresh (camera fix) is under way, so fixes arriving every second do not each start one.
     private var foregroundRefreshRunning = false
 
-    /// A foreground fix (camera open): with accuracy within `foregroundAccuracy`, asks the nearby list whether it
-    /// should refresh (`.foreground`: ≥ 150 m from its centre or old, at most once a minute) and refreshes in a task.
-    /// A failure is logged; the old list stays.
+    /// A foreground fix (map or camera open): with accuracy within `foregroundAccuracy`, asks the nearby list whether
+    /// it should refresh (`.foreground`: ≥ 150 m from its centre or old, at most once a minute) and refreshes in a
+    /// task, then fetches the new list's pictures ahead. A failure is logged; the old list stays.
     func noteForegroundFix(_ fix: LocationFix) {
         guard fix.accuracy <= Self.foregroundAccuracy, !foregroundRefreshRunning else { return }
         foregroundRefreshRunning = true
@@ -240,7 +262,7 @@ final class AppServices {
             defer { self?.foregroundRefreshRunning = false }
             guard await nearby.shouldRefresh(at: position, trigger: .foreground, language: language) else { return }
             do {
-                try await nearby.refresh(at: position, language: language)
+                Self.prefetchPlaceImages(for: try await nearby.refresh(at: position, language: language))
             } catch {
                 Self.logNearbyFailure("foreground refresh failed", error)
             }

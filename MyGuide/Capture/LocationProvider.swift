@@ -11,6 +11,8 @@ final class LocationProvider: NSObject {
     /// Told every usable fix (`usableFix`) as it arrives; the owner feeds foreground refreshes of the nearby list
     /// with it while this provider runs (camera open, or a story offering "Use where I am now").
     @ObservationIgnored var onFix: ((LocationFix) -> Void)?
+    /// Location access as last reported; the map says so when it is denied or restricted (spec 16.6).
+    private(set) var authorization: CLAuthorizationStatus = .notDetermined
 
     @ObservationIgnored private let manager = CLLocationManager()
     @ObservationIgnored private var wantsUpdates = false
@@ -22,6 +24,7 @@ final class LocationProvider: NSObject {
         manager.headingFilter = 1
         // The UI is portrait-only; heading is the direction the top of the device (and the back camera) points.
         manager.headingOrientation = .portrait
+        authorization = manager.authorizationStatus
     }
 
     func start() {
@@ -73,7 +76,11 @@ final class LocationProvider: NSObject {
 // CLLocationManager calls its delegate on the thread it was created on; it is created on the main actor.
 extension LocationProvider: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        MainActor.assumeIsolated { self.beginUpdatesIfAuthorized() }
+        let status = manager.authorizationStatus
+        MainActor.assumeIsolated {
+            if self.authorization != status { self.authorization = status }
+            self.beginUpdatesIfAuthorized()
+        }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

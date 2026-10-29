@@ -304,7 +304,7 @@ public actor NearbyPlaces {
     }
 
     /// Nearest first (ties in list order), distinct, at most `articleCount`.
-    static func articleTitles(for candidates: [Candidate], around position: Coordinate) -> [String] {
+    public static func articleTitles(for candidates: [Candidate], around position: Coordinate) -> [String] {
         let eligible = candidates.enumerated().compactMap { index, candidate -> (distance: Double, index: Int, title: String)? in
             guard let tier = PlaceTiers.tier(for: candidate), tier == .top || tier == .good,
                   let title = candidate.wikipediaTitle, !title.isEmpty else { return nil }
