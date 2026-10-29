@@ -100,11 +100,11 @@ import Testing
     }
 
     @Test func stopCarriesThePlaceAndItsScore() {
-        let plan = TourPlanner.loop(from: Self.origin, minutes: 30, candidates: [
-            Self.candidate("osm:node/7", north: 100, east: 50, score: 1.5, tier: .top),
-        ])
+        let candidate = Self.candidate("osm:node/7", north: 100, east: 50, score: 1.5, tier: .top)
+        let plan = TourPlanner.loop(from: Self.origin, minutes: 30, candidates: [candidate])
+        // The whole candidate travels with the stop, for its buzz during the tour.
         #expect(plan.stops == [TourStop(id: "osm:node/7", name: "Name osm:node/7", coordinate: .at(north: 100, east: 50),
-                                        tier: .top, score: 1.5)])
+                                        tier: .top, score: 1.5, candidate: candidate.place.candidate)])
     }
 
     // MARK: - Budget

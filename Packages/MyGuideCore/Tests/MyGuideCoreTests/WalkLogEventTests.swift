@@ -285,4 +285,32 @@ import Testing
         #expect(o["accuracy"] is NSNull)
         #expect(o["speed"] is NSNull)
     }
+
+    @Test func tourStopBuzzIsMarkedAndOldLinesReadAsNot() throws {
+        let id = UUID(uuidString: "00000000-0000-0000-0000-0000000000AB")!
+        let stop = WalkLogBuzz(id: id, placeID: "osm:node/1", name: "Pantheon", tier: .wikiOnly, distance: 40,
+                               override: false, detail: "40 m away", tourStop: true)
+        let event = WalkLogEvent(at: Date(timeIntervalSince1970: 1_000_000), kind: .buzz(stop))
+        let object = try #require(JSONSerialization.jsonObject(with: WalkLogCodec.line(event)) as? [String: Any])
+        #expect(object["tourStop"] as? Bool == true)
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)
+        // An engine buzz writes no flag.
+        var plain = stop
+        plain.tourStop = false
+        let plainEvent = WalkLogEvent(at: event.at, kind: .buzz(plain))
+        let plainObject = try #require(JSONSerialization.jsonObject(with: WalkLogCodec.line(plainEvent)) as? [String: Any])
+        #expect(plainObject["tourStop"] == nil)
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(plainEvent)) == plainEvent)
+        // A flag of the wrong type makes the line unreadable, as for the other fields.
+        var bad = object
+        bad["tourStop"] = "yes"
+        #expect(WalkLogCodec.event(from: try JSONSerialization.data(withJSONObject: bad)) == nil)
+        #expect(WalkLogText.line(event.kind).hasSuffix("(tour stop)"))
+    }
+
+    @Test func tourCadenceQuietLineRoundTrips() {
+        let event = WalkLogEvent(at: Date(timeIntervalSince1970: 1_000_000), kind: .quiet(.tourCadence, due: []))
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)
+        #expect(QuietReason.tourCadence.rawValue == "tourCadence")
+    }
 }

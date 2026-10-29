@@ -35,13 +35,18 @@ public struct TourStop: Sendable, Equatable, Codable, Identifiable {
     public var coordinate: Coordinate
     public var tier: PlaceTier
     public var score: Double
+    /// The place as the planner found it (tags, article), so the stop's buzz tells the same place a walking buzz
+    /// would; nil for stops stored before it existed (decoded if present).
+    public var candidate: Candidate?
 
-    public init(id: String, name: String, coordinate: Coordinate, tier: PlaceTier, score: Double) {
+    public init(id: String, name: String, coordinate: Coordinate, tier: PlaceTier, score: Double,
+                candidate: Candidate? = nil) {
         self.id = id
         self.name = name
         self.coordinate = coordinate
         self.tier = tier
         self.score = score
+        self.candidate = candidate
     }
 }
 
@@ -216,7 +221,7 @@ public enum TourPlanner {
             let place = candidate.place.candidate
             guard candidate.score.isFinite, candidate.score > 0, seen.insert(place.id).inserted else { return nil }
             return TourStop(id: place.id, name: place.name, coordinate: place.coordinate, tier: candidate.place.tier,
-                            score: candidate.score)
+                            score: candidate.score, candidate: place)
         }
         var stops: [TourStop] = []
         var estimate = estimatedSeconds(start: start, stops: [], end: end)

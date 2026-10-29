@@ -21,7 +21,8 @@ public enum WalkLogText {
         case .quiet(let reason, let due):
             guard !due.isEmpty else { return "Quiet: \(reason.rawValue)" }
             return "Quiet: \(reason.rawValue) · " + due.map { "\($0.name) \(whole($0.distance)) m" }.joined(separator: ", ")
-        case .buzz(let b): return "Buzz: \(b.name) · \(whole(b.distance)) m" + (b.override ? " (override)" : "")
+        case .buzz(let b):
+            return "Buzz: \(b.name) · \(whole(b.distance)) m" + (b.override ? " (override)" : "") + (b.tourStop ? " (tour stop)" : "")
         case .notified(_, let kind, _): return "Notification added (\(kind.rawValue))"
         case .notifyFailed(_, let kind, let error): return "Notification failed (\(kind.rawValue)): \(error)"
         case .busy(let busy): return busy ? "Story engine busy" : "Story engine idle"

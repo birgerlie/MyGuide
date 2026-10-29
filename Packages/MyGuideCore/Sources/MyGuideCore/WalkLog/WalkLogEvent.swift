@@ -88,8 +88,12 @@ public struct WalkLogBuzz: Sendable, Equatable {
     public var distance: Double
     public var override: Bool
     public var detail: String
+    /// The buzz of a tour's stop (tours spec 6), not the engine's. Written only when true; lines from before it read
+    /// as false.
+    public var tourStop: Bool
 
-    public init(id: UUID, placeID: String, name: String, tier: PlaceTier, distance: Double, override: Bool, detail: String) {
+    public init(id: UUID, placeID: String, name: String, tier: PlaceTier, distance: Double, override: Bool, detail: String,
+                tourStop: Bool = false) {
         self.id = id
         self.placeID = placeID
         self.name = name
@@ -97,11 +101,12 @@ public struct WalkLogBuzz: Sendable, Equatable {
         self.distance = distance
         self.override = override
         self.detail = detail
+        self.tourStop = tourStop
     }
 
-    public init(_ buzz: Buzz) {
+    public init(_ buzz: Buzz, tourStop: Bool = false) {
         self.init(id: buzz.id, placeID: buzz.place.candidate.id, name: buzz.title, tier: buzz.place.tier,
-                  distance: buzz.distance, override: buzz.usedOverride, detail: buzz.detail)
+                  distance: buzz.distance, override: buzz.usedOverride, detail: buzz.detail, tourStop: tourStop)
     }
 }
 

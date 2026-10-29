@@ -112,8 +112,10 @@ public enum WalkLogCodec {
             }
             return ["reason": reason.rawValue, "due": list]
         case .buzz(let b):
-            return ["id": b.id.uuidString, "placeID": b.placeID, "name": b.name, "tier": b.tier.rawValue,
-                    "distance": metres(b.distance), "override": b.override, "detail": b.detail]
+            var o: [String: Any] = ["id": b.id.uuidString, "placeID": b.placeID, "name": b.name, "tier": b.tier.rawValue,
+                                    "distance": metres(b.distance), "override": b.override, "detail": b.detail]
+            if b.tourStop { o["tourStop"] = true }
+            return o
         case .notified(let id, let kind, let s):
             return ["id": orNull(id?.uuidString), "kind": kind.rawValue,
                     "settings": ["authorization": s.authorization, "alert": s.alert, "sound": s.sound,
@@ -264,7 +266,17 @@ public enum WalkLogCodec {
             guard let id = uuid(o, "id"), let placeID = string(o, "placeID"), let name = string(o, "name"), let tier = tier(o),
                   let distance = double(o, "distance"), let override = bool(o, "override"), let detail = string(o, "detail")
             else { return nil }
-            return .buzz(WalkLogBuzz(id: id, placeID: placeID, name: name, tier: tier, distance: distance, override: override, detail: detail))
+            // `tourStop` is newer than the line: missing reads as false; present, it must be a Bool.
+            let tourStop: Bool
+            if o["tourStop"] == nil {
+                tourStop = false
+            } else if let flag = bool(o, "tourStop") {
+                tourStop = flag
+            } else {
+                return nil
+            }
+            return .buzz(WalkLogBuzz(id: id, placeID: placeID, name: name, tier: tier, distance: distance, override: override,
+                                     detail: detail, tourStop: tourStop))
         case "notified":
             guard let id = optionalUUID(o, "id"), let kind = raw(o, "kind", WalkNotificationKind.self),
                   let s = o["settings"] as? [String: Any],

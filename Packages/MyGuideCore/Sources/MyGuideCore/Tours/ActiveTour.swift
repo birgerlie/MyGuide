@@ -24,6 +24,11 @@ public struct ActiveTour: Sendable, Equatable, Codable {
     public var skipped: [String]
     /// When the walker reached the end with every stop done; nil while the tour runs.
     public var finishedAt: Date?
+    /// Seconds of finished breaks: walking mode paused, or off with the tour kept (stopped by the app, or the app
+    /// closed). Left out of the walking time.
+    public var pausedSeconds: Double
+    /// Start of the break in progress; nil while walking.
+    public var pausedSince: Date?
 
     /// A tour starting now: nothing visited or skipped, and every leg's path simplified (`pathTolerance`).
     public init(routed: RoutedTour, startedAt: Date) {
@@ -37,6 +42,8 @@ public struct ActiveTour: Sendable, Equatable, Codable {
         self.visited = []
         self.skipped = []
         self.finishedAt = nil
+        self.pausedSeconds = 0
+        self.pausedSince = nil
     }
 
     /// The stops in walking order.
@@ -60,9 +67,25 @@ public struct ActiveTour: Sendable, Equatable, Codable {
     /// True once the walker reached the end with every stop done (`reachEnd`).
     public var isFinished: Bool { finishedAt != nil }
 
-    /// From the start to the finish in seconds, never negative; nil until finished.
-    public var elapsedSeconds: Double? {
-        finishedAt.map { max(0, $0.timeIntervalSince(startedAt)) }
+    /// The walking time from the start to the finish: the elapsed seconds less the breaks (a break still open at the
+    /// finish counts up to it). Never negative; nil until finished.
+    public var walkingSeconds: Double? {
+        guard let finishedAt else { return nil }
+        let open = pausedSince.map { max(0, finishedAt.timeIntervalSince($0)) } ?? 0
+        return max(0, finishedAt.timeIntervalSince(startedAt) - pausedSeconds - open)
+    }
+
+    /// A break starts at `now` (walking mode paused or off). Nothing while one is open or after the finish.
+    public mutating func pause(at now: Date) {
+        guard pausedSince == nil, !isFinished else { return }
+        pausedSince = now
+    }
+
+    /// The break in progress ends at `now`; its length (never negative) is added to `pausedSeconds`.
+    public mutating func resume(at now: Date) {
+        guard let since = pausedSince else { return }
+        pausedSeconds += max(0, now.timeIntervalSince(since))
+        pausedSince = nil
     }
 
     /// Marks `next` visited and returns it when `position` is within `arrivalRadius` of it (inclusive); else nil.
@@ -101,7 +124,9 @@ public struct ActiveTour: Sendable, Equatable, Codable {
 
     // MARK: - Codable
 
-    private enum CodingKeys: String, CodingKey { case routed, startedAt, visited, skipped, finishedAt }
+    private enum CodingKeys: String, CodingKey {
+        case routed, startedAt, visited, skipped, finishedAt, pausedSeconds, pausedSince
+    }
 
     /// `routed` and `startedAt` are required; the lists and the finish may be missing (an empty list, not finished),
     /// so a file from a build that wrote fewer fields still restores. The paths are taken as stored.
@@ -112,6 +137,8 @@ public struct ActiveTour: Sendable, Equatable, Codable {
         visited = try container.decodeIfPresent([String].self, forKey: .visited) ?? []
         skipped = try container.decodeIfPresent([String].self, forKey: .skipped) ?? []
         finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
+        pausedSeconds = try container.decodeIfPresent(Double.self, forKey: .pausedSeconds) ?? 0
+        pausedSince = try container.decodeIfPresent(Date.self, forKey: .pausedSince)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -121,6 +148,95 @@ public struct ActiveTour: Sendable, Equatable, Codable {
         try container.encode(visited, forKey: .visited)
         try container.encode(skipped, forKey: .skipped)
         try container.encodeIfPresent(finishedAt, forKey: .finishedAt)
+        try container.encode(pausedSeconds, forKey: .pausedSeconds)
+        try container.encodeIfPresent(pausedSince, forKey: .pausedSince)
+    }
+}
+
+/// The buzzes of stops the walker has arrived at, in arrival order (tours spec 6). A stop waits while a story is
+/// preparing or playing, and at least `minimumGap` after the previous stop's buzz; one held longer than `maxHold` is
+/// dropped (the place is far behind by then). The stop was marked visited on arrival either way.
+public struct TourStopDelivery: Sendable, Equatable {
+    /// 30 s between two stop buzzes.
+    public static let minimumGap: TimeInterval = 30
+    /// 3 minutes.
+    public static let maxHold: TimeInterval = 180
+
+    public struct Held: Sendable, Equatable {
+        public var stop: TourStop
+        public var since: Date
+    }
+
+    public private(set) var held: [Held] = []
+    public private(set) var lastDeliveredAt: Date?
+
+    public init() {}
+
+    public var isEmpty: Bool { held.isEmpty }
+
+    /// Holds `stop`, arrived at `now`, for `take`.
+    public mutating func arrive(_ stop: TourStop, at now: Date) {
+        held.append(Held(stop: stop, since: now))
+    }
+
+    /// First drops every stop held longer than `maxHold` (strictly) and returns them; then, when nothing is busy and
+    /// `minimumGap` has passed since the last delivery (inclusive; a clock set back counts as passed), hands out the
+    /// oldest stop still held and counts it as delivered at `now`.
+    public mutating func take(now: Date, busy: Bool) -> (deliver: TourStop?, dropped: [Held]) {
+        let dropped = held.filter { now.timeIntervalSince($0.since) > Self.maxHold }
+        held.removeAll { now.timeIntervalSince($0.since) > Self.maxHold }
+        guard !busy, !held.isEmpty else { return (nil, dropped) }
+        if let lastDeliveredAt {
+            let since = now.timeIntervalSince(lastDeliveredAt)
+            guard since < 0 || since >= Self.minimumGap else { return (nil, dropped) }
+        }
+        lastDeliveredAt = now
+        return (held.removeFirst().stop, dropped)
+    }
+}
+
+/// The distance step the watch shows for the next stop (`TourFormat.approachStep`), steadied so a walker hovering at
+/// a step's edge does not send a new line every few seconds: a new step is shown once it has held for `holdTime`,
+/// or at once when it differs from the shown one by `jump` steps or more.
+public struct TourDistanceSteps: Sendable, Equatable {
+    /// 10 s.
+    public static let holdTime: TimeInterval = 10
+    /// 2 steps (100 m).
+    public static let jump = 2
+
+    public private(set) var shown: Int?
+    private var candidate: (step: Int, since: Date)?
+
+    public init() {}
+
+    /// Feeds the current step at `now` and returns the step to show. The first step is shown at once; nil (no
+    /// distance) shows nothing and starts afresh.
+    public mutating func update(_ step: Int?, now: Date) -> Int? {
+        guard let step else {
+            shown = nil
+            candidate = nil
+            return nil
+        }
+        guard let current = shown, step != current else {
+            shown = step
+            candidate = nil
+            return step
+        }
+        if abs(step - current) >= Self.jump {
+            shown = step
+            candidate = nil
+            return step
+        }
+        if candidate?.step != step { candidate = (step, now) }
+        if let candidate, now.timeIntervalSince(candidate.since) >= Self.holdTime {
+            shown = step
+            self.candidate = nil
+        }
+        return shown
+    }
+
+    public static func == (a: TourDistanceSteps, b: TourDistanceSteps) -> Bool {
+        a.shown == b.shown && a.candidate?.step == b.candidate?.step && a.candidate?.since == b.candidate?.since
     }
 }
 

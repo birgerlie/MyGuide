@@ -157,8 +157,8 @@ import Testing
         #expect(ended3)
         #expect(tour.isFinished)
         #expect(tour.finishedAt == Self.t0 + 5460)
-        // 5460 s after the start.
-        #expect(tour.elapsedSeconds == 5460)
+        // 5460 s after the start, no breaks: 5460 s walking.
+        #expect(tour.walkingSeconds == 5460)
         // Finished once: a second arrival at the end changes nothing.
         let ended4 = tour.reachEnd(at: Self.origin, now: Self.t0 + 6000)
         #expect(!ended4)
@@ -198,12 +198,52 @@ import Testing
         #expect(tour.skipped == ["a"])
     }
 
-    @Test func elapsedTimeIsNilUntilFinishedAndNeverNegative() {
+    @Test func walkingTimeIsNilUntilFinishedAndNeverNegative() {
         var tour = Self.tour([])
-        #expect(tour.elapsedSeconds == nil)
-        // A clock that stepped back: finished 50 s before the start → 0.
+        #expect(tour.walkingSeconds == nil)
+        // A clock that stepped back: finished 50 s before the start → −50 → 0.
         tour.finishedAt = Self.t0 - 50
-        #expect(tour.elapsedSeconds == 0)
+        #expect(tour.walkingSeconds == 0)
+    }
+
+    @Test func breaksAreLeftOutOfTheWalkingTime() {
+        var tour = Self.tour([Self.a])
+        // Break 1: t0+600 … t0+900 = 300 s. Break 2: t0+2000 … t0+2100 = 100 s.
+        tour.pause(at: Self.t0 + 600)
+        // A second pause while one is open keeps the first start.
+        tour.pause(at: Self.t0 + 700)
+        tour.resume(at: Self.t0 + 900)
+        tour.pause(at: Self.t0 + 2000)
+        tour.resume(at: Self.t0 + 2100)
+        // A resume without a break changes nothing.
+        tour.resume(at: Self.t0 + 2500)
+        #expect(tour.pausedSeconds == 400)
+        #expect(tour.pausedSince == nil)
+        tour.skipNext()
+        let ended = tour.reachEnd(at: Self.origin, now: Self.t0 + 5860)
+        #expect(ended)
+        // 5860 − 400 = 5460 s walking.
+        #expect(tour.walkingSeconds == 5460)
+    }
+
+    @Test func anOpenBreakCountsUpToTheFinish() {
+        var tour = Self.tour([])
+        tour.pause(at: Self.t0 + 1000)
+        tour.finishedAt = Self.t0 + 1600
+        // 1600 − 0 − (1600 − 1000) = 1000 s.
+        #expect(tour.walkingSeconds == 1000)
+        // A break that "ends" before it began (clock back) adds nothing: 1000 − 1000 → max(0, −10) = 0.
+        var back = Self.tour([])
+        back.pause(at: Self.t0 + 1000)
+        back.resume(at: Self.t0 + 990)
+        #expect(back.pausedSeconds == 0)
+    }
+
+    @Test func noBreakStartsAfterTheFinish() {
+        var tour = Self.tour([])
+        tour.finishedAt = Self.t0 + 100
+        tour.pause(at: Self.t0 + 200)
+        #expect(tour.pausedSince == nil)
     }
 
     // MARK: - Age
@@ -242,6 +282,8 @@ import Testing
         tour.visited = ["a"]
         tour.skipped = ["b"]
         tour.finishedAt = Self.t0 + 4000
+        tour.pausedSeconds = 120
+        tour.pausedSince = Self.t0 + 3900
         let decoded = try JSONDecoder().decode(ActiveTour.self, from: JSONEncoder().encode(tour))
         #expect(decoded == tour)
     }
@@ -252,10 +294,29 @@ import Testing
         object["visited"] = nil
         object["skipped"] = nil
         object["finishedAt"] = nil
+        object["pausedSeconds"] = nil
+        object["pausedSince"] = nil
         let decoded = try JSONDecoder().decode(ActiveTour.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(decoded == tour)
         #expect(decoded.visited.isEmpty)
         #expect(decoded.finishedAt == nil)
+        #expect(decoded.pausedSeconds == 0)
+        #expect(decoded.pausedSince == nil)
+    }
+
+    @Test func aStopsCandidateIsKeptAndOptional() throws {
+        let place = Candidate(id: "a", name: "A", coordinate: Self.a.coordinate, kind: "historic=monument",
+                              summary: "A monument.", wikipediaTitle: "en:A", tags: ["historic": "monument"])
+        var stop = Self.a
+        stop.candidate = place
+        let decoded = try JSONDecoder().decode(TourStop.self, from: JSONEncoder().encode(stop))
+        #expect(decoded.candidate == place)
+        // A stop stored before the field existed decodes with none.
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(stop)) as? [String: Any])
+        object["candidate"] = nil
+        let old = try JSONDecoder().decode(TourStop.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(old.candidate == nil)
+        #expect(old.id == "a")
     }
 
     @Test func aStoreWithoutTheRouteDoesNotDecode() throws {
@@ -297,5 +358,191 @@ import Testing
 
     @Test func intervalIsThreeMinutes() {
         #expect(TourBuzzCadence.interval == 180)
+    }
+}
+
+
+@Suite struct TourStopDeliveryTests {
+    static let t0 = Date(timeIntervalSince1970: 3_000_000)
+    static func stop(_ id: String) -> TourStop {
+        TourStop(id: id, name: id, coordinate: Coordinate(latitude: 0, longitude: 0), tier: .good, score: 2)
+    }
+
+    @Test func deliversAtOnceWhenFree() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        let taken = delivery.take(now: Self.t0, busy: false)
+        #expect(taken.deliver == Self.stop("a"))
+        #expect(taken.dropped.isEmpty)
+        #expect(delivery.isEmpty)
+        #expect(delivery.lastDeliveredAt == Self.t0)
+        // Nothing held: nothing to hand out.
+        #expect(delivery.take(now: Self.t0 + 60, busy: false).deliver == nil)
+    }
+
+    @Test func waitsWhileBusy() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        #expect(delivery.take(now: Self.t0 + 10, busy: true).deliver == nil)
+        #expect(!delivery.isEmpty)
+        // Free again 100 s after arriving: delivered.
+        #expect(delivery.take(now: Self.t0 + 100, busy: false).deliver == Self.stop("a"))
+    }
+
+    @Test func dropsAfterThreeMinutesHeld() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        // Held 180 s: not more than 180 → kept (still busy).
+        #expect(delivery.take(now: Self.t0 + 180, busy: true).dropped.isEmpty)
+        // Held 181 s > 180 → dropped, even though nothing is busy now.
+        let taken = delivery.take(now: Self.t0 + 181, busy: false)
+        #expect(taken.deliver == nil)
+        #expect(taken.dropped.map(\.stop) == [Self.stop("a")])
+        #expect(taken.dropped.first?.since == Self.t0)
+        #expect(delivery.isEmpty)
+    }
+
+    @Test func thirtySecondsBetweenTwoStops() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        delivery.arrive(Self.stop("b"), at: Self.t0 + 5)
+        #expect(delivery.take(now: Self.t0 + 5, busy: false).deliver == Self.stop("a"))
+        // 29 s after a's buzz (t0+5 → t0+34): b waits; 30 s (t0+35): b goes.
+        #expect(delivery.take(now: Self.t0 + 34, busy: false).deliver == nil)
+        #expect(delivery.take(now: Self.t0 + 35, busy: false).deliver == Self.stop("b"))
+    }
+
+    @Test func oneStopPerTake() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        delivery.arrive(Self.stop("b"), at: Self.t0)
+        #expect(delivery.take(now: Self.t0, busy: false).deliver == Self.stop("a"))
+        #expect(delivery.held.map(\.stop) == [Self.stop("b")])
+    }
+
+    @Test func aClockSetBackDoesNotHoldTheNextStop() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        _ = delivery.take(now: Self.t0, busy: false)
+        delivery.arrive(Self.stop("b"), at: Self.t0 - 100)
+        #expect(delivery.take(now: Self.t0 - 100, busy: false).deliver == Self.stop("b"))
+    }
+
+    @Test func limits() {
+        #expect(TourStopDelivery.minimumGap == 30)
+        #expect(TourStopDelivery.maxHold == 180)
+    }
+}
+
+@Suite struct TourDistanceStepsTests {
+    static let t0 = Date(timeIntervalSince1970: 4_000_000)
+
+    @Test func theFirstStepShowsAtOnce() {
+        var steps = TourDistanceSteps()
+        #expect(steps.update(6, now: Self.t0) == 6)
+        #expect(steps.shown == 6)
+    }
+
+    @Test func aOneStepChangeWaitsTenSeconds() {
+        var steps = TourDistanceSteps()
+        _ = steps.update(6, now: Self.t0)
+        // 5 from t0+1: held 9 s at t0+10 → still 6; 10 s at t0+11 → 5.
+        #expect(steps.update(5, now: Self.t0 + 1) == 6)
+        #expect(steps.update(5, now: Self.t0 + 10) == 6)
+        #expect(steps.update(5, now: Self.t0 + 11) == 5)
+    }
+
+    @Test func flickeringAtAnEdgeStaysPut() {
+        var steps = TourDistanceSteps()
+        _ = steps.update(6, now: Self.t0)
+        // 5, back to 6, 5 again: each return to the shown step restarts the wait.
+        #expect(steps.update(5, now: Self.t0 + 1) == 6)
+        #expect(steps.update(6, now: Self.t0 + 8) == 6)
+        #expect(steps.update(5, now: Self.t0 + 9) == 6)
+        // Held from t0+9: at t0+15 only 6 s.
+        #expect(steps.update(5, now: Self.t0 + 15) == 6)
+        #expect(steps.update(5, now: Self.t0 + 19) == 5)
+    }
+
+    @Test func aTwoStepJumpShowsAtOnce() {
+        var steps = TourDistanceSteps()
+        _ = steps.update(6, now: Self.t0)
+        // |4 − 6| = 2 ≥ 2.
+        #expect(steps.update(4, now: Self.t0 + 1) == 4)
+        // |7 − 4| = 3.
+        #expect(steps.update(7, now: Self.t0 + 2) == 7)
+    }
+
+    @Test func aDifferentCandidateRestartsTheWait() {
+        var steps = TourDistanceSteps()
+        _ = steps.update(6, now: Self.t0)
+        _ = steps.update(5, now: Self.t0)
+        // 7 is one step from 6 too, a new candidate from t0+5; 5's wait is lost.
+        #expect(steps.update(7, now: Self.t0 + 5) == 6)
+        #expect(steps.update(7, now: Self.t0 + 14) == 6)
+        #expect(steps.update(7, now: Self.t0 + 15) == 7)
+    }
+
+    @Test func noDistanceStartsAfresh() {
+        var steps = TourDistanceSteps()
+        _ = steps.update(6, now: Self.t0)
+        #expect(steps.update(nil, now: Self.t0 + 1) == nil)
+        #expect(steps.update(5, now: Self.t0 + 2) == 5)
+    }
+}
+
+@Suite struct ActiveTourStoreTests {
+    static func store() -> ActiveTourStore {
+        ActiveTourStore(url: FileManager.default.temporaryDirectory
+            .appending(path: "ActiveTourStoreTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "ActiveTour.json"))
+    }
+
+    @Test func missingIsNil() throws {
+        #expect(try Self.store().load() == nil)
+    }
+
+    @Test func roundTrip() throws {
+        let store = Self.store()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        var tour = ActiveTourTests.tour([ActiveTourTests.a, ActiveTourTests.b])
+        tour.visited = ["a"]
+        try store.save(tour)
+        #expect(try store.load() == tour)
+        // A second save replaces the first.
+        tour.skipped = ["b"]
+        try store.save(tour)
+        #expect(try store.load() == tour)
+    }
+
+    @Test func corruptIsADecodingError() throws {
+        let store = Self.store()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: store.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"nope\": 1}".utf8).write(to: store.url)
+        #expect(throws: DecodingError.self) { try store.load() }
+    }
+
+    @Test func clearRemovesAndMissingDoesNotThrow() throws {
+        let store = Self.store()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        try store.clear()
+        try store.save(ActiveTourTests.tour([]))
+        try store.clear()
+        #expect(try store.load() == nil)
+        try store.clear()
+    }
+
+    @Test func anUnreadableFileIsNotTakenForMissing() throws {
+        // A directory where the file should be: reading fails with an error that is not "no such file".
+        let store = Self.store()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: store.url, withIntermediateDirectories: true)
+        #expect(throws: (any Error).self) { try store.load() }
+        do {
+            _ = try store.load()
+        } catch {
+            #expect(!(error is DecodingError))
+        }
     }
 }

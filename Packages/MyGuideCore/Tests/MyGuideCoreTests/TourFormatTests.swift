@@ -128,5 +128,23 @@ import Testing
             == "Tour finished · 6 stops · 1 h 31 min")
         // 1500 s / 60 = 25 min.
         #expect(TourFormat.finished(stops: 1, seconds: 1500, language: .english) == "Tour finished · 1 stop · 25 min")
+        // No stop visited: said as it is. 1500 s = 25 min.
+        #expect(TourFormat.finished(stops: 0, seconds: 1500, language: .norwegian)
+            == "Turen er avsluttet · ingen stopp besøkt · 25 min")
+        #expect(TourFormat.finished(stops: 0, seconds: 1500, language: .english) == "Tour ended · no stops visited · 25 min")
+    }
+
+    @Test func approachSteps() {
+        // 312 / 50 = 6.24 → 6; 326 / 50 = 6.52 → 7; 20 / 50 = 0.4 → 0 → at least 1.
+        #expect(TourFormat.approachStep(312) == 6)
+        #expect(TourFormat.approachStep(326) == 7)
+        #expect(TourFormat.approachStep(20) == 1)
+        // 1530 / 50 = 30.6 → 31.
+        #expect(TourFormat.approachStep(1530) == 31)
+        #expect(TourFormat.approachStep(0) == nil)
+        #expect(TourFormat.approachStep(-1) == nil)
+        #expect(TourFormat.approachStep(.nan) == nil)
+        // Capped at 1e7 m: 1e7 / 50 = 200 000.
+        #expect(TourFormat.approachStep(1e12) == 200_000)
     }
 }

@@ -55,11 +55,17 @@ public enum TourFormat {
     /// a kilometre in steps of 50 m («300 m»), at least «50 m» for a positive distance; from there in kilometres with
     /// one decimal («1,5 km»). Zero, negative or not finite → «0 m».
     public static func approachDistance(_ metres: Double, language: StoryLanguage) -> String {
-        guard metres.isFinite, metres > 0 else { return "0 m" }
-        let metres = min(metres, maxMetres)
-        let fifties = max(1, Int((metres / 50).rounded())) * 50
+        guard let step = approachStep(metres) else { return "0 m" }
+        let fifties = step * 50
         guard fifties >= 1000 else { return "\(fifties) m" }
-        return kilometres(metres, language: language)
+        return kilometres(min(metres, maxMetres), language: language)
+    }
+
+    /// The 50 m step `approachDistance` rounds to (at least 1; capped like `distance`); nil for zero, negative or not
+    /// finite. The watch's line changes only when this step does (`TourDistanceSteps`).
+    public static func approachStep(_ metres: Double) -> Int? {
+        guard metres.isFinite, metres > 0 else { return nil }
+        return max(1, Int((min(metres, maxMetres) / 50).rounded()))
     }
 
     /// «Neste: Pantheon · 300 m», or «Neste: Pantheon» without a distance (no position yet).
@@ -74,9 +80,15 @@ public enum TourFormat {
         "\(max(0, done)) \(language == .norwegian ? "av" : "of") \(max(0, total))"
     }
 
-    /// «Turen er ferdig · 6 stopp · 1 t 31 min».
+    /// «Turen er ferdig · 6 stopp · 1 t 31 min», the walking time without pauses. With no stop visited it says so
+    /// rather than calling the tour done: «Turen er avsluttet · ingen stopp besøkt · 25 min».
     public static func finished(stops count: Int, seconds: Double, language: StoryLanguage) -> String {
+        let time = duration(seconds, language: language)
+        guard count > 0 else {
+            return language == .norwegian ? "Turen er avsluttet · ingen stopp besøkt · \(time)"
+                                          : "Tour ended · no stops visited · \(time)"
+        }
         let head = language == .norwegian ? "Turen er ferdig" : "Tour finished"
-        return "\(head) · \(stops(count, language: language)) · \(duration(seconds, language: language))"
+        return "\(head) · \(stops(count, language: language)) · \(time)"
     }
 }
