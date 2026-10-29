@@ -21,9 +21,12 @@ public struct DiaryEntry: Sendable, Equatable, Identifiable {
     public var city: String?
     /// Photo stories and library photos.
     public var hasPhoto: Bool
+    /// A `.buzz` entry whose story the walker chose on the map rather than a buzz offered; it is listed and grouped
+    /// like a buzz and only labelled apart. False for every other entry.
+    public var isChosen: Bool
 
     public init(id: String, kind: Kind, time: Date, title: String, placeName: String?, coordinate: Coordinate?,
-                firstSentence: String?, city: String?, hasPhoto: Bool) {
+                firstSentence: String?, city: String?, hasPhoto: Bool, isChosen: Bool = false) {
         self.id = id
         self.kind = kind
         self.time = time
@@ -33,6 +36,7 @@ public struct DiaryEntry: Sendable, Equatable, Identifiable {
         self.firstSentence = firstSentence
         self.city = city
         self.hasPhoto = hasPhoto
+        self.isChosen = isChosen
     }
 }
 

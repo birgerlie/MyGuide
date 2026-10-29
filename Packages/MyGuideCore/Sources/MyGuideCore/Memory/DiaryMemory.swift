@@ -194,7 +194,7 @@ extension MemoryStore {
                 entries.append(DiaryEntry(
                     id: id, kind: .buzz, time: walk.createdAt, title: walk.title, placeName: placeName,
                     coordinate: coordinate, firstSentence: Self.firstSentence(of: walk.stories), city: city,
-                    hasPhoto: false))
+                    hasPhoto: false, isChosen: isChosen))
             } else {
                 entries.append(DiaryEntry(
                     id: id, kind: .stop, time: walk.createdAt, title: walk.title, placeName: nil,

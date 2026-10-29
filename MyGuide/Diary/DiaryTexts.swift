@@ -56,13 +56,21 @@ enum DiaryTexts {
         language == .norwegian ? "Dagsfortelling" : "Day story"
     }
 
-    /// The row's VoiceOver label: kind, title (and place), time; a library photo has its caption last.
-    static func rowLabel(kind: DiaryEntry.Kind, title: String, place: String?, caption: String?, time: String,
-                         _ language: StoryLanguage) -> String {
+    /// The kind shown on a walk story the walker chose on the map (a `.buzz` entry with `isChosen`).
+    static func chosenOnMap(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Valgt på kartet" : "Chosen on the map"
+    }
+
+    /// The row's VoiceOver label: kind, title (and place), time; a library photo has its caption last. A chosen walk
+    /// story says "Valgt på kartet" in place of "Turfortelling".
+    static func rowLabel(kind: DiaryEntry.Kind, isChosen: Bool = false, title: String, place: String?, caption: String?,
+                         time: String, _ language: StoryLanguage) -> String {
         let no = language == .norwegian
         switch kind {
         case .photoStory: return "\(no ? "Fotofortelling" : "Photo story"), \(title), \(time)"
-        case .buzz: return "\(no ? "Turfortelling" : "Walk story"), \(title)\(place.map { ", \($0)" } ?? ""), \(time)"
+        case .buzz:
+            let label = isChosen ? chosenOnMap(language) : (no ? "Turfortelling" : "Walk story")
+            return "\(label), \(title)\(place.map { ", \($0)" } ?? ""), \(time)"
         case .stop: return "\(no ? "Fortelling fra stopp" : "Stop story"), \(title), \(time)"
         case .libraryPhoto: return "\(photo(language)), \(time)\(caption.map { ", \($0)" } ?? "")"
         }

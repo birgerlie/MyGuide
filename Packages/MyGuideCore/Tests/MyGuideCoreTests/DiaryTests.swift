@@ -163,7 +163,7 @@ import Testing
         try logBuzz(Self.buzzStory(id: id, levels: ["Heard. More."], address: Address(city: "Wien")), heardLevel: 1)
         let entry = try #require(try store.diaryEntries().first)
         // The place is 100 m north, the walker 5 m north: the entry takes the place.
-        #expect(entry.kind == .buzz && entry.coordinate == .at(north: 100))
+        #expect(entry.kind == .buzz && entry.coordinate == .at(north: 100) && !entry.isChosen)
         #expect(entry.placeName == "Castle" && entry.title == "Buzz title")
         #expect(entry.firstSentence == "Heard." && entry.city == "Wien" && !entry.hasPhoto)
         #expect(entry.time == Self.t0 + 50)
@@ -317,7 +317,7 @@ import Testing
         try store.saveWalkStory(story, tripID: Self.trip)
         let entry = try #require(try store.diaryEntries().first)
         #expect(try store.diaryEntries().count == 1)
-        #expect(entry.id == "walk:\(id.uuidString)" && entry.kind == .buzz && !entry.hasPhoto)
+        #expect(entry.id == "walk:\(id.uuidString)" && entry.kind == .buzz && !entry.hasPhoto && entry.isChosen)
         #expect(entry.placeName == "Castle" && entry.coordinate == .at(north: 100))
         #expect(entry.firstSentence == "Asked for." && entry.city == "Wien")
     }

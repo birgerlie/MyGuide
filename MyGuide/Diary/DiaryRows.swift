@@ -52,8 +52,8 @@ struct DiaryDayHeader: View {
     private var hasPhoto: Bool { day.entries.contains(where: \.hasPhoto) }
 }
 
-/// One diary line. Photo story: thumbnail, title, time. Buzz: walking icon, title, place, time. Stop: pin icon,
-/// title, time. Library photo: thumbnail, time and its day-story caption when there is one.
+/// One diary line. Photo story: thumbnail, title, time. Buzz: walking icon, title, place, time; a story chosen on the
+/// map has the map icon and «Valgt på kartet» under its place. Stop: pin icon, title, time. Library photo: thumbnail, time and its day-story caption when there is one.
 struct DiaryRow: View {
     let entry: DiaryEntry
     let caption: String?
@@ -74,6 +74,9 @@ struct DiaryRow: View {
                     Text(entry.title).font(Theme.Font.bodyMedium).lineLimit(2)
                     if let place = entry.placeName, !place.isEmpty {
                         Text(place).font(Theme.Font.caption).opacity(0.75).lineLimit(1)
+                    }
+                    if entry.isChosen {
+                        Text(DiaryTexts.chosenOnMap(language)).font(Theme.Font.caption).opacity(0.75).lineLimit(1)
                     }
                 case .libraryPhoto:
                     if let caption, !caption.isEmpty {
@@ -112,7 +115,8 @@ struct DiaryRow: View {
                     .frame(width: 56, height: 56)
             }
         case .buzz:
-            icon("figure.walk")
+            // A chosen story keeps the walk's look, with the map's symbol: the icon is never its only sign.
+            icon(entry.isChosen ? "map" : "figure.walk")
         case .stop:
             icon("mappin.and.ellipse")
         }
@@ -127,7 +131,7 @@ struct DiaryRow: View {
     }
 
     private var accessibilityText: String {
-        DiaryTexts.rowLabel(kind: entry.kind, title: entry.title, place: entry.placeName, caption: caption,
-                            time: entry.time.formatted(date: .omitted, time: .shortened), language)
+        DiaryTexts.rowLabel(kind: entry.kind, isChosen: entry.isChosen, title: entry.title, place: entry.placeName,
+                            caption: caption, time: entry.time.formatted(date: .omitted, time: .shortened), language)
     }
 }
