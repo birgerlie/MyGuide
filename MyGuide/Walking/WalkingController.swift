@@ -895,7 +895,8 @@ final class WalkingController {
     }
 
     /// Brings the feed up to date through the shared nearby list (trigger `.walking`). `PlaceFeed` still gates when
-    /// this runs (250 m, and 60 s after a failure); the list then decides between:
+    /// this runs (250 m, 60 s after a failure, and 60 s after a list whose OpenStreetMap part failed); the list then
+    /// decides between:
     /// - a network refresh: walk log `fetchStarted`, then `fetched` or `fetchFailed`, as before;
     /// - its current list, when that is near and recent enough that it would not refresh (for example one the camera
     ///   just fetched here): the feed takes it, logged as `fetched` around the list's centre with no `fetchStarted`,
@@ -919,7 +920,8 @@ final class WalkingController {
                 if let list = await nearby.current(language: language), list.serves(walkerAt: position, now: .now),
                    self.runToken == run, !Task.isCancelled {
                     let places = list.walkingPlaces
-                    self.feed.fetchSucceeded(places, at: list.centre, now: .now)
+                    self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
+                                             fetchedAt: list.fetchedAt)
                     self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed))
                 } else if self.runToken == run {
                     self.feed.fetchCancelled()
@@ -940,7 +942,8 @@ final class WalkingController {
                 // A refresh already under way (the camera's) is joined; its list is centred where that one started.
                 self.onListRefreshed?(list)
                 let places = list.walkingPlaces
-                self.feed.fetchSucceeded(places, at: list.centre, now: .now)
+                self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
+                                         fetchedAt: list.fetchedAt)
                 self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
                 // A real failure waits 60 s before the next try.
