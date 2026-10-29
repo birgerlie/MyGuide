@@ -313,4 +313,13 @@ import Testing
         #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)
         #expect(QuietReason.tourCadence.rawValue == "tourCadence")
     }
+
+    @Test func tourStopHeldQuietLineRoundTrips() {
+        let event = WalkLogEvent(at: Date(timeIntervalSince1970: 1_000_000), kind: .quiet(.tourStopHeld, due: []))
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)
+        #expect(QuietReason.tourStopHeld.rawValue == "tourStopHeld")
+        // Additive: the cases written by earlier builds keep their raw values and order.
+        #expect(QuietReason.allCases.map(\.rawValue) == ["badAccuracy", "noneDue", "busy", "skipQuiet", "allExcluded",
+                                                          "budget", "tourCadence", "tourStopHeld"])
+    }
 }

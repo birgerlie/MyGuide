@@ -3,10 +3,11 @@ import Foundation
 /// A tour being walked (tours spec 6, 7): the routed tour, when it started, the stops visited and skipped, and when the
 /// walker reached its end. Stored as JSON in Application Support and restored at launch.
 ///
-/// Stops are taken in plan order: `next` is the first stop neither visited nor skipped, and only it can be arrived at,
-/// so two stops close together are taken one per fix.
+/// `next` is the first stop neither visited nor skipped, in plan order. Any such undone stop can be arrived at, so a
+/// walker who passes stop 3 before stop 2 hears stop 3 and still has stop 2 next; two stops close together are taken
+/// one per fix, in plan order.
 public struct ActiveTour: Sendable, Equatable, Codable {
-    /// Within this many metres of the next stop the walker has arrived (the buzz engine's due radius); the same for
+    /// Within this many metres of an undone stop the walker has arrived (the buzz engine's due radius); the same for
     /// the end.
     public static let arrivalRadius = 60.0
     /// A tour started longer ago than this (12 h) is not restored: it was left behind, not paused.
@@ -88,14 +89,22 @@ public struct ActiveTour: Sendable, Equatable, Codable {
         pausedSince = nil
     }
 
-    /// Marks `next` visited and returns it when `position` is within `arrivalRadius` of it (inclusive); else nil.
-    /// Never more than one stop per call. Nothing after the finish.
+    /// Marks visited and returns the first undone stop, in plan order, within `arrivalRadius` of `position`
+    /// (inclusive); else nil. It need not be `next`. Never more than one stop per call. Nothing after the finish.
     public mutating func arrive(at position: Coordinate, now: Date) -> TourStop? {
-        guard !isFinished, let next, GeoMath.distance(position, next.coordinate) <= Self.arrivalRadius else {
-            return nil
-        }
-        visited.append(next.id)
-        return next
+        guard !isFinished,
+              let stop = stops.first(where: { !isDone($0.id)
+                  && GeoMath.distance(position, $0.coordinate) <= Self.arrivalRadius }) else { return nil }
+        visited.append(stop.id)
+        return stop
+    }
+
+    /// Makes visited stops undone again, so they can be arrived at once more: their buzz never went out (dropped
+    /// after the hold, or walking mode stopped while it waited). Ids not visited are ignored. Nothing after the
+    /// finish: a finished tour stays as it was walked.
+    public mutating func reopen(_ ids: [String]) {
+        guard !isFinished else { return }
+        visited.removeAll { ids.contains($0) }
     }
 
     /// Skips `next`; nothing when every stop is done.
@@ -154,8 +163,10 @@ public struct ActiveTour: Sendable, Equatable, Codable {
 }
 
 /// The buzzes of stops the walker has arrived at, in arrival order (tours spec 6). A stop waits while a story is
-/// preparing or playing, and at least `minimumGap` after the previous stop's buzz; one held longer than `maxHold` is
-/// dropped (the place is far behind by then). The stop was marked visited on arrival either way.
+/// preparing or playing, and at least `minimumGap` after the previous stop's buzz. Its hold timer runs only while the
+/// story engine is free: it starts at the first `take` that is not busy and starts again after a busy one. One held
+/// longer than `maxHold` by that timer is dropped (the place is far behind by then); the caller makes a dropped stop
+/// undone again (`ActiveTour.reopen`), so it can buzz when it is reached again.
 public struct TourStopDelivery: Sendable, Equatable {
     /// 30 s between two stop buzzes.
     public static let minimumGap: TimeInterval = 30
@@ -164,7 +175,10 @@ public struct TourStopDelivery: Sendable, Equatable {
 
     public struct Held: Sendable, Equatable {
         public var stop: TourStop
+        /// When the walker arrived.
         public var since: Date
+        /// Since when the story engine has been free for it; nil while busy, and before the first `take`.
+        public var freeSince: Date?
     }
 
     public private(set) var held: [Held] = []
@@ -176,22 +190,36 @@ public struct TourStopDelivery: Sendable, Equatable {
 
     /// Holds `stop`, arrived at `now`, for `take`.
     public mutating func arrive(_ stop: TourStop, at now: Date) {
-        held.append(Held(stop: stop, since: now))
+        held.append(Held(stop: stop, since: now, freeSince: nil))
     }
 
-    /// First drops every stop held longer than `maxHold` (strictly) and returns them; then, when nothing is busy and
-    /// `minimumGap` has passed since the last delivery (inclusive; a clock set back counts as passed), hands out the
-    /// oldest stop still held and counts it as delivered at `now`.
+    /// While `busy`, stops only the hold timers and hands out nothing. Else starts the timers that are not running,
+    /// drops and returns every stop held free longer than `maxHold` (strictly), then, when `minimumGap` has passed
+    /// since the last delivery (inclusive; a clock set back counts as passed), hands out the oldest stop still held
+    /// and counts it as delivered at `now`.
     public mutating func take(now: Date, busy: Bool) -> (deliver: TourStop?, dropped: [Held]) {
-        let dropped = held.filter { now.timeIntervalSince($0.since) > Self.maxHold }
-        held.removeAll { now.timeIntervalSince($0.since) > Self.maxHold }
-        guard !busy, !held.isEmpty else { return (nil, dropped) }
+        guard !busy else {
+            for index in held.indices { held[index].freeSince = nil }
+            return (nil, [])
+        }
+        for index in held.indices where held[index].freeSince == nil { held[index].freeSince = now }
+        let expired: (Held) -> Bool = { now.timeIntervalSince($0.freeSince ?? now) > Self.maxHold }
+        let dropped = held.filter(expired)
+        held.removeAll(where: expired)
+        guard !held.isEmpty else { return (nil, dropped) }
         if let lastDeliveredAt {
             let since = now.timeIntervalSince(lastDeliveredAt)
             guard since < 0 || since >= Self.minimumGap else { return (nil, dropped) }
         }
         lastDeliveredAt = now
         return (held.removeFirst().stop, dropped)
+    }
+
+    /// Empties the queue and returns what it held, oldest first (walking mode stops: the caller makes the stops
+    /// undone again). The last delivery's time is kept.
+    public mutating func removeAll() -> [Held] {
+        defer { held = [] }
+        return held
     }
 }
 

@@ -82,14 +82,81 @@ import Testing
 
     @Test func doesNotArriveFartherThan60Metres() {
         var tour = Self.tour([Self.a, Self.b, Self.c])
-        // 439.9 m north: 500 − 439.9 = 60.1 m from a > 60 → nothing.
+        // 439.9 m north: 500 − 439.9 = 60.1 m from a > 60, and 560.1 m from b → nothing.
         let arrival1 = tour.arrive(at: Self.north(439.9), now: Self.t0)
         #expect(arrival1 == nil)
-        // At b itself (1000 m): b is not next, so nothing either.
-        let arrival2 = tour.arrive(at: Self.north(1000), now: Self.t0)
+        // 1060.1 m north: 60.1 m past b, 439.9 m before c → nothing.
+        let arrival2 = tour.arrive(at: Self.north(1060.1), now: Self.t0)
         #expect(arrival2 == nil)
         #expect(tour.visited.isEmpty)
         #expect(tour.next == Self.a)
+    }
+
+    @Test func aStopPassedOutOfOrderIsVisitedAndNextStays() {
+        var tour = Self.tour([Self.a, Self.b, Self.c])
+        // At a (500 m): a.
+        #expect(tour.arrive(at: Self.north(500), now: Self.t0) == Self.a)
+        // 1450 m north: 50 m from c ≤ 60, 450 m from b → c, though b is next; b stays next.
+        let third = tour.arrive(at: Self.north(1450), now: Self.t0 + 600)
+        #expect(third == Self.c)
+        #expect(tour.visited == ["a", "c"])
+        #expect(tour.next == Self.b)
+        #expect(tour.progress == (done: 2, total: 3))
+        // c again: already visited, nothing.
+        #expect(tour.arrive(at: Self.north(1500), now: Self.t0 + 610) == nil)
+        // Back at b (1000 m): b, and every stop is done.
+        #expect(tour.arrive(at: Self.north(1000), now: Self.t0 + 1200) == Self.b)
+        #expect(tour.visited == ["a", "c", "b"])
+        #expect(tour.next == nil)
+    }
+
+    @Test func twoUndoneStopsAheadOfNextAreTakenOnePerCallInPlanOrder() {
+        // b at 1000 m and d at 1040 m, both after a. At 1020 m the walker is 20 m from b and from d, 520 m from a.
+        let d = Self.stop("d", Self.north(1040))
+        var tour = Self.tour([Self.a, Self.b, d])
+        #expect(tour.arrive(at: Self.north(1020), now: Self.t0) == Self.b)
+        #expect(tour.visited == ["b"])
+        #expect(tour.next == Self.a)
+        #expect(tour.arrive(at: Self.north(1020), now: Self.t0 + 5) == d)
+        #expect(tour.visited == ["b", "d"])
+        #expect(tour.arrive(at: Self.north(1020), now: Self.t0 + 10) == nil)
+        #expect(tour.next == Self.a)
+    }
+
+    // MARK: - Reopen
+
+    @Test func aReopenedStopIsUndoneAndCanBeArrivedAtAgain() {
+        var tour = Self.tour([Self.a, Self.b, Self.c])
+        _ = tour.arrive(at: Self.north(500), now: Self.t0)
+        _ = tour.arrive(at: Self.north(1000), now: Self.t0 + 600)
+        #expect(tour.next == Self.c)
+        tour.reopen(["a"])
+        #expect(tour.visited == ["b"])
+        #expect(tour.next == Self.a)
+        #expect(tour.progress == (done: 1, total: 3))
+        #expect(tour.arrive(at: Self.north(500), now: Self.t0 + 900) == Self.a)
+        #expect(tour.visited == ["b", "a"])
+    }
+
+    @Test func reopenIgnoresIdsNotVisitedAndLeavesSkipsAlone() {
+        var tour = Self.tour([Self.a, Self.b, Self.c])
+        tour.skipNext()
+        _ = tour.arrive(at: Self.north(1000), now: Self.t0)
+        tour.reopen(["a", "c", "zzz"])
+        #expect(tour.skipped == ["a"])
+        #expect(tour.visited == ["b"])
+        tour.reopen([])
+        #expect(tour.visited == ["b"])
+    }
+
+    @Test func nothingIsReopenedAfterTheFinish() {
+        var tour = Self.tour([Self.a])
+        _ = tour.arrive(at: Self.north(500), now: Self.t0)
+        let finished = tour.reachEnd(at: Self.origin, now: Self.t0 + 900)
+        #expect(finished)
+        tour.reopen(["a"])
+        #expect(tour.visited == ["a"])
+        #expect(tour.next == nil)
     }
 
     @Test func aPositionThatIsNotFiniteNeverArrives() {
@@ -126,7 +193,7 @@ import Testing
         #expect(tour.skipped == ["a"])
         #expect(tour.next == Self.b)
         #expect(tour.progress == (done: 1, total: 2))
-        // A skipped stop is never arrived at: 0 m from a, but b (500 m on) is next.
+        // A skipped stop is never arrived at: 0 m from a, and b is 500 m on.
         let arrival1 = tour.arrive(at: Self.a.coordinate, now: Self.t0)
         #expect(arrival1 == nil)
         tour.skipNext()
@@ -389,16 +456,104 @@ import Testing
         #expect(delivery.take(now: Self.t0 + 100, busy: false).deliver == Self.stop("a"))
     }
 
-    @Test func dropsAfterThreeMinutesHeld() {
+    @Test func theHoldTimerStartsWhenTheEngineIsFreeNotAtArrival() {
         var delivery = TourStopDelivery()
         delivery.arrive(Self.stop("a"), at: Self.t0)
-        // Held 180 s: not more than 180 → kept (still busy).
-        #expect(delivery.take(now: Self.t0 + 180, busy: true).dropped.isEmpty)
-        // Held 181 s > 180 → dropped, even though nothing is busy now.
-        let taken = delivery.take(now: Self.t0 + 181, busy: false)
+        // Busy for 10 min (a long story): never dropped while busy.
+        #expect(delivery.take(now: Self.t0 + 10, busy: true) == (nil, []))
+        #expect(delivery.take(now: Self.t0 + 600, busy: true).dropped.isEmpty)
+        #expect(delivery.held.first?.freeSince == nil)
+        // Free at t0+601: 601 s after arriving, but 0 s free ≤ 180 → delivered, not dropped.
+        let taken = delivery.take(now: Self.t0 + 601, busy: false)
+        #expect(taken.deliver == Self.stop("a"))
+        #expect(taken.dropped.isEmpty)
+    }
+
+    @Test func dropsAfterThreeMinutesFree() {
+        // a and b arrive at t0; a goes at once, b's timer starts free at t0. No take runs until later (paused).
+        func twoStops() -> TourStopDelivery {
+            var delivery = TourStopDelivery()
+            delivery.arrive(Self.stop("a"), at: Self.t0)
+            delivery.arrive(Self.stop("b"), at: Self.t0)
+            _ = delivery.take(now: Self.t0, busy: false)
+            return delivery
+        }
+        // t0+180: free 180 s, not more than 180 → kept, and 180 ≥ 30 s since a → delivered.
+        var kept = twoStops()
+        #expect(kept.take(now: Self.t0 + 180, busy: false) == (Self.stop("b"), []))
+        // t0+181: free 181 s > 180 → dropped, nothing delivered.
+        var late = twoStops()
+        let taken = late.take(now: Self.t0 + 181, busy: false)
         #expect(taken.deliver == nil)
-        #expect(taken.dropped.map(\.stop) == [Self.stop("a")])
+        #expect(taken.dropped.map(\.stop) == [Self.stop("b")])
         #expect(taken.dropped.first?.since == Self.t0)
+        #expect(taken.dropped.first?.freeSince == Self.t0)
+        #expect(late.isEmpty)
+    }
+
+    @Test func aBusyTakeStartsTheTimerAgain() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        delivery.arrive(Self.stop("b"), at: Self.t0)
+        _ = delivery.take(now: Self.t0, busy: false)
+        // b free since t0; busy at t0+100 stops its timer.
+        _ = delivery.take(now: Self.t0 + 100, busy: true)
+        // Free again at t0+290: 290 s since arrival, 0 s on the new timer → delivered.
+        #expect(delivery.take(now: Self.t0 + 290, busy: false) == (Self.stop("b"), []))
+    }
+
+    @Test func removeAllHandsBackTheHeldStopsInArrivalOrder() {
+        var delivery = TourStopDelivery()
+        delivery.arrive(Self.stop("a"), at: Self.t0)
+        _ = delivery.take(now: Self.t0, busy: false)
+        delivery.arrive(Self.stop("b"), at: Self.t0 + 5)
+        delivery.arrive(Self.stop("c"), at: Self.t0 + 6)
+        let unsent = delivery.removeAll()
+        #expect(unsent.map(\.stop) == [Self.stop("b"), Self.stop("c")])
+        #expect(unsent.map(\.since) == [Self.t0 + 5, Self.t0 + 6])
+        #expect(delivery.isEmpty)
+        #expect(delivery.lastDeliveredAt == Self.t0)
+        #expect(delivery.removeAll().isEmpty)
+    }
+
+    // MARK: - With the tour (the controller's rule: a stop whose buzz never went out is undone again)
+
+    @Test func aDroppedStopIsUndoneAndBuzzesWhenReachedAgain() throws {
+        let a = ActiveTourTests.a, b = ActiveTourTests.b
+        var tour = ActiveTourTests.tour([a, b])
+        var delivery = TourStopDelivery()
+        let t0 = ActiveTourTests.t0
+        // Arrive at a and b (one per fix); a goes at once, b waits for the 30 s gap, then walking mode is paused.
+        let atA = tour.arrive(at: ActiveTourTests.north(500), now: t0)
+        delivery.arrive(try #require(atA), at: t0)
+        #expect(delivery.take(now: t0, busy: false).deliver == a)
+        let atB = tour.arrive(at: ActiveTourTests.north(1000), now: t0 + 1)
+        delivery.arrive(try #require(atB), at: t0 + 1)
+        #expect(delivery.take(now: t0 + 1, busy: false).deliver == nil)
+        #expect(tour.next == nil)
+        // Taken again 181 s after b's timer started (t0+1 → t0+182): dropped, and undone in the tour.
+        let taken = delivery.take(now: t0 + 182, busy: false)
+        #expect(taken.dropped.map(\.stop) == [b])
+        tour.reopen(taken.dropped.map(\.stop.id))
+        #expect(tour.visited == ["a"])
+        #expect(tour.next == b)
+        // Reached again: arrives and is held once more.
+        let again = tour.arrive(at: ActiveTourTests.north(1000), now: t0 + 600)
+        #expect(again == b)
+    }
+
+    @Test func stoppingKeepsHeldStopsUnvisited() throws {
+        let a = ActiveTourTests.a, b = ActiveTourTests.b
+        var tour = ActiveTourTests.tour([a, b])
+        var delivery = TourStopDelivery()
+        let t0 = ActiveTourTests.t0
+        let atA = tour.arrive(at: ActiveTourTests.north(500), now: t0)
+        delivery.arrive(try #require(atA), at: t0)
+        // Busy (a story plays) when walking mode stops: a never buzzed.
+        #expect(delivery.take(now: t0 + 10, busy: true).deliver == nil)
+        tour.reopen(delivery.removeAll().map(\.stop.id))
+        #expect(tour.visited.isEmpty)
+        #expect(tour.next == a)
         #expect(delivery.isEmpty)
     }
 

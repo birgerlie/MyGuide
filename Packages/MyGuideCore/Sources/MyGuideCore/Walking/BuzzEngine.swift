@@ -25,10 +25,11 @@ extension Buzz {
     }
 }
 
-/// Why the engine did not buzz (design 4.3), in the order the reasons are checked. `tourCadence` is not the engine's:
-/// the app did not ask it, because a tour's 3-minute cadence holds buzzes back (`TourBuzzCadence`).
+/// Why the engine did not buzz (design 4.3), in the order the reasons are checked. `tourCadence` and `tourStopHeld`
+/// are not the engine's: the app did not ask it, because a tour's 3-minute cadence holds buzzes back
+/// (`TourBuzzCadence`), or because a tour stop arrived at waits for its own buzz (`TourStopDelivery`).
 public enum QuietReason: String, Sendable, Codable, CaseIterable {
-    case badAccuracy, noneDue, busy, skipQuiet, allExcluded, budget, tourCadence
+    case badAccuracy, noneDue, busy, skipQuiet, allExcluded, budget, tourCadence, tourStopHeld
 }
 
 /// A place that is due (within the due/drop radius) at the moment of a decision.
