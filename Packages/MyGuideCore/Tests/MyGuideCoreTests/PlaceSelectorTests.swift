@@ -217,7 +217,8 @@ import Testing
         #expect(s.isHolding)
         // Well past the old 20 s, and turned far past the old 60° (to 179°, then 299° = −61°).
         #expect(s.update(Self.input(vs, heading: 0, t: 600)).placeID == "back")
-        #expect(s.update(Self.input(vs, heading: 179, t: 601)).placeID == "back")
+        // Heading 10: front (offset −10) is the in-angle winner and back (offset 170) is far outside; still back.
+        #expect(s.update(Self.input(vs, heading: 10, t: 601)).placeID == "back")
         #expect(s.update(Self.input(vs, heading: 299, t: 602)).placeID == "back")
         // Resumed at t = 610: the dwell starts afresh at the next update; 610 + 1.4 keeps, 610 + 1.5 switches.
         s.resumeAutomatic()
@@ -249,6 +250,65 @@ import Testing
         // A list without the held place ends the hold; the first selection then takes effect at once.
         #expect(s.update(Self.input([Self.v("front", d: 30, b: 0)], heading: 0, t: 5)).placeID == "front")
         #expect(!s.isHolding)
+    }
+
+    @Test func resumeWithoutAHoldKeepsAChallengersDwell() {
+        // Current 100 m ahead; challenger 84 m in angle beats 100 − max(15, 10) = 85 from t = 1.
+        let cur = Self.v("cur", d: 100, b: 0)
+        let both = [cur, Self.v("ch", d: 84, b: 10)]
+        var s = PlaceSelector()
+        #expect(s.update(Self.input([cur], heading: 0, t: 0)).placeID == "cur")
+        #expect(s.update(Self.input(both, heading: 0, t: 1)).placeID == "cur")
+        s.resumeAutomatic()                                                   // no hold: the dwell from t = 1 goes on
+        #expect(s.update(Self.input(both, heading: 0, t: 2.4)).placeID == "cur")   // 1.4 < 1.5
+        #expect(s.update(Self.input(both, heading: 0, t: 2.5)).placeID == "ch")    // 1.5 ≥ 1.5
+    }
+
+    @Test func resumeAfterAPoorFixSelectsTheWinnerAtOnce() {
+        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
+        var s = PlaceSelector()
+        _ = s.update(Self.input(vs, heading: 0, t: 0))
+        _ = s.choose(placeID: "back", Self.input(vs, heading: 0, t: 0))
+        #expect(s.update(Self.input(vs, heading: 0, pAcc: 60, t: 1)) == .uncertainPosition)   // no current place
+        s.resumeAutomatic()
+        // No current place and no hold: the first selection takes effect at once, no dwell.
+        #expect(s.update(Self.input(vs, heading: 0, t: 2)).placeID == "front")
+    }
+
+    @Test func aTapWithAPoorFixIsIgnoredAndTheOldHoldStays() {
+        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
+        var s = PlaceSelector()
+        _ = s.update(Self.input(vs, heading: 0, t: 0))
+        _ = s.choose(placeID: "back", Self.input(vs, heading: 0, t: 0))
+        #expect(s.choose(placeID: "front", Self.input(vs, heading: 0, pAcc: 60, t: 1)) == .uncertainPosition)
+        #expect(s.isHolding)
+        #expect(s.update(Self.input(vs, heading: 0, t: 2)).placeID == "back")
+    }
+
+    @Test func aBuzzSelectsWithoutAHold() {
+        // Spec 12.2 ruling: the buzzed place (back, 60 m behind) is selected at once but not held. Front (30 m, in
+        // angle) then replaces it after a full dwell: it qualifies from t = 1, so 2.4 keeps and 2.5 switches.
+        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
+        var s = PlaceSelector()
+        _ = s.update(Self.input(vs, heading: 0, t: 0))
+        #expect(s.choose(placeID: "back", hold: false, Self.input(vs, heading: 0, t: 0)).placeID == "back")
+        #expect(!s.isHolding)
+        #expect(s.update(Self.input(vs, heading: 0, t: 1)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 0, t: 2.4)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 0, t: 2.5)).placeID == "front")
+    }
+
+    @Test func aBuzzEndsAnEarlierTapHold() {
+        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180), Self.v("side", d: 40, b: 90)]
+        var s = PlaceSelector()
+        _ = s.update(Self.input(vs, heading: 0, t: 0))
+        _ = s.choose(placeID: "side", Self.input(vs, heading: 0, t: 0))
+        #expect(s.choose(placeID: "back", hold: false, Self.input(vs, heading: 0, t: 1)).placeID == "back")
+        #expect(!s.isHolding)
+        // Front beats back from t = 2; side is not brought back by the old hold. 3.4 keeps, 3.5 switches.
+        #expect(s.update(Self.input(vs, heading: 0, t: 2)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 0, t: 3.4)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 0, t: 3.5)).placeID == "front")
     }
 
     @Test func choosingAnotherPlaceMovesTheHold() {

@@ -29,6 +29,26 @@ public enum WalkingReadiness {
         return problems
     }
 
+    /// A problem from `problems` in the story language: the English text itself, or its Norwegian version. A text
+    /// that is not one of `problems`' is returned unchanged.
+    public static func localized(_ problem: String, language: StoryLanguage) -> String {
+        guard language == .norwegian else { return problem }
+        return norwegian[problem] ?? problem
+    }
+
+    private static let norwegian: [String: String] = [
+        "Location is off for MyGuide. Turn it on in Settings to use walking mode.":
+            "Posisjon er slått av for MyGuide. Slå den på i Innstillinger for å bruke gåmodus.",
+        "Allow location “Always” so walking mode keeps working with the phone locked.":
+            "Tillat posisjon «Alltid», så virker gåmodus også med telefonen låst.",
+        "Notifications are off, so MyGuide can't buzz you. Turn them on in Settings.":
+            "Varsler er slått av, så MyGuide kan ikke gi deg beskjed. Slå dem på i Innstillinger.",
+        "Turn on Time Sensitive notifications for MyGuide so buzzes get through Focus.":
+            "Slå på tidsensitive varsler for MyGuide, så kommer varslene gjennom Fokus.",
+        "Add your OpenAI API key in Settings first.":
+            "Legg inn OpenAI-nøkkelen din i Innstillinger først.",
+    ]
+
     /// Whether walking mode may start. "Always" missing does not block (it still works while the app is in use),
     /// and neither does Time Sensitive being off (buzzes still arrive outside Focus); a denied location or
     /// notifications, or a missing key, do. `.notDetermined` does not block here: the controller asks first.

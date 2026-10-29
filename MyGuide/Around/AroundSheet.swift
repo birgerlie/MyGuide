@@ -123,6 +123,9 @@ struct AroundSheet: View {
         case .selected(let selected):
             AroundPlaceCard(selected: selected, stories: walking.stories, placeImages: placeImages,
                             language: language, listen: model.listen, open: openSelected, takePhoto: openCamera)
+                // A new place is a new card: its picture state starts empty, so the old picture never shows with the
+                // new name.
+                .id(selected.vector.place.candidate.id)
         case let state:
             AroundCardStateView(state: state, language: language, takePhoto: openCamera)
         }
@@ -165,7 +168,7 @@ struct AroundSheet: View {
         }
         // The first thing that keeps walking mode from starting, or that it lacks while on (e.g. location Always).
         if let problem = walking.problems.first {
-            Label(problem, systemImage: "exclamationmark.triangle")
+            Label(WalkingReadiness.localized(problem, language: language), systemImage: "exclamationmark.triangle")
                 .font(Theme.Font.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

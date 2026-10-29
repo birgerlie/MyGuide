@@ -38,12 +38,13 @@ struct WalkingPanel: View {
                     Label(AroundTexts.pause(language), systemImage: "pause.fill")
                 }
                 .buttonStyle(.themeSecondary)
+                // Secondary, not forest: ending the walk is not the main action here.
                 Button {
                     walking.stop()
                 } label: {
                     Label(AroundTexts.stopWalk(language), systemImage: "stop.fill")
                 }
-                .buttonStyle(.themePrimary(.forest))
+                .buttonStyle(.themeSecondary)
             }
         }
         .foregroundStyle(Theme.Colour.text)

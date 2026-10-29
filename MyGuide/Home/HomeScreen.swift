@@ -179,6 +179,7 @@ struct HomeScreen: View {
         Button(action: openCamera) {
             VStack(spacing: 6) {
                 Image(systemName: "camera.fill")
+                    .accessibilityHidden(true)
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(Theme.Colour.forest)
                     .frame(width: 72, height: 72)
@@ -193,13 +194,12 @@ struct HomeScreen: View {
                     .background(Theme.Colour.ivory, in: Capsule())
                     .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
                     .fixedSize()
+                    .accessibilityHidden(true)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(AroundTexts.cameraLabel(storyLanguage))
-        .accessibilityAddTraits(.isButton)
         .padding(.trailing, Theme.Spacing.margin)
         .padding(.bottom, Theme.Spacing.margin)
     }
@@ -328,7 +328,7 @@ struct HomeScreen: View {
                 path.append(.photoStory)
             } catch {
                 AppServices.logMemoryFailure("open session failed", error)
-                errorText = HistoryView.corruptText
+                errorText = AroundTexts.openFailedMessage(storyLanguage)
             }
         }
     }

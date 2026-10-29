@@ -201,20 +201,20 @@ final class AroundModel {
         update(now: now)
     }
 
-    /// Spec 12.2: a buzz while the app is active makes the buzzed place the explicit selection, so the map and the
-    /// notification agree. Marked seen only once it was selected; until then (no fix, the place not in the list yet,
+    /// Spec 12.2: a buzz while the app is active makes the buzzed place the selection at once, so the map and the
+    /// notification agree. It is not held (controller ruling): the normal rules and dwell apply from the next update. Marked seen only once it was selected; until then (no fix, the place not in the list yet,
     /// the app not active) it is tried again on each tick. A newer buzz replaces it.
     private func selectBuzzedPlace() {
         guard let buzz = services.walking.lastBuzz, buzz.at != seenBuzzAt,
               UIApplication.shared.applicationState == .active else { return }
-        if select(buzz.placeID, now: .now) { seenBuzzAt = buzz.at }
+        if select(buzz.placeID, hold: false, now: .now) { seenBuzzAt = buzz.at }
     }
 
-    /// Explicit selection through the selector; true when `placeID` is now the selected place (a usable fix and the
-    /// place in the list). Without a fix the selection is left as it is.
-    private func select(_ placeID: String, now: Date) -> Bool {
+    /// Explicit selection through the selector, held for a tap (`hold`) and not for a buzz; true when `placeID` is
+    /// now the selected place (a usable fix and the place in the list). Without a fix the selection is left as it is.
+    private func select(_ placeID: String, hold: Bool = true, now: Date) -> Bool {
         guard let input = input(now: now) else { return false }
-        let state = selector.choose(placeID: placeID, input)
+        let state = selector.choose(placeID: placeID, hold: hold, input)
         assign(selection: state)
         lastUpdateAt = now
         if case .selected(let selected) = state { return selected.vector.place.candidate.id == placeID }

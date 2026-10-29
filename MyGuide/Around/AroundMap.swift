@@ -5,8 +5,8 @@ import SwiftUI
 /// The «Rundt deg» map (spec 5, 14, 16): MapKit muted and flat, without Apple's points of interest; the owner's dot
 /// with a view cone while the heading is reliable, and an accuracy circle while the fix is too poor to select from;
 /// the notify-worthy places as forest markers and the selected one as a coral pin. A tap on a marker chooses it.
-/// On the first fix the map frames about `ownerSpan` metres around the owner, once. After that it never re-centres
-/// by itself: panning and zooming are the owner's (spec 16.2). The round locate button re-centres, follows the owner
+/// On the first fix the map frames about `ownerSpan` metres around the owner, once, and follows them from there
+/// until they pan or zoom by hand (spec 16.2); then it never re-centres by itself. The round locate button re-centres, follows the owner
 /// again and resumes automatic selection (spec 16.1); MapKit's compass sits above it.
 struct AroundMap: View {
     let model: AroundModel
@@ -20,6 +20,9 @@ struct AroundMap: View {
     @State private var cameraHeading: CLLocationDirection = 0
     /// Set once the first fix has been framed, so later fixes never move the map.
     @State private var framedOwner = false
+    /// True from the first framing and after locate, until the owner pans or zooms by hand.
+    @State private var following = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var mapScope
 
     var body: some View {
@@ -52,11 +55,7 @@ struct AroundMap: View {
                 .overlay(alignment: .topTrailing) { controls }
         }
         .mapScope(mapScope)
-        .onChange(of: model.position, initial: true) { _, position in
-            guard !framedOwner, let position else { return }
-            framedOwner = true
-            self.position = .region(Self.region(around: position))
-        }
+        .onChange(of: model.position, initial: true) { _, position in follow(position) }
     }
 
     private var controls: some View {
@@ -78,21 +77,35 @@ struct AroundMap: View {
         .padding(.top, Theme.Spacing.unit)
     }
 
-    /// Re-centres on the owner at the framing span, then follows them (MapKit keeps that zoom while following);
-    /// automatic selection resumes. Following ends again when the owner pans.
+    /// Re-centres on the owner at the framing span and follows them again; automatic selection resumes.
     private func locate() {
         model.resumeAutomatic()
-        guard let centre = model.position else {
-            position = .userLocation(fallback: .automatic)
+        following = true
+        if let centre = model.position { frame(centre, animated: !reduceMotion) }
+    }
+
+    /// While following, each new position re-centres the map at the framing span. MapKit's own `.userLocation`
+    /// following is not used: switching to it resets the zoom to MapKit's city-wide default (seen in the simulator).
+    private func follow(_ position: Coordinate?) {
+        guard let position else { return }
+        if !framedOwner {
+            framedOwner = true
+            following = true
+            frame(position, animated: false)
             return
         }
-        let framed = Self.region(around: centre)
-        withAnimation { position = .region(framed) }
-        Task { @MainActor in
-            // After the re-centring animation, unless the owner has taken the map meanwhile.
-            try? await Task.sleep(for: .milliseconds(700))
-            guard !position.positionedByUser else { return }
-            position = .userLocation(followsHeading: false, fallback: .region(framed))
+        // The owner panned or zoomed by hand: following ends until locate (spec 16.2).
+        if self.position.positionedByUser { following = false }
+        guard following else { return }
+        frame(position, animated: !reduceMotion)
+    }
+
+    private func frame(_ centre: Coordinate, animated: Bool) {
+        let framed = MapCameraPosition.region(Self.region(around: centre))
+        if animated {
+            withAnimation(.easeInOut(duration: 0.4)) { position = framed }
+        } else {
+            position = framed
         }
     }
 

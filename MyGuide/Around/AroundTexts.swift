@@ -145,5 +145,9 @@ enum AroundTexts {
         language == .norwegian ? "Kunne ikke åpne fortellingen" : "Couldn't open the story"
     }
 
+    static func openFailedMessage(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Denne fortellingen kunne ikke åpnes." : "This story couldn't be opened."
+    }
+
     static func ok(_ language: StoryLanguage) -> String { "OK" }
 }

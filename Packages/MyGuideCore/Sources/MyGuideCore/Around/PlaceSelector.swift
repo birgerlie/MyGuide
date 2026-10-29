@@ -105,7 +105,9 @@ public struct PlaceSelector: Sendable {
 
     /// The owner tapped locate (spec 16.1): automatic selection resumes. The held place stays selected until a
     /// challenger has won for a full dwell (or a playing place freezes in).
+    /// Without a hold nothing changes: a challenger already mid-dwell keeps its time.
     public mutating func resumeAutomatic() {
+        guard heldID != nil else { return }
         heldID = nil
         pending = nil
     }
@@ -149,17 +151,20 @@ public struct PlaceSelector: Sendable {
         return finish(chosen, input: input, reliable: reliable)
     }
 
-    /// The owner tapped a place: select it at once and hold it against automatic changes, also against a playing
-    /// place, until `resumeAutomatic()` or until it leaves the list (spec 16.1).
+    /// Selects `placeID` at once. `hold` (a tap) holds it against automatic changes, also against a playing place,
+    /// until `resumeAutomatic()` or until it leaves the list (spec 16.1). Without `hold` (a buzz in the foreground,
+    /// spec 12.2) it is only the current place: the normal rules and dwell apply from the next update, and any
+    /// earlier hold ends. With a poor fix, no places or a place not in the list the call is an ordinary `update`, and
+    /// an earlier hold stays.
     @discardableResult
-    public mutating func choose(placeID: String, _ input: SelectionInput) -> SelectionState {
+    public mutating func choose(placeID: String, hold: Bool = true, _ input: SelectionInput) -> SelectionState {
         guard input.positionAccuracy <= config.maxPositionAccuracy, !input.vectors.isEmpty,
               let vector = input.vectors.first(where: { $0.place.candidate.id == placeID }) else {
             return update(input)
         }
         let reliable = Self.reliableHeading(input, config)
         pending = nil
-        heldID = placeID
+        heldID = hold ? placeID : nil
         return finish(vector, input: input, reliable: reliable)
     }
 

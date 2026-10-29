@@ -40,3 +40,22 @@ import Testing
         #expect(!WalkingReadiness.canStart(location: .whenInUse, notifications: .allowed, hasAPIKey: false))
     }
 }
+
+@Suite struct WalkingReadinessLocalizedTests {
+    @Test func everyProblemHasANorwegianText() {
+        let all = WalkingReadiness.problems(location: .denied, notifications: .denied, hasAPIKey: false)
+            + WalkingReadiness.problems(location: .whenInUse, notifications: .timeSensitiveOff, hasAPIKey: true)
+        #expect(all.count == 5)
+        for problem in all {
+            let nb = WalkingReadiness.localized(problem, language: .norwegian)
+            #expect(nb != problem, "\(problem)")
+            #expect(WalkingReadiness.localized(problem, language: .english) == problem)
+        }
+        #expect(WalkingReadiness.localized("Add your OpenAI API key in Settings first.", language: .norwegian)
+                == "Legg inn OpenAI-nøkkelen din i Innstillinger først.")
+    }
+
+    @Test func unknownTextIsUnchanged() {
+        #expect(WalkingReadiness.localized("Something else.", language: .norwegian) == "Something else.")
+    }
+}
