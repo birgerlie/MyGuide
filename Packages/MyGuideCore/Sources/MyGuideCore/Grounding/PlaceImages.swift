@@ -85,7 +85,7 @@ public actor PlaceImages {
         case .running(let fetch):
             // The fetch is already started and owned by the actor; only the waiting is capped. Waiting on
             // `fetch.value` ignores cancellation, so withTimeout abandons the waiter instead of holding the race open.
-            return (try? await GroundingService.withTimeout(cap) { await fetch.value }) ?? nil
+            return (try? await Deadline.withTimeout(cap) { await fetch.value }) ?? nil
         }
     }
 
@@ -105,7 +105,7 @@ public actor PlaceImages {
 
     /// Waits for `fetch` until the caller is cancelled (then nil); waiting on `fetch.value` alone ignores cancellation.
     private static func waitAbandoningOnCancel(_ fetch: Task<StoredPlaceImage?, Never>) async -> StoredPlaceImage? {
-        (try? await GroundingService.abandoningOnCancel { await fetch.value }) ?? nil
+        (try? await Deadline.abandoningOnCancel { await fetch.value }) ?? nil
     }
 
     /// Returns once at least `count` callers have joined a fetch under way.

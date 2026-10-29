@@ -24,12 +24,16 @@ final class BackgroundTaskHold: @unchecked Sendable {
     }
 
     /// Begins a background task. When UIKit gives no background time (`.invalid`) the hold does nothing. Running out
-    /// of time is logged under `category`.
+    /// of time is logged under `category`; then `onExpire` runs on the main actor (synchronously when UIKit calls on
+    /// the main thread, as it does, else after a hop) and the task is ended before the handler returns, as UIKit
+    /// requires. `onExpire` stops the work the hold was for.
     @MainActor
-    static func begin(name: String, category: String = "walking") -> BackgroundTaskHold {
+    static func begin(name: String, category: String = "walking",
+                      onExpire: (@MainActor @Sendable () -> Void)? = nil) -> BackgroundTaskHold {
         let hold = BackgroundTaskHold(application: .shared, name: name, category: category)
         let identifier = hold.application.beginBackgroundTask(withName: name,
-                                                              expirationHandler: expirationHandler(for: hold))
+                                                              expirationHandler: expirationHandler(for: hold,
+                                                                                                   onExpire: onExpire))
         let endAtOnce = hold.slot.withLock { slot in
             slot.identifier = identifier
             return slot.ended
@@ -40,11 +44,21 @@ final class BackgroundTaskHold: @unchecked Sendable {
     }
 
     /// Made off the main actor: a closure written in `begin` would inherit main-actor isolation and trap if UIKit
-    /// ever called it on another thread. `end()` is safe from any thread, so the handler ends the task before it
-    /// returns, as UIKit requires.
-    private nonisolated static func expirationHandler(for hold: BackgroundTaskHold) -> @Sendable () -> Void {
+    /// ever called it on another thread. `onExpire` runs on the main actor: at once on the main thread, so the work
+    /// is stopped before the task ends, else after a hop. `end()` is safe from any thread, so the handler ends the
+    /// task before it returns, as UIKit requires.
+    private nonisolated static func expirationHandler(for hold: BackgroundTaskHold,
+                                                      onExpire: (@MainActor @Sendable () -> Void)?)
+        -> @Sendable () -> Void {
         { @Sendable in
             hold.log.notice("background time ran out: \(hold.name, privacy: .public)")
+            if let onExpire {
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { onExpire() }
+                } else {
+                    Task { @MainActor in onExpire() }
+                }
+            }
             hold.end()
         }
     }

@@ -50,7 +50,7 @@ final class WalkingCheckModel: NSObject {
     @ObservationIgnored private var activityID: String?
     @ObservationIgnored private var activityTimer: Task<Void, Never>?
     @ObservationIgnored private let player = AudioPlayer()
-    @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var backgroundHold: BackgroundTaskHold?
     @ObservationIgnored private var buzzTimer: Task<Void, Never>?
 
     /// The iPhone's language: every status is a screen text (spec 17).
@@ -363,20 +363,17 @@ final class WalkingCheckModel: NSObject {
 
     private func beginBackgroundWork() {
         endBackgroundWork()
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "MyGuide check tone") { [weak self] in
-            // Time is up: stop the tone, and end the task through the same path.
-            MainActor.assumeIsolated {
-                self?.player.stop()
-                self?.endBackgroundWork()
-            }
+        backgroundHold = BackgroundTaskHold.begin(name: "MyGuide check tone", category: "check") { [weak self] in
+            // Time is up: stop the tone and let go of the hold, which ends the task itself.
+            self?.player.stop()
+            self?.endBackgroundWork()
         }
     }
 
     private func endBackgroundWork() {
-        guard backgroundTask != .invalid else { return }
-        let id = backgroundTask
-        backgroundTask = .invalid
-        UIApplication.shared.endBackgroundTask(id)
+        guard let hold = backgroundHold else { return }
+        backgroundHold = nil
+        hold.end()
     }
 }
 

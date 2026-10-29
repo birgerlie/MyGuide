@@ -33,18 +33,20 @@ final class WalkingMotion {
     func requestPermissionIfNeeded() async {
         guard Self.permission == .notDetermined else { return }
         let now = Date.now
-        let once = OnceBox<Void>()
-        let timeout = Task {
-            try? await Task.sleep(for: Self.permissionTimeout)
-            once.resume(())
+        let (answered, answer) = AsyncStream.makeStream(of: Void.self)
+        manager.queryActivityStarting(from: now.addingTimeInterval(-60), to: now, to: .main,
+                                      withHandler: Self.finishing(answer))
+        // The stream ends when the callback comes; when the wait times out its iteration is cancelled and ends too.
+        _ = await Deadline.value(within: Self.permissionTimeout) { () async -> Void? in
+            for await _ in answered {}
+            return ()
         }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            once.install(continuation)
-            manager.queryActivityStarting(from: now.addingTimeInterval(-60), to: now, to: .main) { _, _ in
-                once.resume(())
-            }
-        }
-        timeout.cancel()
+    }
+
+    /// The query's callback, made off the main actor so it never traps on another thread. It only finishes the
+    /// stream, which is safe from any thread and however often it comes.
+    private nonisolated static func finishing(_ answer: AsyncStream<Void>.Continuation) -> CMMotionActivityQueryHandler {
+        { _, _ in answer.finish() }
     }
 
     /// Starts the activity updates when access is granted; each reading is timed at its delivery (`Date.now`), not

@@ -742,12 +742,14 @@ final class WalkingStories {
     /// the background time first, the task is cancelled, which still ends `operation` through its own catch.
     private func runInBackground(_ name: String,
                                  _ operation: @escaping @MainActor @Sendable () async -> Void) -> Task<Void, Never> {
-        let work = BackgroundWork(name: name)
-        let task = Task { @MainActor in
-            await operation()
-            work.end()
+        // The task cannot start before this main-actor function returns, so the hold (whose expiry cancels the task)
+        // is begun after it and still covers all of the work.
+        let task = Task { @MainActor in await operation() }
+        let hold = BackgroundTaskHold.begin(name: name) { task.cancel() }
+        Task { @MainActor in
+            await task.value
+            hold.end()
         }
-        work.task = task
         return task
     }
 }
@@ -757,24 +759,3 @@ private struct StoryGone: Error {}
 
 /// Work for a story the owner asked for was cancelled, but not by the app.
 private struct UnrequestedCancellation: Error {}
-
-/// One UIApplication background task, ended exactly once: by the work or by expiry, whichever comes first.
-@MainActor
-private final class BackgroundWork {
-    var task: Task<Void, Never>?
-    private var id: UIBackgroundTaskIdentifier = .invalid
-
-    init(name: String) {
-        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
-            self?.task?.cancel()
-            self?.end()
-        }
-    }
-
-    func end() {
-        guard id != .invalid else { return }
-        let ended = id
-        id = .invalid
-        UIApplication.shared.endBackgroundTask(ended)
-    }
-}

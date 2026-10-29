@@ -26,7 +26,6 @@ final class WalkingController {
     private static let trackFlushCount = 20
     /// Samples kept while saving keeps failing; the oldest go first.
     private static let trackLimit = 400
-    private static let geocodeTimeout: Duration = .seconds(8)
     /// The pause, resume and GPS check runs every tick; auto-off and the Live Activity push every 4th (spec 5.6).
     private static let tickInterval: Duration = .seconds(15)
     private static let ticksPerAutoOff = 4
@@ -1063,54 +1062,11 @@ final class WalkingController {
         return await address(at: Coordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude))?.city
     }
 
-    /// The address at `coordinate`, or nil when the lookup fails or it takes longer than 8 s.
+    /// The address at `coordinate`, or nil when the lookup fails or it takes longer than 8 s
+    /// (`GroundingService.defaultGeocoderTimeout`). MapKit's request ignores cancellation; the wait does not.
     private static func address(at coordinate: Coordinate) async -> Address? {
-        let once = OnceBox<Address?>()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Address?, Never>) in
-                once.install(continuation)
-                // MapKit's request ignores cancellation, so neither task is awaited: whichever finishes first resumes.
-                Task {
-                    let address = try? await MapKitReverseGeocoder().address(for: coordinate)
-                    once.resume(address)
-                }
-                Task {
-                    try? await Task.sleep(for: geocodeTimeout)
-                    once.resume(nil)
-                }
-            }
-        } onCancel: {
-            once.resume(nil)
+        await Deadline.value(within: GroundingService.defaultGeocoderTimeout) {
+            try? await MapKitReverseGeocoder().address(for: coordinate)
         }
-    }
-}
-
-/// Resumes a continuation exactly once, from whichever caller gets there first.
-final class OnceBox<T: Sendable>: Sendable {
-    private struct State {
-        var continuation: CheckedContinuation<T, Never>?
-        var early: T?
-        var done = false
-    }
-    private let state = OSAllocatedUnfairLock(initialState: State())
-
-    func install(_ continuation: CheckedContinuation<T, Never>) {
-        let early = state.withLock { state -> T? in
-            if state.done { return state.early }
-            state.continuation = continuation
-            return nil
-        }
-        if let early { continuation.resume(returning: early) }
-    }
-
-    func resume(_ value: T) {
-        let continuation = state.withLock { state -> CheckedContinuation<T, Never>? in
-            guard !state.done else { return nil }
-            state.done = true
-            state.early = value
-            defer { state.continuation = nil }
-            return state.continuation
-        }
-        continuation?.resume(returning: value)
     }
 }

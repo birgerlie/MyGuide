@@ -89,8 +89,8 @@ final class StoryViewModel {
     @ObservationIgnored private var storyText: TextThrottle?
     @ObservationIgnored private var moreTextThrottle: TextThrottle?
     /// Keeps a first story or a continuation (through its audio fetch, when speech is on) running if the phone is
-    /// locked mid-request. At most one is held; `.invalid` when none.
-    @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    /// locked mid-request. At most one is held; nil when none.
+    @ObservationIgnored private var backgroundHold: BackgroundTaskHold?
     /// Language for a first story; read when the photo is taken or picked. Stored sessions keep their own.
     @ObservationIgnored private var newSessionLanguage: StoryLanguage = .english
     @ObservationIgnored private let audio = AudioPlayer()
@@ -500,7 +500,7 @@ final class StoryViewModel {
     /// `backgroundWork`, if given, is ended once the audio fetch finishes, however it finishes. `onAudioReady`, if
     /// given, is called exactly once when the fetch finishes, however it finishes: with the milliseconds from the
     /// request's start to the audio file being ready, or nil when it failed, was stopped or never started.
-    func playSpeech(level: Int, backgroundWork: UIBackgroundTaskIdentifier = .invalid,
+    func playSpeech(level: Int, backgroundWork: BackgroundTaskHold? = nil,
                     onAudioReady: (@MainActor (Int?) -> Void)? = nil) {
         guard let session, session.levels.indices.contains(level) else {
             endBackgroundWork(backgroundWork)
@@ -560,40 +560,29 @@ final class StoryViewModel {
 
     // MARK: - Background time
 
-    /// Starts a background task for the work about to run, ending any previous one first so none leaks.
-    private func beginBackgroundWork() -> UIBackgroundTaskIdentifier {
+    /// Starts a background task for the work about to run, ending any previous one first so none leaks. When the
+    /// background time runs out, the work is stopped (`backgroundTimeExpired`) before the task ends.
+    private func beginBackgroundWork() -> BackgroundTaskHold {
         endBackgroundWork()
-        let id = UIApplication.shared.beginBackgroundTask(withName: "MyGuide story",
-                                                          expirationHandler: Self.expirationHandler(for: self))
-        backgroundTask = id
-        return id
-    }
-
-    /// Built outside the main actor so UIKit gets a nonisolated `@Sendable` handler. UIKit calls it on the main
-    /// thread, where the work is stopped and the task ended before it returns; from anywhere else it hops there.
-    nonisolated private static func expirationHandler(for model: StoryViewModel) -> @Sendable () -> Void {
-        { [weak model] in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { model?.backgroundTimeExpired() }
-            } else {
-                Task { @MainActor in model?.backgroundTimeExpired() }
-            }
+        let hold = BackgroundTaskHold.begin(name: "MyGuide story", category: "story") { [weak self] in
+            self?.backgroundTimeExpired()
         }
+        backgroundHold = hold
+        return hold
     }
 
-    /// Ends `id` if it is still the one held. A stale id (already ended, or replaced by newer work) is ignored,
-    /// so no identifier is ever ended twice.
-    private func endBackgroundWork(_ id: UIBackgroundTaskIdentifier) {
-        guard id != .invalid, id == backgroundTask else { return }
+    /// Ends `hold` if it is still the one held. A stale hold (replaced by newer work, and ended then) is ignored,
+    /// so newer work keeps its background time.
+    private func endBackgroundWork(_ hold: BackgroundTaskHold?) {
+        guard let hold, hold === backgroundHold else { return }
         endBackgroundWork()
     }
 
     /// Ends the held background task, if any.
     private func endBackgroundWork() {
-        guard backgroundTask != .invalid else { return }
-        let id = backgroundTask
-        backgroundTask = .invalid
-        UIApplication.shared.endBackgroundTask(id)
+        guard let hold = backgroundHold else { return }
+        backgroundHold = nil
+        hold.end()
     }
 
     /// iOS is about to suspend the app: stop the work and end the task. A first story that was still working

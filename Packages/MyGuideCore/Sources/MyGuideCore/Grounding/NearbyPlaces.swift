@@ -169,7 +169,7 @@ public actor NearbyPlaces {
         }
         waitingCallers[language, default: 0] += 1
         defer { waitingCallers[language, default: 1] -= 1 }
-        return try await GroundingService.abandoningOnCancel { try await task.value }
+        return try await Deadline.abandoningOnCancel { try await task.value }
     }
 
     /// Returns once the newest list's article step for `language` has ended (at once when none runs), or when the
@@ -177,7 +177,7 @@ public actor NearbyPlaces {
     /// and the store by then, unless a newer list replaced the one they were for.
     public func articleTextsSettled(language: StoryLanguage) async {
         guard let step = articleSteps[language] else { return }
-        _ = try? await GroundingService.abandoningOnCancel { await step.value }
+        _ = try? await Deadline.abandoningOnCancel { await step.value }
     }
 
     /// Callers currently awaiting a fetch for `language`; lets tests see a second caller join.

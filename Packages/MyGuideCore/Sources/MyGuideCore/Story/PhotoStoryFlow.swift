@@ -284,7 +284,7 @@ extension PhotoStoryFlow {
         let remaining = max(.zero, deadline - ContinuousClock.now)
         do {
             // Cancelling the wait (when the sleep wins) does not cancel `task`: awaiting a task's value never does.
-            return try await GroundingService.withTimeout(remaining) { try await task.value }
+            return try await Deadline.withTimeout(remaining) { try await task.value }
         } catch {
             try Task.checkCancellation()
             return nil
@@ -311,7 +311,7 @@ extension PhotoStoryFlow {
         var raw = list?.articleTexts[title]
         if raw.map(GuideText.oneLine)?.isEmpty ?? true, let articles {
             let fetch: @Sendable () async throws -> String? = { await articles.text(wikipediaTitle: title) }
-            raw = try? await GroundingService.withTimeout(max(.zero, deadline - ContinuousClock.now), fetch)
+            raw = try? await Deadline.withTimeout(max(.zero, deadline - ContinuousClock.now), fetch)
         }
         let ms = Self.milliseconds(from: started, to: now())
         let text = String(GuideText.oneLine(raw ?? "").prefix(Self.articleLimit))
@@ -484,7 +484,7 @@ extension PhotoStoryFlow {
         let models = self.models
         let deadline = storyDeadline
         do {
-            let result = try await GroundingService.withTimeout(deadline) { () async throws -> StreamedStory in
+            let result = try await Deadline.withTimeout(deadline) { () async throws -> StreamedStory in
                 let events = openAI.respondStreaming(
                     model: models.story,
                     reasoningEffort: models.storyReasoningEffort,
@@ -514,7 +514,7 @@ extension PhotoStoryFlow {
                 throw OpenAIError.malformedResponse
             }
             return (result.json, result.usage)
-        } catch is GroundingService.Timeout {
+        } catch is Deadline.Timeout {
             throw OpenAIError.network("The story did not arrive within \(deadline.components.seconds) seconds.")
         }
     }

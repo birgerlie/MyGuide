@@ -32,7 +32,7 @@ public actor ArticleTextCache: ArticleTextSource {
         let timeout = timeout
         // Unstructured on purpose: one caller's cancellation must not fail the others waiting on the same fetch.
         let task = Task<String?, Never> {
-            let fetched = try? await GroundingService.withTimeout(timeout) {
+            let fetched = try? await Deadline.withTimeout(timeout) {
                 try await client.articleText(wikipediaTitle: wikipediaTitle)
             }
             if let fetched { store(fetched, for: wikipediaTitle) }

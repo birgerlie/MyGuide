@@ -34,7 +34,7 @@ public enum ApplePlaces {
                              timeout: Duration = ApplePlaces.timeout) async throws -> [ApplePlace]? {
         guard let search else { return nil }
         do {
-            return try await GroundingService.withTimeout(timeout) {
+            return try await Deadline.withTimeout(timeout) {
                 try await search.places(around: around, radius: radius)
             }
         } catch is CancellationError {
