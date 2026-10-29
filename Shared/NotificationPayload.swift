@@ -2,17 +2,21 @@ import Foundation
 
 /// What the expanded walking notification shows (spec 7.4, 12.9), carried in `userInfo[userInfoKey]` as JSON `Data`.
 /// Shared by the app, which writes it, and the extensions, which read it; it must not use MyGuideCore. Every text is
-/// already in the story language.
+/// ready to show: `label` and `line` are in the iPhone's language (`UILanguage`, spec 17), `name`, `fact` and `credit`
+/// in the story language.
 struct NotificationPayload: Codable, Equatable {
-    /// The card's label before uppercasing: "Sted i nærheten" (BUZZ), "Neste del" (MORE), "Her du stoppet" (STOP).
+    /// The card's label before uppercasing, in the iPhone's language: "Sted i nærheten" (BUZZ), "Neste del" (MORE),
+    /// "Her du stoppet" (STOP).
     var label: String
     /// The place name, or the stop story's title.
     var name: String
-    /// Distance and direction, such as "50 m foran deg"; nil when there is none to show (STOP, MORE).
+    /// Distance and direction in the iPhone's language, such as "50 m foran deg"; nil when there is none to show
+    /// (STOP, MORE).
     var line: String?
-    /// The factual line (`FactLine`), or the stop story's first two lines for STOP; nil when there is none.
+    /// The factual line (`FactLine`), or the stop story's first two lines for STOP, in the story language; nil when
+    /// there is none.
     var fact: String?
-    /// "Foto: <author>, <licence>, Wikimedia Commons" for the attached picture; nil without one.
+    /// "Foto: <author>, <licence>, Wikimedia Commons" for the attached picture, in the story language; nil without one.
     var credit: String?
 
     static let userInfoKey = "payload"

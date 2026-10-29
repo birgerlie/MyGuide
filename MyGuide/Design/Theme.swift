@@ -81,7 +81,7 @@ enum Theme {
 
     /// Forest green with ivory text, or coral with forest-green text (never light text on coral).
     struct PrimaryButtonStyle: ButtonStyle {
-        var colour: PrimaryColour = .forest
+        var colour: PrimaryColour = .coral
 
         func makeBody(configuration: Configuration) -> some View {
             Label(configuration: configuration, fill: fill, foreground: foreground)
@@ -118,7 +118,8 @@ enum Theme {
 }
 
 extension ButtonStyle where Self == Theme.PrimaryButtonStyle {
-    static func themePrimary(_ colour: Theme.PrimaryColour = .forest) -> Theme.PrimaryButtonStyle {
+    /// The main button: coral with forest-green text by default (the design's main-button colour); `.forest` on request.
+    static func themePrimary(_ colour: Theme.PrimaryColour = .coral) -> Theme.PrimaryButtonStyle {
         Theme.PrimaryButtonStyle(colour: colour)
     }
 }
