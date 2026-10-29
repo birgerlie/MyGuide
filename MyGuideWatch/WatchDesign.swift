@@ -12,9 +12,11 @@ enum WatchColour {
 }
 
 /// A full-width command button: the primary one ivory with forest text (forest would vanish into the forest
-/// background), the secondary ones stone with forest text.
+/// background), the secondary ones stone with forest text, and the main action on a buzz card («Lytt») coral with
+/// forest text. One primary or coral button per screen.
 struct WatchButtonStyle: ButtonStyle {
     var primary = false
+    var coral = false
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -22,7 +24,7 @@ struct WatchButtonStyle: ButtonStyle {
             .font(.body.weight(.medium))
             .foregroundStyle(WatchColour.forest)
             .frame(maxWidth: .infinity, minHeight: 44)
-            .background(primary ? WatchColour.ivory : WatchColour.stone, in: Capsule())
+            .background(coral ? WatchColour.coral : primary ? WatchColour.ivory : WatchColour.stone, in: Capsule())
             .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.5)
             .contentShape(Capsule())
     }

@@ -25,8 +25,8 @@ final class GuidedWalkModel {
     /// The last buzz the phone sent straight to the watch (spec 18), shown with «Lytt» until the next one or the end
     /// of the walk.
     private(set) var buzz: GuidedWalkBuzz?
-    /// True while «Lytt» waits for the phone's reply.
-    private(set) var sendingListen = false
+    /// The buzz whose «Lytt» waits for the phone's reply; a newer buzz's «Lytt» is not held up by it.
+    private(set) var listeningBuzzID: UUID?
     /// After «Lytt»: sent, or why it failed. Cleared by the next buzz.
     var buzzNote: String?
 
@@ -50,8 +50,11 @@ final class GuidedWalkModel {
     @ObservationIgnored private var reconcileAgain = false
     /// Set when the workout ended from outside: no new workout until the next Start, or until the walk is off.
     @ObservationIgnored private var restartBlocked = false
-    /// The buzzes shown in the last 10 minutes: each is felt once, also when its notification arrives.
-    @ObservationIgnored private var recentBuzzes = RecentBuzzIDs()
+    /// The buzzes whose card was shown in the last 10 minutes: a repeated message shows nothing new.
+    @ObservationIgnored private var shownBuzzes = RecentBuzzIDs()
+    /// The buzzes felt in the last 10 minutes, by this app's haptic or by their presented notification: each is felt
+    /// once, whichever comes first.
+    @ObservationIgnored private var feltBuzzes = RecentBuzzIDs()
 
     init(link: PhoneLink = .shared) {
         self.link = link
@@ -62,33 +65,38 @@ final class GuidedWalkModel {
         }
         link.onMessage = { [weak self] message in
             // A buzz queued while out of reach can arrive long after; by then the place is behind.
-            guard let buzz = GuidedWalkBuzz(message: message), buzz.isFresh(now: .now) else { return }
-            self?.showBuzz(id: buzz.id, name: buzz.name, line: buzz.line)
+            guard let self, let buzz = GuidedWalkBuzz(message: message), buzz.isFresh(now: .now) else { return }
+            // No walk on the watch (as the screen shows it): no buzz card, no haptic.
+            guard (self.state?.phase ?? .off) != .off else { return }
+            self.showBuzz(id: buzz.id, name: buzz.name, line: buzz.line, sentAt: buzz.sentAt)
         }
     }
 
     // MARK: - Buzzes
 
-    /// Plays the notification haptic and shows the place with «Lytt», once per buzz id within 10 minutes. The workout
-    /// keeps the app running through the walk, so the haptic plays with the wrist down too.
-    func showBuzz(id: UUID, name: String, line: String) {
+    /// Shows the place with «Lytt», once per buzz id within 10 minutes, and plays the notification haptic unless the
+    /// buzz was already felt through its notification. The workout keeps the app running through the walk, so the
+    /// haptic plays with the wrist down too. `sentAt` is the phone's clock, kept as sent.
+    func showBuzz(id: UUID, name: String, line: String, sentAt: Date) {
         let now = Date.now
-        guard recentBuzzes.remember(id, now: now) else { return }
-        buzz = GuidedWalkBuzz(id: id, name: name, line: line, sentAt: now)
+        guard shownBuzzes.remember(id, now: now) else { return }
+        buzz = GuidedWalkBuzz(id: id, name: name, line: line, sentAt: sentAt)
         buzzNote = nil
-        WKInterfaceDevice.current().play(.notification)
+        if feltBuzzes.remember(id, now: now) { WKInterfaceDevice.current().play(.notification) }
     }
 
-    /// True when the buzz `id` was shown here in the last 10 minutes; its notification is then not presented again.
-    func hasShownBuzz(_ id: UUID) -> Bool {
-        recentBuzzes.contains(id, now: .now)
+    /// The buzz `id`'s notification is about to be presented while the app is frontmost. Returns true when it should
+    /// be presented (with its sound and haptic), and counts the buzz as felt; false when it was already felt here.
+    func notificationArrived(forBuzz id: UUID) -> Bool {
+        feltBuzzes.remember(id, now: .now)
     }
 
     /// «Lytt» on the shown buzz: the phone tells its story, as with the notification's Listen.
     func listenToBuzz() async {
-        guard let buzz, !sendingListen else { return }
-        sendingListen = true
-        defer { sendingListen = false }
+        guard let buzz, listeningBuzzID != buzz.id else { return }
+        listeningBuzzID = buzz.id
+        // Cleared only by its own request: a newer buzz's request may have taken it over meanwhile.
+        defer { if listeningBuzzID == buzz.id { listeningBuzzID = nil } }
         buzzNote = nil
         do {
             try await link.tell(GuidedWalkBuzz.tellMessage(id: buzz.id))

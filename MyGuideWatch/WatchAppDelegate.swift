@@ -32,8 +32,9 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
 }
 
 /// Notifications forwarded from the phone while the app is frontmost. Without a delegate the system may not present
-/// them at all; with one, a buzz the watch already showed through WatchConnectivity is skipped, so it is felt once
-/// (spec 18). Nonisolated: UserNotifications calls in on its own queue, where a main-actor method would trap.
+/// them at all; with one, a buzz already felt through WatchConnectivity is skipped, and a buzz presented here is
+/// counted as felt, so the WatchConnectivity message that follows shows its card without a second haptic (spec 18).
+/// Nonisolated: UserNotifications calls in on its own queue, where a main-actor method would trap.
 extension WatchAppDelegate: UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification) async
@@ -42,7 +43,6 @@ extension WatchAppDelegate: UNUserNotificationCenterDelegate {
         guard let id = GuidedWalkBuzz.notificationBuzzID(category: content.categoryIdentifier,
                                                          userInfo: content.userInfo)
         else { return [.banner, .sound] }
-        let shown = await walk.hasShownBuzz(id)
-        return shown ? [] : [.banner, .sound]
+        return await walk.notificationArrived(forBuzz: id) ? [.banner, .sound] : []
     }
 }

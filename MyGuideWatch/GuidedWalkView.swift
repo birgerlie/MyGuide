@@ -82,8 +82,8 @@ struct GuidedWalkView: View {
             } label: {
                 Label(WatchTexts.listen, systemImage: "headphones")
             }
-            .buttonStyle(WatchButtonStyle(primary: true))
-            .disabled(model.sendingListen)
+            .buttonStyle(WatchButtonStyle(coral: true))
+            .disabled(model.listeningBuzzID == buzz.id)
             .padding(.top, 4)
             if let note = model.buzzNote {
                 Text(note).font(.footnote).opacity(0.75)
@@ -115,7 +115,8 @@ struct GuidedWalkView: View {
         } label: {
             Label(title, systemImage: systemImage)
         }
-        .buttonStyle(WatchButtonStyle(primary: primary))
+        // While a buzz card shows, its coral «Lytt» is the screen's one main action and the walk's commands are stone.
+        .buttonStyle(WatchButtonStyle(primary: primary && model.buzz == nil))
     }
 
     /// `h:mm:ss`, whole seconds rounded down. 3725 s → "1:02:05"; 59.9 s → "0:00:59".

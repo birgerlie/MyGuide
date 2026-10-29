@@ -26,7 +26,7 @@ final class WatchLink: NSObject {
     /// The newest state pushed before the session was activated; sent on activation when `currentState` is not set.
     @ObservationIgnored private var pendingState: Box?
 
-    private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "watch")
+    nonisolated private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "watch")
 
     private var session: WCSession? { WCSession.isSupported() ? WCSession.default : nil }
 
@@ -37,15 +37,26 @@ final class WatchLink: NSObject {
         session.activate()
     }
 
-    /// Sends now when the watch is reachable, else queues it for delivery.
+    /// Sends now when the watch is reachable, else queues it for delivery. A send that fails (the watch went out of
+    /// reach between the check and the send, or did not answer) is logged and queued instead; the receiver must
+    /// tolerate the same message twice (a buzz is deduped by id).
     func send(_ message: [String: Any]) {
         guard let session, session.activationState == .activated else { return }
         if session.isReachable {
-            // `@Sendable`: WatchConnectivity calls the handler on its own queue, where a handler inheriting this class's
-            // main-actor isolation would trap.
-            session.sendMessage(message, replyHandler: nil, errorHandler: { @Sendable _ in })
+            session.sendMessage(message, replyHandler: nil, errorHandler: Self.queueOnFailure(Box(value: message)))
         } else {
             session.transferUserInfo(message)
+        }
+    }
+
+    /// The error handler for `send`, made off the actor as a `@Sendable` closure: WatchConnectivity calls it on its own
+    /// queue, where a closure inheriting this class's main-actor isolation would trap.
+    nonisolated private static func queueOnFailure(_ message: Box) -> @Sendable (Error) -> Void {
+        { error in
+            let ns = error as NSError
+            let type = message.value["type"] as? String ?? "?"
+            log.error("send \(type, privacy: .public) failed, queued: \(ns.domain, privacy: .public) \(ns.code, privacy: .public)")
+            WCSession.default.transferUserInfo(message.value)
         }
     }
 
