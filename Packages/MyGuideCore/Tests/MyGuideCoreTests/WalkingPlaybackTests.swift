@@ -414,10 +414,10 @@ import Testing
         #expect(p.handle(.storyReady(Self.a)).isEmpty && p.playing?.id == Self.b)
         #expect(p.handle(.tellMe(Self.a)) == [.stopAudio, .play(Self.a, level: 1)])
     }
-    @Test func stopEndsAWait() {
+    @Test func ownerStopEndsAWait() {
         var p = WalkingPlayback()
         _ = p.handle(.chosenStarted(Self.a))
-        #expect(p.handle(.stoppedExternally).isEmpty && p.waiting == nil)
+        #expect(p.handle(.ownerStopped).isEmpty && p.waiting == nil)
         // Still preparing (busy) until its result comes, which then plays nothing.
         #expect(p.isBusy)
         #expect(p.handle(.storyReady(Self.a)).isEmpty && !p.isBusy && p.hasStory(Self.a))
@@ -426,5 +426,33 @@ import Testing
         var p = WalkingPlayback()
         _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.tellMe(Self.a))
         #expect(p.handle(.skip(Self.a)) == [.retire(Self.a)] && p.waiting == nil)
+    }
+    @Test func interruptionOfThePlayingStoryKeepsAWait() {
+        // A plays; the owner taps "tell me" on B, still preparing; A's audio is interrupted (a call, route loss, a
+        // failed play): B still waits and plays when ready.
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a)); _ = p.handle(.tellMe(Self.a))
+        _ = p.handle(.buzzSent(Self.b)); _ = p.handle(.tellMe(Self.b))
+        #expect(p.waiting == Self.b && p.playing?.id == Self.a)
+        #expect(p.handle(.stoppedExternally).isEmpty)
+        #expect(p.waiting == Self.b && p.playing == nil)
+        // Nothing plays any more, so no stop before it.
+        #expect(p.handle(.storyReady(Self.b)) == [.play(Self.b, level: 1)])
+    }
+    @Test func ownerStopWhileAnotherStoryPlaysEndsTheWait() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a)); _ = p.handle(.tellMe(Self.a))
+        _ = p.handle(.buzzSent(Self.b)); _ = p.handle(.tellMe(Self.b))
+        #expect(p.handle(.ownerStopped).isEmpty)
+        #expect(p.waiting == nil && p.playing == nil)
+        #expect(p.handle(.storyReady(Self.b)).isEmpty && p.playing == nil && !p.isBusy)
+        // Both stay ready for a later "tell me".
+        #expect(p.hasStory(Self.a) && p.hasStory(Self.b))
+    }
+    @Test func ownerStopWithNothingGoingOnChangesNothing() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a))
+        let before = p
+        #expect(p.handle(.ownerStopped).isEmpty && p == before)
     }
 }

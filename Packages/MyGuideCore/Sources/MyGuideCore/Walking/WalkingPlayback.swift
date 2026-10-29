@@ -17,6 +17,9 @@ public struct WalkingPlayback: Sendable, Equatable {
         /// The owner chose a place on the map (spec 12.1): its new story starts preparing and plays when ready, as
         /// after a "tell me". Whatever plays stops now. For an id the machine knows already it is a "tell me".
         case chosenStarted(UUID)
+        /// The owner's Stop: the audio stops and a story waiting for its text no longer starts. `stoppedExternally`
+        /// (an interruption, route loss, a failed play) stops only the audio and keeps the wait.
+        case ownerStopped
     }
 
     public enum Effect: Sendable, Equatable {
@@ -52,7 +55,8 @@ public struct WalkingPlayback: Sendable, Equatable {
     }
 
     /// The story the owner asked to play whose text is still being prepared; it plays when ready. At most one story
-    /// waits: a newer request (another wait, a play, a stop) ends the wait (spec 12.2, one owner of audio).
+    /// waits: a newer request (another wait, a play) or the owner's Stop (`ownerStopped`) ends the wait (spec 12.2,
+    /// one owner of audio). An interruption of the story playing meanwhile (`stoppedExternally`) does not.
     public var waiting: UUID? {
         phases.first { $0.value == .preparing(wanted: true) }?.key
     }
@@ -102,7 +106,7 @@ public struct WalkingPlayback: Sendable, Equatable {
              .tellMe(let id), .more(let id), .skip(let id), .finished(let id, _), .listen(let id, _),
              .restored(let id, _, _), .chosenStarted(let id):
             touch(id)
-        case .stoppedExternally:
+        case .stoppedExternally, .ownerStopped:
             break
         }
         return effects
@@ -220,7 +224,12 @@ public struct WalkingPlayback: Sendable, Equatable {
             return (levels[id] ?? level) < StoryLevel.allCases.count ? [.offerMore(id)] : []
 
         case .stoppedExternally:
-            // The owner's Stop also ends a wait: the story stays prepared but no longer starts by itself.
+            // Not the owner's doing: a story waiting for its text still plays when ready.
+            playing = nil
+            return []
+
+        case .ownerStopped:
+            // The waiting story stays preparing and becomes ready, but no longer starts by itself.
             playing = nil
             endWait()
             return []

@@ -406,9 +406,12 @@ final class WalkingController {
             let run = runToken, now = Date.now
             let snapshot = route, generation = routeGeneration
             context = { [weak self] in
-                await self?.walkContext(at: position, course: nil, snapshot: snapshot, generation: generation,
-                                        run: run, now: now)
-                    ?? WalkContext(address: nil, bearing: nil, street: nil, cameFrom: nil)
+                if let walk = await self?.walkContext(at: position, course: nil, snapshot: snapshot,
+                                                      generation: generation, run: run, now: now) {
+                    return walk
+                }
+                // The controller is gone: the address alone, as with walking mode off.
+                return WalkContext(address: await Self.address(at: position), bearing: nil, street: nil, cameFrom: nil)
             }
         } else {
             context = {

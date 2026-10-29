@@ -18,6 +18,13 @@ final class WalkingStories {
         var isLoading: Bool
     }
 
+    /// A story still preparing (its text is not stored yet): its place, language and whether it was chosen on the map.
+    private struct Pending: Equatable {
+        var placeID: String
+        var language: StoryLanguage
+        var isChosen: Bool
+    }
+
     struct Failure: Equatable {
         var id: UUID
         var message: String
@@ -39,8 +46,8 @@ final class WalkingStories {
     /// The story the owner asked to open; Home pushes it and clears this at once.
     var openID: UUID?
     private(set) var playback = WalkingPlayback()
-    /// The place of each story still preparing (its text is not stored yet), so the map finds and shows it.
-    private var preparingPlaces: [UUID: String] = [:]
+    /// Each story still preparing, so the map finds and shows it and a chosen one is known before its text exists.
+    private var pending: [UUID: Pending] = [:]
 
     /// Called after every playback event with `playback.isBusy`.
     @ObservationIgnored var onBusyChanged: ((Bool) -> Void)?
@@ -109,11 +116,17 @@ final class WalkingStories {
         return nil
     }
 
-    /// The story about this place that is preparing or prepared on this run (newest first), e.g. one just buzzed;
-    /// nil when none. A skipped story, a preparation that failed before its text and a stop story never match.
-    func storyID(forPlace placeID: String) -> UUID? {
-        if let id = preparingPlaces.first(where: { $0.value == placeID })?.key { return id }
-        return prepared.ids.reversed().first { prepared.story($0)?.place?.id == placeID }
+    /// The story about this place in `language` that is preparing or prepared on this run (newest first), e.g. one
+    /// just buzzed; nil when none. A story in another language, a skipped story, a preparation that failed before its
+    /// text and a stop story never match.
+    func storyID(forPlace placeID: String, language: StoryLanguage) -> UUID? {
+        if let id = pending.first(where: { $0.value.placeID == placeID && $0.value.language == language })?.key {
+            return id
+        }
+        return prepared.ids.reversed().first {
+            guard let story = prepared.story($0) else { return false }
+            return story.place?.id == placeID && story.language == language
+        }
     }
 
     /// True when "More" would fetch or play another level now.
@@ -152,14 +165,14 @@ final class WalkingStories {
     /// Tells a place chosen on the map (spec 12.1): the story already preparing or prepared for it when there is one
     /// (it was just buzzed), else a new `.chosen` story through the buzz pipeline, saved as a walk story; then plays
     /// level 1. Works with walking mode off. Whatever else plays stops at once, and a story waiting for its text no
-    /// longer starts. Uses no buzz budget and posts no buzz. When this place is already playing or loading, nothing
-    /// changes.
+    /// longer starts. Uses no buzz budget and posts no notifications (a failure only sets `lastFailure`). A story
+    /// already there is reused only in `language`. When this place is already playing or loading, nothing changes.
     func tellPlace(_ place: WalkingPlace, position: Coordinate, language: StoryLanguage,
                    context: @escaping @MainActor @Sendable () async -> WalkContext) {
         let placeID = place.candidate.id
         guard playingPlaceID != placeID else { return }
         stopListening()
-        if let id = storyID(forPlace: placeID) {
+        if let id = storyID(forPlace: placeID, language: language) {
             // Preparing: it plays when ready. Ready (or its text saved but its speech failed): level 1 plays now.
             dispatch(.tellMe(id), for: id)
             return
@@ -177,7 +190,7 @@ final class WalkingStories {
                                 context: @escaping @MainActor @Sendable () async -> WalkContext) {
         let id = buzz.id
         let tripID = currentTripID?()
-        preparingPlaces[id] = buzz.place.candidate.id
+        pending[id] = Pending(placeID: buzz.place.candidate.id, language: language, isChosen: kind == .chosen)
         feed(event)
         preparing.insert(id)
         preparedAt[id] = .now
@@ -267,16 +280,18 @@ final class WalkingStories {
         dispatch(.listen(id, level: level), for: id)
     }
 
-    /// Stops the audio (the panel's Stop, a speaker button), and a story waiting for its text no longer starts. The
-    /// story stays ready.
+    /// The owner's Stop (the panel's Stop, a speaker button, a new choice on the map): stops the audio, and a story
+    /// waiting for its text no longer starts. The story stays ready.
     func stopListening() {
         guard listening != nil || playback.playing != nil || playback.waiting != nil else { return }
         stopAudio()
-        feed(.stoppedExternally)
+        feed(.ownerStopped)
     }
 
-    /// A skip on a stop story (a stale button or command) does nothing: there is no place to retire.
+    /// A skip on a stop story or a chosen one (a stale button or command) does nothing: a stop story has no place to
+    /// retire, and a chosen place was asked for, so neither retires a place nor starts the skip pause.
     func skip(_ id: UUID) {
+        if pending[id]?.isChosen == true { return }
         if let story = prepared.story(id) ?? storedStory(id), !story.canSkip { return }
         feed(.skip(id))
     }
@@ -285,14 +300,19 @@ final class WalkingStories {
         openID = id
     }
 
-    /// Walking mode is off: cancel what is being prepared or fetched (each still ends with its failure event, which
-    /// stays silent) and stop the audio.
+    /// Walking mode is off: cancel the buzz and stop stories being prepared or fetched (each still ends with its
+    /// failure event, which stays silent, a wait for one included) and stop their audio. A story chosen on the map
+    /// does not belong to walking mode: its preparation, its "more" and its audio carry on, and a wait for it stays.
     func stopAll() {
-        for (id, task) in prepareTasks { cancelOwn(id, task) }
-        for (id, task) in moreTasks { cancelOwn(id, task) }
+        for (id, task) in prepareTasks where !isChosen(id) { cancelOwn(id, task) }
+        for (id, task) in moreTasks where !isChosen(id) { cancelOwn(id, task) }
         for task in stopTasks.values { task.cancel() }
-        stopListening()
-        featuredID = nil
+        if let current = listening?.id ?? playback.playing?.id, !isChosen(current) {
+            // Not the owner's Stop: a chosen story waiting for its text still plays when ready.
+            stopAudio()
+            feed(.stoppedExternally)
+        }
+        if let featuredID, !isChosen(featuredID) { self.featuredID = nil }
     }
 
     // MARK: - Playback machine
@@ -336,7 +356,6 @@ final class WalkingStories {
     private func endPreparing(_ id: UUID, with event: WalkingPlayback.Event) {
         prepareTasks[id] = nil
         preparing.remove(id)
-        preparingPlaces[id] = nil
         let seconds = preparedAt.removeValue(forKey: id).map { max(0, Date.now.timeIntervalSince($0)) } ?? 0
         switch event {
         case .storyReady:
@@ -349,7 +368,9 @@ final class WalkingStories {
             break
         }
         if case .storyReady = event, prepared.story(id) != nil { featuredID = id }
+        // Forgotten after the event, so a failure it reports still knows the story was chosen.
         feed(event)
+        pending[id] = nil
     }
 
     private func endFetchingMore(_ id: UUID, with event: WalkingPlayback.Event) {
@@ -465,8 +486,10 @@ final class WalkingStories {
         }
     }
 
+    /// Posts MORE; never for a chosen story (it posts no notifications, spec 12.1).
     private func offerMore(_ id: UUID) {
-        guard let title = (prepared.story(id) ?? storedStory(id))?.title else { return }
+        guard let story = prepared.story(id) ?? storedStory(id), story.kind != .chosen else { return }
+        let title = story.title
         Task {
             do {
                 try await posting(.more, id: id) { try await BuzzNotifier.postMore(id: id, title: title) }
@@ -487,13 +510,14 @@ final class WalkingStories {
         if let task = moreTasks[id] { cancelOwn(id, task) }
         prepared.remove(id)
         // Its cancelled preparation may still be running: the map must not find it meanwhile.
-        preparingPlaces[id] = nil
+        pending[id] = nil
         if featuredID == id { featuredID = nil }
         BuzzNotifier.removeNotifications(for: id)
         onRetire?(id, candidate, deepestLevel)
     }
 
     /// Posts STORY_FAILED. Our own cancellation (a `CancellationError`) is silent; no error means the story is gone.
+    /// A chosen story's failure only sets `lastFailure`, for the app to show: it posts no notifications.
     private func report(_ id: UUID, error: Error?) {
         let body: String
         if let error, !(error is StoryGone) {
@@ -504,6 +528,7 @@ final class WalkingStories {
         }
         guard !body.isEmpty else { return }
         lastFailure = Failure(id: id, message: body)
+        if isChosen(id) || (prepared.story(id) == nil && storedStory(id)?.kind == .chosen) { return }
         Task {
             do {
                 try await posting(.storyFailed, id: id) { try await BuzzNotifier.postFailure(id: id, body: body) }
@@ -616,7 +641,12 @@ final class WalkingStories {
 
     /// The place of a buzz or chosen story, prepared or still preparing; nil for a stop story or an unknown id.
     private func placeID(of id: UUID) -> String? {
-        prepared.story(id)?.place?.id ?? preparingPlaces[id]
+        prepared.story(id)?.place?.id ?? pending[id]?.placeID
+    }
+
+    /// True for a story chosen on the map that is preparing or prepared (no memory read).
+    private func isChosen(_ id: UUID) -> Bool {
+        pending[id]?.isChosen == true || prepared.story(id)?.kind == .chosen
     }
 
     private func cancelOwn(_ id: UUID, _ task: Task<Void, Never>) {
