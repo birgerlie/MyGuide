@@ -5,6 +5,8 @@ import Foundation
 public struct StorySource: Sendable, Equatable, Identifiable {
     public enum Kind: Sendable, Equatable {
         case wikipedia, openStreetMap, wikidata, appleMaps
+        /// The place photo's credit text as `detail`, the file page as `url`.
+        case imageCredit
     }
 
     public var kind: Kind
@@ -28,15 +30,37 @@ public enum StorySources {
     public static func list(for session: StorySession) -> [StorySource] {
         var sources: [StorySource] = []
         if session.identified.confidence != .unsure, let candidate = session.matchedCandidate?.candidate {
-            if let article = wikipedia(candidate) { sources.append(article) }
-            if let osm = openStreetMap(candidate.id) { sources.append(osm) }
-            if let item = candidate.wikidata?.trimmingCharacters(in: .whitespaces), isWikidataID(item) {
-                sources.append(StorySource(kind: .wikidata, detail: item,
-                                           url: URL(string: "https://www.wikidata.org/wiki/\(item)")))
-            }
+            sources += placeSources(candidate)
         }
         if !(session.grounding.applePlaces ?? []).isEmpty || session.grounding.address != nil {
             sources.append(StorySource(kind: .appleMaps, detail: nil, url: nil))
+        }
+        return sources
+    }
+
+    /// A walk story's sources: a buzz or chosen story lists its place's sources as a photo story's matched place does,
+    /// then Apple Maps when its places or its address were in the request, then the place photo's credit when `image`
+    /// is given. A stop story has no place: Apple Maps only, on the same rule, and no photo.
+    public static func list(for story: WalkStory, image: PlaceImageInfo?, language: StoryLanguage) -> [StorySource] {
+        var sources: [StorySource] = []
+        if story.kind != .stop, let place = story.place { sources += placeSources(place) }
+        if !(story.applePlaces ?? []).isEmpty || story.address != nil {
+            sources.append(StorySource(kind: .appleMaps, detail: nil, url: nil))
+        }
+        if story.kind != .stop, let image,
+           let credit = NotificationText.photoCredit(author: image.author, licence: image.licence, language) {
+            sources.append(StorySource(kind: .imageCredit, detail: credit, url: image.filePage))
+        }
+        return sources
+    }
+
+    private static func placeSources(_ candidate: Candidate) -> [StorySource] {
+        var sources: [StorySource] = []
+        if let article = wikipedia(candidate) { sources.append(article) }
+        if let osm = openStreetMap(candidate.id) { sources.append(osm) }
+        if let item = candidate.wikidata?.trimmingCharacters(in: .whitespaces), isWikidataID(item) {
+            sources.append(StorySource(kind: .wikidata, detail: item,
+                                       url: URL(string: "https://www.wikidata.org/wiki/\(item)")))
         }
         return sources
     }

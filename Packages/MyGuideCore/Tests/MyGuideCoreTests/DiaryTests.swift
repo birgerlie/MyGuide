@@ -309,4 +309,29 @@ import Testing
         #expect(days.map { $0.entries.map(\.id) } == [["next"], ["start", "last"], ["before"]])
         #expect(days[1].date == Date(timeIntervalSince1970: 1_774_738_800))
     }
+
+    @Test func chosenStoryListedInDiaryWithoutHeardRecord() throws {
+        let id = UUID()
+        var story = Self.buzzStory(id: id, levels: ["Asked for. More."], address: Address(city: "Wien"))
+        story.kind = .chosen
+        try store.saveWalkStory(story, tripID: Self.trip)
+        let entry = try #require(try store.diaryEntries().first)
+        #expect(try store.diaryEntries().count == 1)
+        #expect(entry.id == "walk:\(id.uuidString)" && entry.kind == .buzz && !entry.hasPhoto)
+        #expect(entry.placeName == "Castle" && entry.coordinate == .at(north: 100))
+        #expect(entry.firstSentence == "Asked for." && entry.city == "Wien")
+    }
+
+    @Test func storedKindRoundTrips() throws {
+        let chosen = UUID(), buzz = UUID(), stop = UUID()
+        var story = Self.buzzStory(id: chosen, levels: ["One."], address: nil)
+        story.kind = .chosen
+        try store.saveWalkStory(story, tripID: Self.trip)
+        try store.saveWalkStory(Self.buzzStory(id: buzz, levels: ["Two."], address: nil), tripID: Self.trip)
+        try store.saveWalkStory(WalkMemoryTests.stopStory(north: 20, levels: ["Three."], id: stop), tripID: Self.trip)
+        #expect(try store.walkStory(id: chosen)?.kind == .chosen)
+        #expect(try store.walkStory(id: chosen)?.place?.id == story.place?.id)
+        #expect(try store.walkStory(id: buzz)?.kind == .buzz)
+        #expect(try store.walkStory(id: stop)?.kind == .stop)
+    }
 }

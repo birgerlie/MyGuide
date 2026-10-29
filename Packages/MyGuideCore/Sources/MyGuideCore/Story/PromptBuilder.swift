@@ -364,7 +364,7 @@ public enum PromptBuilder {
         let direction = usableDirection(story.course)
         let street = GuideText.streetName(fromAddressLine: story.address?.line)
         let name = switch story.kind {
-        case .buzz: "walking buzz"
+        case .buzz, .chosen: "walking buzz"
         case .stop: "stop"
         }
         var task = continuationTask
@@ -373,7 +373,7 @@ public enum PromptBuilder {
                                                    lookedUp: story.addressLookedUp))
         lines.append("Time: \(GuideText.time(now, timeZone: timeZone))")
         switch story.kind {
-        case .buzz:
+        case .buzz, .chosen:
             lines.append(walkingLine(direction: direction, street: street))
             if let place = story.place {
                 lines.append("Subject: \(place.name) (\(place.kind)), "
@@ -436,7 +436,7 @@ public enum PromptBuilder {
 
     static func storyKind(_ kind: WalkStory.Kind) -> StoryKind {
         switch kind {
-        case .buzz: .buzz
+        case .buzz, .chosen: .buzz
         case .stop: .stop
         }
     }

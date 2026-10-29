@@ -2,11 +2,11 @@ import Foundation
 
 /// A story told while walking (design 7.5–7.6): about a buzzed place, or about the spot where the walker stopped.
 public struct WalkStory: Sendable, Equatable, Identifiable {
-    public enum Kind: String, Sendable, Codable { case buzz, stop }
+    public enum Kind: String, Sendable, Codable { case buzz, stop, chosen }
 
     public var id: UUID
     public var kind: Kind
-    /// The buzzed place; nil for `.stop`.
+    /// The buzzed or chosen place; nil for `.stop`.
     public var place: Candidate?
     /// Where the walker was when the story was made.
     public var position: Coordinate
@@ -49,6 +49,7 @@ public struct WalkStory: Sendable, Equatable, Identifiable {
 
     public var nextLevel: StoryLevel? { StoryLevel(rawValue: levels.count + 1) }
 
-    /// Only a buzz story can be skipped: a skip retires its place. A stop story has no place to retire.
+    /// Only a buzz story can be skipped: a skip retires its place. A stop story has no place to retire, and a chosen
+    /// place was asked for, not offered.
     public var canSkip: Bool { kind == .buzz }
 }

@@ -41,10 +41,12 @@ public struct WalkingStoryFlow: Sendable {
         self.makeID = makeID
     }
 
-    /// The first level for a buzzed place. The story takes the buzz's id so a notification maps back to it.
+    /// The first level for a buzzed place (`kind` `.chosen` for a place picked on the map). The story takes the buzz's
+    /// id so a notification maps back to it.
     /// `context` (it may look up the address, which can take seconds) runs alongside the other fetches.
     public func buzzStory(_ buzz: Buzz, position: Coordinate, context: @escaping @Sendable () async -> WalkContext,
-                          nearby: [WalkingPlace], language: StoryLanguage) async throws -> (WalkStory, [UsageEntry]) {
+                          nearby: [WalkingPlace], language: StoryLanguage,
+                          kind: WalkStory.Kind = .buzz) async throws -> (WalkStory, [UsageEntry]) {
         let place = buzz.place.candidate
         // The walk context and the supplementary fetches run while the memory lookups do; none fails the story.
         async let walk = context()
@@ -60,7 +62,7 @@ public struct WalkingStoryFlow: Sendable {
             buzz: buzz, position: position, context: context, neighbours: facts, articleText: await articleText,
             applePlaces: found, recent: lately, priors: told, language: language, now: at, timeZone: timeZone)
         let (title, text, entry) = try await generate(input)
-        let story = WalkStory(id: buzz.id, kind: .buzz, place: place, position: position, course: context.bearing,
+        let story = WalkStory(id: buzz.id, kind: kind, place: place, position: position, course: context.bearing,
                               language: language, title: title, levels: [text], createdAt: now(),
                               address: context.address, detail: buzz.detail, applePlaces: found)
         return (story, [entry])
@@ -104,7 +106,7 @@ public struct WalkingStoryFlow: Sendable {
         let subject: Candidate?
         let ids: [String]
         switch story.kind {
-        case .buzz:
+        case .buzz, .chosen:
             stop = nil
             subject = story.place
             ids = subject.map { [$0.id] } ?? []
@@ -114,7 +116,7 @@ public struct WalkingStoryFlow: Sendable {
             ids = stop?.places.map(\.candidate.id) ?? []
         }
         let searchesApplePlaces = switch (story.kind, stop) {
-        case (.buzz, _), (.stop, .here): true
+        case (.buzz, _), (.chosen, _), (.stop, .here): true
         case (.stop, .detour), (.stop, nil): false
         }
         let stored = story.applePlaces

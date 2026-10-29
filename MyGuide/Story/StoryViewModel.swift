@@ -772,6 +772,7 @@ enum ScreenText {
         case .wikipedia: "Wikipedia"
         case .openStreetMap: "OpenStreetMap"
         case .wikidata: "Wikidata"
+        case .imageCredit: language == .norwegian ? "Bilde" : "Photo"
         case .appleMaps: language == .norwegian ? "Apple Kart (adresse og steder)" : "Apple Maps (address and places)"
         }
     }

@@ -160,11 +160,14 @@ extension MemoryStore {
             switch walk.kind {
             case WalkStory.Kind.buzz.rawValue: kind = .buzz
             case WalkStory.Kind.stop.rawValue: kind = .stop
+            // A place the walker asked for counts as heard once saved, so it needs no `heardBuzzes` record.
+            case WalkStory.Kind.chosen.rawValue: kind = .buzz
             default:
                 onCorrupt("\(id) kind")
                 continue
             }
-            if kind == .buzz, heardBuzzes[walk.id] == nil { continue }
+            let isChosen = walk.kind == WalkStory.Kind.chosen.rawValue
+            if kind == .buzz, !isChosen, heardBuzzes[walk.id] == nil { continue }
 
             // JSON null (a failed lookup) decodes to nil, like no data at all.
             var city: String?
@@ -175,17 +178,21 @@ extension MemoryStore {
                     onCorrupt("\(id) addressJSON")
                 }
             }
-            if kind == .buzz, let buzz = heardBuzzes[walk.id] {
+            if kind == .buzz {
                 var coordinate: Coordinate?
+                var placeName = heardBuzzes[walk.id]?.placeName
                 if let data = walk.placeJSON {
                     do {
-                        coordinate = try decoder.decode(Candidate.self, from: data).coordinate
+                        let place = try decoder.decode(Candidate.self, from: data)
+                        coordinate = place.coordinate
+                        // A chosen story has no buzz record: its place name is the stored place's.
+                        if isChosen { placeName = place.name }
                     } catch {
                         onCorrupt("\(id) placeJSON")
                     }
                 }
                 entries.append(DiaryEntry(
-                    id: id, kind: .buzz, time: walk.createdAt, title: walk.title, placeName: buzz.placeName,
+                    id: id, kind: .buzz, time: walk.createdAt, title: walk.title, placeName: placeName,
                     coordinate: coordinate, firstSentence: Self.firstSentence(of: walk.stories), city: city,
                     hasPhoto: false))
             } else {

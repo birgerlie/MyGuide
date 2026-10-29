@@ -127,4 +127,41 @@ import Testing
         #expect(PlaceLocationLine.text(Address(line: "Via 1")) == nil)
         #expect(PlaceLocationLine.text(nil) == nil)
     }
+
+    // MARK: - Walk stories
+
+    static func walkStory(kind: WalkStory.Kind = .buzz, place: Candidate?, address: Address? = nil,
+                          applePlaces: [ApplePlace]? = nil) -> WalkStory {
+        WalkStory(id: UUID(), kind: kind, place: place, position: .at(), course: nil, language: .norwegian, title: "T",
+                  levels: ["S."], createdAt: .now, address: address, applePlaces: applePlaces)
+    }
+
+    @Test func walkStorySources() {
+        let osm = StorySource(kind: .openStreetMap, detail: "way/42", url: URL(string: "https://www.openstreetmap.org/way/42"))
+        let apple = StorySource(kind: .appleMaps, detail: nil, url: nil)
+        let file = URL(string: "https://commons.wikimedia.org/wiki/File:Pantheon.jpg")
+        let image = PlaceImageInfo(thumbnailURL: URL(string: "https://upload.wikimedia.org/p.jpg")!, author: "Ann",
+                                   licence: "CC BY-SA 4.0", filePage: file)
+        let credit = StorySource(kind: .imageCredit, detail: "Foto: Ann, CC BY-SA 4.0, Wikimedia Commons", url: file)
+        let place = Self.candidate()
+        #expect(StorySources.list(for: Self.walkStory(place: place), image: image, language: .norwegian) == [osm, credit])
+        #expect(StorySources.list(for: Self.walkStory(place: place, address: Address(city: "Roma")), image: image,
+                                  language: .norwegian) == [osm, apple, credit])
+        // Apple places alone also count; a chosen story lists the same as a buzz story; English credit text.
+        #expect(StorySources.list(for: Self.walkStory(kind: .chosen, place: place, applePlaces: [ApplePlace(name: "Bar", category: "bar", coordinate: .at())]),
+                                  image: nil, language: .english) == [osm, apple])
+        #expect(StorySources.list(for: Self.walkStory(place: place), image: image, language: .english).last?.detail
+                == "Photo: Ann, CC BY-SA 4.0, Wikimedia Commons")
+        // No author and no licence: no credit to show.
+        let bare = PlaceImageInfo(thumbnailURL: image.thumbnailURL, author: nil, licence: " ", filePage: file)
+        #expect(StorySources.list(for: Self.walkStory(place: place), image: bare, language: .norwegian) == [osm])
+    }
+
+    @Test func stopStorySourcesAreAppleMapsOnly() {
+        let image = PlaceImageInfo(thumbnailURL: URL(string: "https://upload.wikimedia.org/p.jpg")!, author: "Ann",
+                                   licence: "CC0")
+        #expect(StorySources.list(for: Self.walkStory(kind: .stop, place: nil), image: image, language: .norwegian) == [])
+        #expect(StorySources.list(for: Self.walkStory(kind: .stop, place: nil, address: Address(city: "Roma")), image: image,
+                                  language: .norwegian) == [StorySource(kind: .appleMaps, detail: nil, url: nil)])
+    }
 }

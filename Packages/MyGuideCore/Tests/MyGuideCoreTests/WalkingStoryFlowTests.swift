@@ -319,4 +319,19 @@ import Testing
         _ = try await flow.continueStory(more, nearby: [])
         #expect(working.calls.value.count == 1)
     }
+
+    @Test func flowCarriesKind() async throws {
+        let (chosen, _) = try await Self.flow(Self.http())
+            .buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: Self.facts, language: .english,
+                       kind: .chosen)
+        #expect(chosen.kind == .chosen && chosen.place?.id == Self.buzz.place.candidate.id && !chosen.canSkip)
+        let (defaulted, _) = try await Self.flow(Self.http())
+            .buzzStory(Self.buzz, position: Self.here, context: { Self.context }, nearby: Self.facts, language: .english)
+        #expect(defaulted.kind == .buzz)
+        // A chosen story continues like a buzz story: the place stays the subject.
+        let http = Self.http()
+        let (next, _) = try await Self.flow(http).continueStory(chosen, nearby: Self.facts)
+        #expect(next.levels.count == 2 && next.kind == .chosen)
+        #expect(try Self.inputText(http).contains("Subject: Michaelertor"))
+    }
 }

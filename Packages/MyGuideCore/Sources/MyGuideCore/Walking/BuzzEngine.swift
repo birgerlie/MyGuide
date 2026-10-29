@@ -14,6 +14,17 @@ public struct Buzz: Sendable, Equatable {
     public var usedOverride: Bool
 }
 
+extension Buzz {
+    /// A place the walker chose on the map: told like a buzz, but nothing offered it, so no course ("100 m away") and
+    /// no budget override.
+    public init(chosen place: WalkingPlace, position: Coordinate) {
+        let distance = GeoMath.distance(position, place.candidate.coordinate)
+        let bearing = GeoMath.bearing(from: position, to: place.candidate.coordinate)
+        self.init(id: UUID(), place: place, distance: distance, bearing: bearing, title: place.candidate.name,
+                  detail: BuzzText.detail(distance: distance, bearing: bearing, course: nil), usedOverride: false)
+    }
+}
+
 /// Why the engine did not buzz (design 4.3), in the order the reasons are checked.
 public enum QuietReason: String, Sendable, Codable, CaseIterable {
     case badAccuracy, noneDue, busy, skipQuiet, allExcluded, budget
