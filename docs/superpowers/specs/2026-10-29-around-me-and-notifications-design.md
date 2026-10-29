@@ -330,3 +330,4 @@ The owner decided:
    - A second endpoint is tried once on failure: `https://overpass.kumi.systems/api/interpreter`.
    - When both fail, the previous list's OpenStreetMap places are carried forward if that list is at most 7 days old and its centre is within 500 m.
 7. **Honest status.** When the engine is quiet because every due place is used, the walking panel says «Du har hørt om alt i nærheten» / «You've heard about everything nearby».
+8. **Lean towards more.** When a rule in this section is a judgement call, prefer more notifications over fewer; limits can be tightened later from walk logs. *(Owner: «bedre med for mye enn for lite i starten, vi kan heller begrense etterhvert».)* The tier rules are unchanged; widening them is not part of this section.
