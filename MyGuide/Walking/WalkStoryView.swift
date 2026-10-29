@@ -53,9 +53,7 @@ struct WalkStoryView: View {
                     .font(.title2.bold())
                 ForEach(Array(story.levels.enumerated()), id: \.offset) { index, text in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(text)
-                            .font(.body)
-                            .textSelection(.enabled)
+                        StoryText(text: text, font: .body, selectable: true)
                         speaker(level: index + 1)
                     }
                 }
