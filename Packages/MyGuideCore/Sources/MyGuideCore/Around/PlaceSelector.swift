@@ -84,7 +84,7 @@ public struct PlaceSelector: Sendable {
     public private(set) var state: SelectionState = .noPlaces
 
     private var currentID: String?
-    /// The latest automatic winner and the instant it first became the winner (reset when the winner changes).
+    /// The challenger that has been beating the current place, and the instant it first did so (qualifying time).
     private var pending: (id: String, since: Date)?
     private var hold: (id: String, since: Date, heading: Double?)?
 
@@ -114,17 +114,19 @@ public struct PlaceSelector: Sendable {
         }
         let reliable = Self.reliableHeading(input, config)
         let winner = Self.winner(input, reliable: reliable, config)
-        trackWinner(winner.place.candidate.id, now: input.now, current: currentID)
 
         let chosen: PlaceVector
-        if let id = input.playingPlaceID, let playing = input.vectors.first(where: { $0.place.candidate.id == id }) {
-            chosen = playing
-        } else if let held = heldVector(input, reliable: reliable) {
+        if let held = heldVector(input, reliable: reliable) {
+            pending = nil                 // the dwell starts afresh when the hold ends
             chosen = held
+        } else if let id = input.playingPlaceID, let playing = input.vectors.first(where: { $0.place.candidate.id == id }) {
+            pending = nil
+            chosen = playing
         } else if let cur = currentID.flatMap({ id in input.vectors.first { $0.place.candidate.id == id } }) {
             chosen = automatic(current: cur, winner: winner, input: input, reliable: reliable)
         } else {
-            chosen = winner       // first selection, or the current place vanished
+            pending = nil
+            chosen = winner               // first selection, or the current place vanished
         }
         return finish(chosen, input: input, reliable: reliable)
     }
@@ -138,34 +140,37 @@ public struct PlaceSelector: Sendable {
             return update(input)
         }
         let reliable = Self.reliableHeading(input, config)
-        let winner = Self.winner(input, reliable: reliable, config)
-        trackWinner(winner.place.candidate.id, now: input.now, current: placeID)
+        pending = nil
         hold = (placeID, input.now, reliable ? input.heading : nil)
         return finish(vector, input: input, reliable: reliable)
     }
 
     // MARK: - Rules
 
-    private func automatic(current cur: PlaceVector, winner: PlaceVector,
-                           input: SelectionInput, reliable: Bool) -> PlaceVector {
-        if winner.place.candidate.id == cur.place.candidate.id { return cur }
+    /// Whether `winner` may replace `cur`, and if so whether it has done so for a full dwell. The dwell counts
+    /// continuous qualifying time: `pending` is cleared whenever the winner does not beat the current place.
+    private mutating func automatic(current cur: PlaceVector, winner: PlaceVector,
+                                    input: SelectionInput, reliable: Bool) -> PlaceVector {
+        let winID = winner.place.candidate.id
         let curIn = isIn(cur, half: config.keepHalfAngle, input, reliable)
         let winIn = isIn(winner, half: config.selectHalfAngle, input, reliable)
-        // The current place keeps its claim while inside the keep angle, or while it is itself the fallback winner
-        // (handled above: the winner differs here, so in fallback mode the claim is gone).
-        let claim = curIn
+        let nearer = winner.distance < cur.distance - max(config.equalRatio * cur.distance, config.equalMetres)
         let beats: Bool
-        if !claim {
-            beats = true
-        } else if winIn && !curIn {
-            beats = true
-        } else if winIn == curIn {
-            beats = winner.distance < cur.distance - max(config.equalRatio * cur.distance, config.equalMetres)
-        } else {
+        if winID == cur.place.candidate.id {
             beats = false
+        } else if winIn && !curIn {
+            beats = true                  // the claim is lost: the distance rule is bypassed
+        } else if winIn == curIn {
+            beats = nearer                // both in the angle, or both fallback (spec 12.3)
+        } else {
+            beats = false                 // the current place is in the angle, the winner is only a fallback
         }
-        guard beats, let p = pending, p.id == winner.place.candidate.id,
-              input.now.timeIntervalSince(p.since) >= config.dwell else { return cur }
+        guard beats else {
+            pending = nil
+            return cur
+        }
+        if pending?.id != winID { pending = (winID, input.now) }
+        guard let since = pending?.since, input.now.timeIntervalSince(since) >= config.dwell else { return cur }
         return winner
     }
 
@@ -173,23 +178,18 @@ public struct PlaceSelector: Sendable {
     private mutating func heldVector(_ input: SelectionInput, reliable: Bool) -> PlaceVector? {
         guard let h = hold else { return nil }
         var valid = input.now.timeIntervalSince(h.since) < config.explicitHold
-        if valid, reliable, let now = input.heading, let tap = h.heading,
-           abs(Self.offset(heading: tap, bearing: now)) > config.explicitTurn {
-            valid = false
+        if valid, reliable, let now = input.heading {
+            if let tap = h.heading {
+                if abs(Self.offset(heading: tap, bearing: now)) > config.explicitTurn { valid = false }
+            } else {
+                hold?.heading = now       // unreliable at the tap: the first reliable heading is the reference
+            }
         }
         guard valid, let v = input.vectors.first(where: { $0.place.candidate.id == h.id }) else {
             hold = nil
             return nil
         }
         return v
-    }
-
-    private mutating func trackWinner(_ id: String, now: Date, current: String?) {
-        if id == current {
-            pending = nil
-        } else if pending?.id != id {
-            pending = (id, now)
-        }
     }
 
     private mutating func finish(_ chosen: PlaceVector, input: SelectionInput, reliable: Bool) -> SelectionState {
@@ -244,7 +244,9 @@ public struct PlaceSelector: Sendable {
 
     /// True when the two nearest places are close to each other and both close to the owner.
     private static func cluster(_ vectors: [PlaceVector], _ c: PlaceSelectionConfig) -> Bool {
-        let sorted = vectors.sorted { $0.distance < $1.distance }
+        let sorted = vectors.sorted {
+            $0.distance != $1.distance ? $0.distance < $1.distance : $0.place.candidate.id < $1.place.candidate.id
+        }
         guard sorted.count >= 2 else { return false }
         let a = sorted[0], b = sorted[1]
         guard b.distance <= c.clusterReach else { return false }
