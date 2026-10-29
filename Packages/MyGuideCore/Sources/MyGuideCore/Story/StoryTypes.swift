@@ -19,6 +19,16 @@ public enum StoryLanguage: String, Sendable, Codable, CaseIterable {
         case .norwegian: "Norwegian Bokmål"
         }
     }
+
+    /// The language that matches a device's preferred languages (spec 17): Norwegian when the first one is
+    /// Norwegian (nb, no or nn, with or without a region), English for any other language or none. Only the first
+    /// language decides. The app reads it for its screen texts and as the story language on first launch.
+    public static func matching(preferredLanguages: [String]) -> StoryLanguage {
+        guard let first = preferredLanguages.first,
+              let code = Locale.Language(identifier: first).languageCode?.identifier.lowercased()
+        else { return .english }
+        return ["nb", "no", "nn"].contains(code) ? .norwegian : .english
+    }
 }
 
 /// How deep into a place's story the listener is. Lengths: see `StoryLength`.
