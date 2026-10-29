@@ -359,27 +359,10 @@ final class StoryViewModel {
         }
     }
 
-    /// The card for a partial identification. Until it is complete the guess stays, marked "Kanskje:" / "Maybe:".
-    /// "unsure" shows the not-sure sentence as soon as it arrives. A "certain" or "likely" counts once its
-    /// `matchedCandidateID` is known (it arrived, or a later field did, so it was null): then the card shows the
-    /// matched place, placed from the guess or the nearby list when it is there, else by name only; or the model's
-    /// subject when nothing was matched. The flow has already dropped an id that was not sent.
+    /// The card for a partial identification (`PlaceCard.streaming`), placed from the guess or the run's nearby list.
     private func card(for partial: PartialFirstStory) -> PlaceCard? {
-        let guessCard = guessed.map(PlaceCard.init(guess:))
-        guard let confidence = partial.confidence.flatMap(SubjectConfidence.init(rawValue:)) else { return guessCard }
-        if confidence == .unsure { return .unsure }
-        let idSettled = partial.matchedCandidateID != nil || partial.title != nil || partial.era != nil
-            || partial.story != nil
-        guard idSettled else { return guessCard }
-        if let id = partial.matchedCandidateID {
-            if let guessed, guessed.candidate.id == id { return PlaceCard(identified: guessed) }
-            if let from = capture?.coordinate, let candidate = nearbyList?.candidates.first(where: { $0.id == id }) {
-                return PlaceCard(name: candidate.name, distance: GeoMath.distance(from, candidate.coordinate),
-                                 bearing: GeoMath.bearing(from: from, to: candidate.coordinate), mark: .identified)
-            }
-        }
-        guard let subject = partial.subject, !subject.isEmpty else { return guessCard }
-        return PlaceCard(name: subject, distance: nil, bearing: nil, mark: .identified)
+        PlaceCard.streaming(partial, guess: guessed, photo: capture?.coordinate,
+                            listCandidates: nearbyList?.candidates ?? [])
     }
 
     private func showStoryText(_ text: String) {
@@ -620,56 +603,6 @@ final class StoryViewModel {
     }
 }
 
-// MARK: - Place card
-
-/// The place card above the story: name, distance and direction (spec 6). The view words it in the story language.
-struct PlaceCard: Equatable {
-    enum Mark: Equatable {
-        /// From the nearby list before the model has answered: "Kanskje:" / "Maybe:".
-        case guess
-        /// The model's identification ("certain" or "likely").
-        case identified
-        /// The model is not sure: the card shows the not-sure sentence instead of a place.
-        case unsure
-    }
-
-    var name: String
-    /// Metres from the photo; nil when the place is known by name only.
-    var distance: Double?
-    /// Degrees clockwise from north; nil when the place is known by name only.
-    var bearing: Double?
-    var mark: Mark
-
-    static let unsure = PlaceCard(name: "", distance: nil, bearing: nil, mark: .unsure)
-
-    init(name: String, distance: Double?, bearing: Double?, mark: Mark) {
-        self.name = name
-        self.distance = distance
-        self.bearing = bearing
-        self.mark = mark
-    }
-
-    init(guess: RankedCandidate) {
-        self.init(name: guess.candidate.name, distance: guess.distance, bearing: guess.bearing, mark: .guess)
-    }
-
-    init(identified: RankedCandidate) {
-        self.init(name: identified.candidate.name, distance: identified.distance, bearing: identified.bearing,
-                  mark: .identified)
-    }
-
-    /// The decoded story's card: the not-sure sentence, the matched place, or the model's subject by name.
-    init(session: StorySession) {
-        if session.identified.confidence == .unsure {
-            self = .unsure
-        } else if let matched = session.matchedCandidate {
-            self.init(identified: matched)
-        } else {
-            self.init(name: session.identified.subject, distance: nil, bearing: nil, mark: .identified)
-        }
-    }
-}
-
 // MARK: - Screen texts
 
 /// The camera and story screens' texts in the story language (spec 5, 6, 9; the app has no localisation, so only these
@@ -736,58 +669,4 @@ enum ScreenText {
         "north": "nord", "north-east": "nordøst", "east": "øst", "south-east": "sørøst",
         "south": "sør", "south-west": "sørvest", "west": "vest", "north-west": "nordvest",
     ]
-}
-
-// MARK: - Throttle
-
-/// Shows a growing text at most once per `interval` (spec 8: streamed text at most every 100 ms). The first text shows
-/// at once; texts arriving within the interval wait, and only the newest of them is shown when it ends.
-@MainActor
-final class TextThrottle {
-    static let interval: Duration = .milliseconds(100)
-
-    private let show: (String) -> Void
-    private var pending: String?
-    private var lastShown: ContinuousClock.Instant?
-    private var timer: Task<Void, Never>?
-
-    init(show: @escaping (String) -> Void) {
-        self.show = show
-    }
-
-    isolated deinit {
-        timer?.cancel()
-    }
-
-    func push(_ text: String) {
-        pending = text
-        guard timer == nil else { return }
-        let now = ContinuousClock.now
-        if let lastShown, now - lastShown < Self.interval {
-            let due = lastShown + Self.interval
-            timer = Task { [weak self] in
-                try? await Task.sleep(until: due, clock: .continuous)
-                guard !Task.isCancelled else { return }
-                self?.flush()
-            }
-        } else {
-            flush()
-        }
-    }
-
-    /// Drops the waiting text and forgets the last showing, for the next stream.
-    func cancel() {
-        timer?.cancel()
-        timer = nil
-        pending = nil
-        lastShown = nil
-    }
-
-    private func flush() {
-        timer = nil
-        guard let pending else { return }
-        self.pending = nil
-        lastShown = .now
-        show(pending)
-    }
 }
