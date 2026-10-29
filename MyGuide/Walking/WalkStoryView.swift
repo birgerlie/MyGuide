@@ -63,10 +63,11 @@ struct WalkStoryView: View {
         return live.levels.count >= stored.levels.count ? live : stored
     }
 
-    /// The failure of this story's latest command (preparing, "more", a level's speech), in words; nil when none.
-    private var failure: String? {
+    /// The failure of this story's latest command (preparing, "more", a level's speech), in words in `language`; nil
+    /// when none.
+    private func failure(_ language: StoryLanguage) -> String? {
         guard let failure = stories.lastFailure, failure.id == id else { return nil }
-        return failure.message
+        return failure.text(language)
     }
 
     @ViewBuilder
@@ -103,14 +104,15 @@ struct WalkStoryView: View {
     /// No prepared or stored story: the failure that ended it when there is one, else that it is gone.
     private var gone: some View {
         let language = AppServices.currentStoryLanguage()
+        let message = failure(language)
         return StorySheetPage(photo: nil) {
             Label {
-                Text(failure ?? WalkStoryText.gone(language))
+                Text(message ?? WalkingStories.goneText(language))
                     .font(Theme.Font.body)
             } icon: {
                 Image(systemName: "exclamationmark.triangle")
             }
-            .foregroundStyle(failure == nil ? Theme.Colour.text : .red)
+            .foregroundStyle(message == nil ? Theme.Colour.text : .red)
         }
     }
 
@@ -165,30 +167,33 @@ struct WalkStoryView: View {
         }
     }
 
-    /// The status label, the name in Playfair and the line with where the place was from the walker.
+    /// The status label, the name in Playfair and the line with where the place was from the walker. The label stays
+    /// its own VoiceOver heading; the name and the where-line are read as one.
     private func header(_ story: WalkStory) -> some View {
         let language = story.language
         return VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
             SectionLabel(story.kind == .stop
                          ? NotificationText.stoppedLabel(language) : NotificationText.nearbyLabel(language))
-            Text(Self.name(story))
-                .font(Theme.Font.display)
-                .fixedSize(horizontal: false, vertical: true)
-            if let line = WalkStoryText.whereLine(story) {
-                Label {
-                    Text(line).font(Theme.Font.body)
-                } icon: {
-                    Image(systemName: "mappin.circle.fill")
-                        .foregroundStyle(Theme.Colour.coral)
+            VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
+                Text(Self.name(story))
+                    .font(Theme.Font.display)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let line = WalkStoryText.whereLine(story) {
+                    Label {
+                        Text(line).font(Theme.Font.body)
+                    } icon: {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundStyle(Theme.Colour.coral)
+                    }
                 }
             }
+            .accessibilityElement(children: .combine)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
     }
 
     /// The bottom: "Lytt til fortellingen" plays level 1, or stops this story's level 1 while it plays or loads.
-    /// The story is saved in the diary when its text arrives (`WalkingStories.save`).
+    /// The story is saved in the diary when its text arrives; a failed save says so (`saveFailedIDs`).
     private func listenBar(language: StoryLanguage) -> some View {
         let listening = listening(level: 1)
         return ListenBar(
@@ -196,8 +201,8 @@ struct WalkStoryView: View {
             isActive: listening != nil,
             isLoading: listening?.isLoading == true,
             enabled: listening != nil || stories.canListen(id, level: 1),
-            failure: failure,
-            diaryStatus: .saved,
+            failure: failure(language),
+            diaryStatus: stories.saveFailedIDs.contains(id) ? .saveFailed : .saved,
             action: { toggle(level: 1, active: listening != nil) })
     }
 
@@ -242,12 +247,12 @@ struct WalkStoryView: View {
         picture = nil
         pictureInfo = nil
         guard let title = pictureTitle,
-              let stored = await placeImages.image(wikipediaTitle: title), !Task.isCancelled else { return }
-        let url = stored.fileURL
-        let loaded = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: url.path) }.value
-        guard !Task.isCancelled, let loaded else { return }
-        picture = loaded
-        pictureInfo = stored.info
+              let storedImage = await placeImages.image(wikipediaTitle: title), !Task.isCancelled else { return }
+        let url = storedImage.fileURL
+        let decoded = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: url.path) }.value
+        guard !Task.isCancelled, let decoded else { return }
+        picture = decoded
+        pictureInfo = storedImage.info
     }
 }
 
@@ -255,10 +260,6 @@ struct WalkStoryView: View {
 enum WalkStoryText {
     static func skip(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Hopp over dette stedet" : "Skip this place"
-    }
-
-    static func gone(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Fortellingen finnes ikke lenger." : "That story is no longer available."
     }
 
     static func noPlaceSources(_ language: StoryLanguage) -> String {

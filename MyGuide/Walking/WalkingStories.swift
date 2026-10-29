@@ -26,11 +26,28 @@ final class WalkingStories {
     }
 
     struct Failure: Equatable {
+        /// What went wrong, shown in the story language (spec 12.10's fixed categories).
+        enum Kind: Equatable {
+            /// The story is no longer prepared or stored.
+            case gone
+            case error(FailureCategory)
+        }
+
         var id: UUID
-        var message: String
+        var kind: Kind
+
+        func text(_ language: StoryLanguage) -> String {
+            switch kind {
+            case .gone: WalkingStories.goneText(language)
+            case .error(let category): category.text(language)
+            }
+        }
     }
 
-    static let goneText = "That story is no longer available."
+    /// The story is no longer prepared or stored, in the story language.
+    nonisolated static func goneText(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Fortellingen finnes ikke lenger." : "That story is no longer available."
+    }
     /// Failures remembered for a later "Tell me" on the same buzz.
     private static let errorLimit = 10
 
@@ -43,6 +60,8 @@ final class WalkingStories {
     private(set) var fetchingMore: Set<UUID> = []
     /// The last failure reported, shown on that story's screen.
     private(set) var lastFailure: Failure?
+    /// Stories whose latest save into memory failed (so not in the diary); cleared by a later successful save.
+    private(set) var saveFailedIDs: Set<UUID> = []
     /// The story the owner asked to open; Home pushes it and clears this at once.
     var openID: UUID?
     private(set) var playback = WalkingPlayback()
@@ -554,18 +573,18 @@ final class WalkingStories {
 
     /// Posts STORY_FAILED. Our own cancellation (a `CancellationError`) is silent; no error means the story is gone.
     /// A chosen story's failure only sets `lastFailure`, for the app to show: it posts no notifications. The
-    /// notification gives the reason as one of the fixed categories in the story language (spec 12.10); `lastFailure`
-    /// keeps the detailed message.
+    /// notification and `lastFailure` give the reason as one of the fixed categories (spec 12.10), shown in the story
+    /// language; a gone story (no error, or `StoryGone`) is `.gone` in `lastFailure`.
     private func report(_ id: UUID, error: Error?) {
-        let body: String
+        let kind: Failure.Kind
         if let error, !(error is StoryGone) {
-            body = error is UnrequestedCancellation
-                ? StoryViewModel.unexpectedCancellationText : UserFacingMessage.message(for: error)
+            // Our own cancellation is silent; an unrequested one is "other", as `FailureCategory` maps it.
+            if error is CancellationError { return }
+            kind = .error(FailureCategory(error))
         } else {
-            body = Self.goneText
+            kind = .gone
         }
-        guard !body.isEmpty else { return }
-        lastFailure = Failure(id: id, message: body)
+        lastFailure = Failure(id: id, kind: kind)
         if isChosen(id) || (prepared.story(id) == nil && storedStory(id)?.kind == .chosen) { return }
         let language = AppServices.currentStoryLanguage()
         // A gone story (no error, or `StoryGone`) is `.other`, as `FailureCategory` maps any unknown error.
@@ -666,8 +685,10 @@ final class WalkingStories {
     private func save(_ story: WalkStory, tripID: UUID?) {
         do {
             try memory.saveWalkStory(story, tripID: tripID ?? UUID())
+            saveFailedIDs.remove(story.id)
             LatestStoryRef.record(.walk(story.id))
         } catch {
+            saveFailedIDs.insert(story.id)
             fail("walk story save failed", error)
         }
     }
