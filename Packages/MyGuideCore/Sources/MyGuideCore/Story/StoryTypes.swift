@@ -29,6 +29,15 @@ public enum StoryLanguage: String, Sendable, Codable, CaseIterable {
         else { return .english }
         return ["nb", "no", "nn"].contains(code) ? .norwegian : .english
     }
+
+    /// The screen language (spec 17): the localization iOS picked for the app bundle when there is one ("Base" and
+    /// "" are none), so the app's texts match the system's texts for it; else `matching(preferredLanguages:)`.
+    public static func screen(bundleLocalization: String?, preferredLanguages: [String]) -> StoryLanguage {
+        if let localization = bundleLocalization, !localization.isEmpty, localization != "Base" {
+            return matching(preferredLanguages: [localization])
+        }
+        return matching(preferredLanguages: preferredLanguages)
+    }
 }
 
 /// How deep into a place's story the listener is. Lengths: see `StoryLength`.

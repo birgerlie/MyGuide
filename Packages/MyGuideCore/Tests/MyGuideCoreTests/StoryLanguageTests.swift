@@ -30,4 +30,20 @@ import Testing
         #expect(StoryLanguage.matching(preferredLanguages: ["nbx"]) == .english)
         #expect(StoryLanguage.matching(preferredLanguages: ["non"]) == .english)
     }
+
+    @Test func screenLanguageFollowsTheBundleLocalization() {
+        // iOS picked nb for the bundle (Danish first, Norwegian second): Norwegian, though the first language is not.
+        #expect(StoryLanguage.screen(bundleLocalization: "nb", preferredLanguages: ["da-DK", "nb-NO"]) == .norwegian)
+        // iOS picked en (the app's own language set to English) on a Norwegian phone: English.
+        #expect(StoryLanguage.screen(bundleLocalization: "en", preferredLanguages: ["nb-NO"]) == .english)
+        #expect(StoryLanguage.screen(bundleLocalization: "nb-NO", preferredLanguages: []) == .norwegian)
+    }
+
+    @Test func screenLanguageFallsBackToThePreferredLanguages() {
+        // No usable localization: the first preferred language decides.
+        #expect(StoryLanguage.screen(bundleLocalization: nil, preferredLanguages: ["nn-NO"]) == .norwegian)
+        #expect(StoryLanguage.screen(bundleLocalization: "Base", preferredLanguages: ["nb"]) == .norwegian)
+        #expect(StoryLanguage.screen(bundleLocalization: "", preferredLanguages: ["de-DE", "nb"]) == .english)
+        #expect(StoryLanguage.screen(bundleLocalization: nil, preferredLanguages: []) == .english)
+    }
 }
