@@ -4,7 +4,8 @@ import SwiftUI
 /// Walking mode in the «Rundt deg» sheet, in the place of «Gå en tur» while a walk runs (spec 14): the status
 /// ("Går · 2 varsler", refreshed every second so a stale fix turns into "venter på GPS"), the «hørt om alt» line while
 /// the engine is quiet because every due place is used (spec 13.7), the walking story that is playing or ready (its
-/// title opens it; Lytt/Stopp, Mer and, for a buzz story, Hopp over), and Pause/Fortsett and Avslutt turen.
+/// title opens it; Lytt/Stopp, Mer and, for a buzz story, Hopp over), and Pause and Avslutt turen. A paused walk
+/// shows «Fortsett turen» in the sheet instead (spec 16.4).
 struct WalkingPanel: View {
     let walking: WalkingController
     let language: StoryLanguage
@@ -30,15 +31,11 @@ struct WalkingPanel: View {
             }
             storyRow
             HStack(spacing: 12) {
+                // A paused walk shows «Fortsett turen» in the sheet instead of this panel (spec 16.4).
                 Button {
-                    if walking.isPaused {
-                        walking.resume(source: .phone)
-                    } else {
-                        walking.pause(source: .phone)
-                    }
+                    walking.pause(source: .phone)
                 } label: {
-                    Label(walking.isPaused ? AroundTexts.resume(language) : AroundTexts.pause(language),
-                          systemImage: walking.isPaused ? "play.fill" : "pause.fill")
+                    Label(AroundTexts.pause(language), systemImage: "pause.fill")
                 }
                 .buttonStyle(.themeSecondary)
                 Button {

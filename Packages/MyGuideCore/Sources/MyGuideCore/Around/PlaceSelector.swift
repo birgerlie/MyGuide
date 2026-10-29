@@ -10,8 +10,6 @@ public struct PlaceSelectionConfig: Sendable, Equatable {
     public var maxHeadingAccuracy = 25.0
     public var maxPositionAccuracy = 50.0
     public var directionDistanceFactor = 2.0   // direction stated only when distance > factor·accuracy
-    public var explicitHold: TimeInterval = 20
-    public var explicitTurn = 60.0
     public var clusterSpacing = 15.0       // two nearest within this of each other …
     public var clusterReach = 40.0         // … and both within this of the owner → suggest a photo
     public init() {}
@@ -95,10 +93,21 @@ public struct PlaceSelector: Sendable {
     private var currentID: String?
     /// The challenger that has been beating the current place, and the instant it first did so (qualifying time).
     private var pending: (id: String, since: Date)?
-    private var hold: (id: String, since: Date, heading: Double?)?
+    /// The place the owner tapped, held against automatic changes until `resumeAutomatic()` (spec 16.1).
+    private var heldID: String?
 
     public init(config: PlaceSelectionConfig = .init()) {
         self.config = config
+    }
+
+    /// True while a tapped place is held.
+    public var isHolding: Bool { heldID != nil }
+
+    /// The owner tapped locate (spec 16.1): automatic selection resumes. The held place stays selected until a
+    /// challenger has won for a full dwell (or a playing place freezes in).
+    public mutating func resumeAutomatic() {
+        heldID = nil
+        pending = nil
     }
 
     /// Offset of `bearing` from `heading`, wrapped into (−180, 180].
@@ -125,7 +134,7 @@ public struct PlaceSelector: Sendable {
         let winner = Self.winner(input, reliable: reliable, config)
 
         let chosen: PlaceVector
-        if let held = heldVector(input, reliable: reliable) {
+        if let held = heldVector(input) {
             pending = nil                 // the dwell starts afresh when the hold ends
             chosen = held
         } else if let id = input.playingPlaceID, let playing = input.vectors.first(where: { $0.place.candidate.id == id }) {
@@ -140,8 +149,8 @@ public struct PlaceSelector: Sendable {
         return finish(chosen, input: input, reliable: reliable)
     }
 
-    /// The owner tapped a place: select it at once and hold it against automatic changes for `explicitHold`
-    /// seconds, or until the owner has turned more than `explicitTurn` degrees.
+    /// The owner tapped a place: select it at once and hold it against automatic changes, also against a playing
+    /// place, until `resumeAutomatic()` or until it leaves the list (spec 16.1).
     @discardableResult
     public mutating func choose(placeID: String, _ input: SelectionInput) -> SelectionState {
         guard input.positionAccuracy <= config.maxPositionAccuracy, !input.vectors.isEmpty,
@@ -150,7 +159,7 @@ public struct PlaceSelector: Sendable {
         }
         let reliable = Self.reliableHeading(input, config)
         pending = nil
-        hold = (placeID, input.now, reliable ? input.heading : nil)
+        heldID = placeID
         return finish(vector, input: input, reliable: reliable)
     }
 
@@ -183,19 +192,11 @@ public struct PlaceSelector: Sendable {
         return winner
     }
 
-    /// The held vector while the hold is valid; clears the hold when it is over.
-    private mutating func heldVector(_ input: SelectionInput, reliable: Bool) -> PlaceVector? {
-        guard let h = hold else { return nil }
-        var valid = input.now.timeIntervalSince(h.since) < config.explicitHold
-        if valid, reliable, let now = input.heading {
-            if let tap = h.heading {
-                if abs(Self.offset(heading: tap, bearing: now)) > config.explicitTurn { valid = false }
-            } else {
-                hold?.heading = now       // unreliable at the tap: the first reliable heading is the reference
-            }
-        }
-        guard valid, let v = input.vectors.first(where: { $0.place.candidate.id == h.id }) else {
-            hold = nil
+    /// The held place's vector; a list without it ends the hold.
+    private mutating func heldVector(_ input: SelectionInput) -> PlaceVector? {
+        guard let id = heldID else { return nil }
+        guard let v = input.vectors.first(where: { $0.place.candidate.id == id }) else {
+            heldID = nil
             return nil
         }
         return v
@@ -204,7 +205,7 @@ public struct PlaceSelector: Sendable {
     private mutating func finish(_ chosen: PlaceVector, input: SelectionInput, reliable: Bool) -> SelectionState {
         let id = chosen.place.candidate.id
         currentID = id
-        if hold?.id != id { hold = nil }
+        if heldID != id { heldID = nil }
         if pending?.id == id { pending = nil }
         var relative: Double?
         if reliable, let heading = input.heading,
@@ -216,10 +217,10 @@ public struct PlaceSelector: Sendable {
         return state
     }
 
+    /// A poor fix or an empty list: no current place. A hold survives it (spec 16.1: only locate ends it).
     private mutating func reset() {
         currentID = nil
         pending = nil
-        hold = nil
     }
 
     // MARK: - Helpers

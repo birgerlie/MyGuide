@@ -29,13 +29,10 @@ struct HomeScreen: View {
     @State private var tab: RootTab = .explore
     @State private var path: [HomeRoute] = []
     @State private var diaryPath: [HomeRoute] = []
-    /// Owned here for every screen that needs a position: the map, the camera HUD and a story's "Use where I am now".
-    @State private var location: LocationProvider
-    /// What the map shows and selects; reads `location`, which this screen runs.
-    @State private var around: AroundModel
     /// The photo story on the `.photoStory` route.
     @State private var pushedModel: StoryViewModel?
-    /// Kept across tab switches and pushed screens (spec 16.8): follows the owner until they pan.
+    /// Kept across tab switches and pushed screens (spec 16.8). The map frames the owner on the first fix; after
+    /// that only the locate button moves it.
     @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var sheetExpanded = false
     /// The Utforsk tab's height, so the expanded sheet leaves part of the map in view.
@@ -54,12 +51,11 @@ struct HomeScreen: View {
     /// it hides (spec 16.5).
     static let cameraClearance: CGFloat = 150
 
-    init(services: AppServices) {
-        self.services = services
-        let location = LocationProvider()
-        _location = State(initialValue: location)
-        _around = State(initialValue: AroundModel(services: services, location: location))
-    }
+    /// The shared provider for every screen that needs a position: the map, the camera HUD and a story's "Use where
+    /// I am now". Stored in `AppServices` so it is made once; this screen alone starts and stops it and sets `onFix`.
+    private var location: LocationProvider { services.location }
+    /// What the map shows and selects; reads `location`.
+    private var around: AroundModel { services.around }
 
     private static var recentPhotos: FetchDescriptor<CaptureRecord> {
         var descriptor = FetchDescriptor<CaptureRecord>(sortBy: [SortDescriptor(\.takenAt, order: .reverse)])

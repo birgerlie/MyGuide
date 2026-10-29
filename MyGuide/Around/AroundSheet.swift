@@ -130,39 +130,37 @@ struct AroundSheet: View {
 
     // MARK: - Walking
 
+    /// Off: «Gå en tur» starts a walk. Running: the walking panel. Paused (spec 16.4): «Fortsett turen» resumes the
+    /// walk already there (never a second one), with its status under it and a quiet way to end it.
     @ViewBuilder
     private var walkSection: some View {
-        if walking.isOn {
+        if walking.isOn, !walking.isPaused {
             WalkingPanel(walking: walking, language: language)
         } else {
             VStack(spacing: Theme.Spacing.unit) {
-                Button {
-                    Task { await walking.start() }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "figure.walk")
-                            .font(.system(size: 22, weight: .semibold))
-                            .accessibilityHidden(true)
-                        Text(AroundTexts.goForAWalk(language))
-                            .font(.custom(Theme.FontName.medium, size: 20, relativeTo: .title3))
-                        Spacer(minLength: 0)
-                        if walking.isStarting {
-                            ProgressView().tint(Theme.Colour.forest)
-                        } else {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 17, weight: .semibold))
-                                .accessibilityHidden(true)
+                walkButton
+                if walking.isOn {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        if let status = WalkingStatus.text(isOn: true, lastFixAt: walking.lastFixAt,
+                                                           buzzCount: walking.buzzCount, now: context.date,
+                                                           pause: walking.pauseKind, language: language) {
+                            Label(status, systemImage: "pause.circle")
+                                .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
+                                .opacity(0.75)
                         }
                     }
-                    .frame(minHeight: 56)
+                    Button(AroundTexts.stopWalk(language)) { walking.stop() }
+                        .font(Theme.Font.bodyMedium)
+                        .underline()
+                        .buttonStyle(.plain)
+                        .frame(minHeight: Theme.minimumTouchHeight)
+                } else {
+                    Text(AroundTexts.walkLine(language))
+                        .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
+                        .multilineTextAlignment(.center)
+                        .opacity(0.75)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.themePrimary(.coral))
-                .disabled(walking.isStarting)
-                Text(AroundTexts.walkLine(language))
-                    .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
-                    .multilineTextAlignment(.center)
-                    .opacity(0.75)
-                    .frame(maxWidth: .infinity)
             }
         }
         // The first thing that keeps walking mode from starting, or that it lacks while on (e.g. location Always).
@@ -171,6 +169,37 @@ struct AroundSheet: View {
                 .font(Theme.Font.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// The wide coral button: «Gå en tur» starts walking mode; while a walk is paused, «Fortsett turen» resumes it.
+    private var walkButton: some View {
+        let paused = walking.isOn
+        return Button {
+            if paused {
+                walking.resume(source: .phone)
+            } else {
+                Task { await walking.start() }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: paused ? "play.fill" : "figure.walk")
+                    .font(.system(size: 22, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(paused ? AroundTexts.continueWalk(language) : AroundTexts.goForAWalk(language))
+                    .font(.custom(Theme.FontName.medium, size: 20, relativeTo: .title3))
+                Spacer(minLength: 0)
+                if walking.isStarting {
+                    ProgressView().tint(Theme.Colour.forest)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 17, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(minHeight: 56)
+        }
+        .buttonStyle(.themePrimary(.coral))
+        .disabled(walking.isStarting)
     }
 
     // MARK: - Expanded

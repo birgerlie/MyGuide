@@ -24,6 +24,9 @@ final class AroundModel {
     private(set) var selection: SelectionState = .noPlaces
     /// The owner's position from the latest usable fix; nil without one (none yet, invalid or older than 60 s).
     private(set) var position: Coordinate?
+    /// The horizontal accuracy (metres) of that fix; nil with `position`. The map draws it as a circle while it is
+    /// poorer than the selection allows (spec 16.6).
+    private(set) var positionAccuracy: Double?
     /// The smoothed phone heading, only while it is reliable (heading accuracy and position accuracy within the
     /// limits of spec 6.4); nil means no view cone.
     private(set) var heading: Double?
@@ -91,10 +94,23 @@ final class AroundModel {
         heading = nil
     }
 
-    /// The owner tapped a marker (spec 6.3): selects it at once and holds it against automatic changes. Ignored
-    /// without a usable position or for a place not in the list.
+    /// The owner tapped a marker or a row of the nearby list: selects it at once and holds it against automatic
+    /// changes until `resumeAutomatic()` (spec 16.1). Ignored without a usable position or for a place not in the list.
     func choose(_ placeID: String) {
         _ = select(placeID, now: .now)
+    }
+
+    /// The owner tapped locate (spec 16.1): automatic selection resumes; a new winner still needs its dwell.
+    /// Panning the map by hand never calls this.
+    func resumeAutomatic() {
+        selector.resumeAutomatic()
+        if active { update(now: .now) }
+    }
+
+    /// True while the fix is too inaccurate to select from (spec 6.4), so the map shows its accuracy circle.
+    var positionIsPoor: Bool {
+        guard let positionAccuracy else { return false }
+        return positionAccuracy > config.maxPositionAccuracy
     }
 
     /// «Lytt» on the selected place: its story on this run in the story language when there is one (just buzzed,
@@ -154,6 +170,7 @@ final class AroundModel {
     private func input(now: Date) -> SelectionInput? {
         let fix = location.fix(at: now)
         assign(position: fix?.coordinate)
+        if positionAccuracy != fix?.accuracy { positionAccuracy = fix?.accuracy }
         let smoothed = phoneHeading.heading
         let headingAccuracy = phoneHeading.accuracy
         let reliable = config.headingIsReliable(heading: smoothed, headingAccuracy: headingAccuracy,

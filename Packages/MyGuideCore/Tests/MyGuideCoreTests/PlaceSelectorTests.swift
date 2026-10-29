@@ -208,33 +208,56 @@ import Testing
         for i in 1...10 { #expect(s.update(Self.input(vs, heading: 35, t: Double(i))).placeID == "front") }
     }
 
-    @Test func explicitChoiceHoldsTwentySecondsOrSixtyDegrees() {
+    @Test func explicitChoiceHoldsUntilResumed() {
+        // Spec 16.1: no time or turn limit. Front (30 m, ahead) would win at once without the hold.
         let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
         var s = PlaceSelector()
         #expect(s.update(Self.input(vs, heading: 0, t: 0)).placeID == "front")
         #expect(s.choose(placeID: "back", Self.input(vs, heading: 0, t: 0)).placeID == "back")
-        #expect(s.update(Self.input(vs, heading: 0, t: 19)).placeID == "back")
-        // The hold ends at 20 − 0 = 20 (not < 20); the dwell then starts afresh: 21.4 − 20 < 1.5 ≤ 21.5 − 20.
-        #expect(s.update(Self.input(vs, heading: 0, t: 20)).placeID == "back")
-        #expect(s.update(Self.input(vs, heading: 0, t: 21.4)).placeID == "back")
-        #expect(s.update(Self.input(vs, heading: 0, t: 21.5)).placeID == "front")
+        #expect(s.isHolding)
+        // Well past the old 20 s, and turned far past the old 60° (to 179°, then 299° = −61°).
+        #expect(s.update(Self.input(vs, heading: 0, t: 600)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 179, t: 601)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 299, t: 602)).placeID == "back")
+        // Resumed at t = 610: the dwell starts afresh at the next update; 610 + 1.4 keeps, 610 + 1.5 switches.
+        s.resumeAutomatic()
+        #expect(!s.isHolding)
+        #expect(s.update(Self.input(vs, heading: 0, t: 610)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 0, t: 611.4)).placeID == "back")
+        #expect(s.update(Self.input(vs, heading: 0, t: 611.5)).placeID == "front")
+    }
 
-        // Turning exactly 60° keeps the hold; 61° ends it.
-        var s2 = PlaceSelector()
-        _ = s2.update(Self.input(vs, heading: 0, t: 0))
-        _ = s2.choose(placeID: "back", Self.input(vs, heading: 0, t: 0))
-        #expect(s2.update(Self.input(vs, heading: 60, t: 4)).placeID == "back")
-        // Hold ends at 61°; back is outside the keep angle and front (30 m) beats 60 − max(9, 10) = 50: dwell from t = 5.
-        #expect(s2.update(Self.input(vs, heading: 61, t: 5)).placeID == "back")
-        #expect(s2.update(Self.input(vs, heading: 61, t: 6.4)).placeID == "back")
-        #expect(s2.update(Self.input(vs, heading: 61, t: 6.5)).placeID == "front")
-        // Turning the other way: offset(0, 300) = −60 keeps, 299 → −61 ends.
-        var s3 = PlaceSelector()
-        _ = s3.update(Self.input(vs, heading: 0, t: 0))
-        _ = s3.choose(placeID: "back", Self.input(vs, heading: 0, t: 0))
-        #expect(s3.update(Self.input(vs, heading: 300, t: 4)).placeID == "back")
-        #expect(s3.update(Self.input(vs, heading: 299, t: 5)).placeID == "back")
-        #expect(s3.update(Self.input(vs, heading: 299, t: 6.5)).placeID == "front")
+    @Test func resumeWithoutAHoldChangesNothing() {
+        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
+        var s = PlaceSelector()
+        #expect(s.update(Self.input(vs, heading: 0, t: 0)).placeID == "front")
+        s.resumeAutomatic()
+        #expect(s.update(Self.input(vs, heading: 0, t: 1)).placeID == "front")
+    }
+
+    @Test func holdOutlastsAPoorFixAndEndsWhenThePlaceLeavesTheList() {
+        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
+        var s = PlaceSelector()
+        _ = s.update(Self.input(vs, heading: 0, t: 0))
+        _ = s.choose(placeID: "back", Self.input(vs, heading: 0, t: 0))
+        // Accuracy 60 > 50: uncertain, but the hold stays and returns with a good fix.
+        #expect(s.update(Self.input(vs, heading: 0, pAcc: 60, t: 1)) == .uncertainPosition)
+        #expect(s.update(Self.input(vs, heading: 0, t: 2)).placeID == "back")
+        // An empty list (no places) keeps it too.
+        #expect(s.update(Self.input([], heading: 0, t: 3)) == .noPlaces)
+        #expect(s.update(Self.input(vs, heading: 0, t: 4)).placeID == "back")
+        // A list without the held place ends the hold; the first selection then takes effect at once.
+        #expect(s.update(Self.input([Self.v("front", d: 30, b: 0)], heading: 0, t: 5)).placeID == "front")
+        #expect(!s.isHolding)
+    }
+
+    @Test func choosingAnotherPlaceMovesTheHold() {
+        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180), Self.v("side", d: 40, b: 90)]
+        var s = PlaceSelector()
+        _ = s.update(Self.input(vs, heading: 0, t: 0))
+        _ = s.choose(placeID: "back", Self.input(vs, heading: 0, t: 0))
+        #expect(s.choose(placeID: "side", Self.input(vs, heading: 0, t: 1)).placeID == "side")
+        #expect(s.update(Self.input(vs, heading: 0, t: 100)).placeID == "side")
     }
 
     @Test func explicitChoiceOfUnknownPlaceFallsBackToAutomatic() {
@@ -353,26 +376,15 @@ import Testing
         #expect(s.update(Self.input(at84, heading: 0, t: 12.5)).placeID == "ch")
     }
 
-    @Test func tapDuringPlaybackOverridesFreezeThenFreezeReturns() {
+    @Test func tapDuringPlaybackOverridesFreezeThenFreezeReturnsOnResume() {
         let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
         var s = PlaceSelector()
         #expect(s.update(Self.input(vs, heading: 0, playing: "front", t: 0)).placeID == "front")
         #expect(s.choose(placeID: "back", Self.input(vs, heading: 0, playing: "front", t: 1)).placeID == "back")
-        #expect(s.update(Self.input(vs, heading: 0, playing: "front", t: 20.9)).placeID == "back")   // 19.9 < 20
-        #expect(s.update(Self.input(vs, heading: 0, playing: "front", t: 21)).placeID == "front")    // hold over
-    }
-
-    @Test func firstReliableHeadingDuringHoldIsTheTurnReference() {
-        let vs = [Self.v("front", d: 30, b: 0), Self.v("back", d: 60, b: 180)]
-        var s = PlaceSelector()
-        _ = s.update(Self.input(vs, heading: 0, t: 0))
-        // Unreliable at the tap (hAcc 40 > 25).
-        #expect(s.choose(placeID: "back", Self.input(vs, heading: 0, hAcc: 40, t: 0)).placeID == "back")
-        #expect(s.update(Self.input(vs, heading: 0, t: 1)).placeID == "back")      // reference = 0
-        #expect(s.update(Self.input(vs, heading: 60, t: 2)).placeID == "back")     // 60 is not > 60
-        #expect(s.update(Self.input(vs, heading: 61, t: 3)).placeID == "back")     // hold over, dwell starts
-        #expect(s.update(Self.input(vs, heading: 61, t: 4.4)).placeID == "back")
-        #expect(s.update(Self.input(vs, heading: 61, t: 4.5)).placeID == "front")
+        #expect(s.update(Self.input(vs, heading: 0, playing: "front", t: 100)).placeID == "back")
+        // Resumed while "front" still plays: the playing place is frozen in at once, as the freeze needs no dwell.
+        s.resumeAutomatic()
+        #expect(s.update(Self.input(vs, heading: 0, playing: "front", t: 101)).placeID == "front")
     }
 
     @Test func noPlacesState() { #expect(PlaceSelector().state == .noPlaces) }

@@ -43,6 +43,12 @@ final class AppServices {
     let walking: WalkingController
     /// The walk log of walking mode: the run in progress and where the run files live.
     let walkLog = WalkLog()
+    /// The one foreground location provider (map, camera, a story's "Use where I am now"). Stored here so SwiftUI
+    /// rebuilding Home never makes a throwaway one; `HomeScreen` alone starts and stops it and sets its `onFix`.
+    let location = LocationProvider()
+    /// The «Rundt deg» model over `location`, made on first use for the same reason; `HomeScreen` calls its
+    /// appear/disappear.
+    private(set) lazy var around = AroundModel(services: self, location: location)
 
     /// Why memory is held in RAM only this run; nil when the persistent store opened.
     let memoryFallback: MemoryFallback?

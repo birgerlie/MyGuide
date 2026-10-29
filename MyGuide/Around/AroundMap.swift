@@ -2,38 +2,102 @@ import MapKit
 import MyGuideCore
 import SwiftUI
 
-/// The «Rundt deg» map (spec 5, 14): MapKit muted and flat, without Apple's points of interest; the owner's dot with
-/// a view cone while the heading is reliable; the notify-worthy places as forest markers and the selected one as a
-/// coral pin. A tap on a marker chooses it. Compass and locate are MapKit's own controls; the camera follows the
-/// owner (without heading) until they pan, and the locate control follows again (spec 16.2).
+/// The «Rundt deg» map (spec 5, 14, 16): MapKit muted and flat, without Apple's points of interest; the owner's dot
+/// with a view cone while the heading is reliable, and an accuracy circle while the fix is too poor to select from;
+/// the notify-worthy places as forest markers and the selected one as a coral pin. A tap on a marker chooses it.
+/// On the first fix the map frames about `ownerSpan` metres around the owner, once. After that it never re-centres
+/// by itself: panning and zooming are the owner's (spec 16.2). The round locate button re-centres, follows the owner
+/// again and resumes automatic selection (spec 16.1); MapKit's compass sits above it.
 struct AroundMap: View {
     let model: AroundModel
     @Binding var position: MapCameraPosition
     let language: StoryLanguage
 
+    /// Metres across the narrow side of the map when it frames the owner.
+    static let ownerSpan: CLLocationDistance = 600
+
     /// The map camera's heading, so the cone points the right way when the owner has rotated the map.
     @State private var cameraHeading: CLLocationDirection = 0
+    /// Set once the first fix has been framed, so later fixes never move the map.
+    @State private var framedOwner = false
+    @Namespace private var mapScope
 
     var body: some View {
-        Map(position: $position) {
-            UserAnnotation {
-                OwnerDot(coneRotation: model.heading.map { $0 - cameraHeading })
+        ZStack {
+            Map(position: $position, scope: mapScope) {
+                if model.positionIsPoor, let centre = model.position, let accuracy = model.positionAccuracy {
+                    MapCircle(center: centre.clCoordinate, radius: accuracy)
+                        .foregroundStyle(Theme.Colour.forest.opacity(0.12))
+                        .stroke(Theme.Colour.forest.opacity(0.45), lineWidth: 1)
+                }
+                UserAnnotation {
+                    OwnerDot(coneRotation: model.heading.map { $0 - cameraHeading })
+                }
+                // The selected place last: MapKit tends to draw later annotations on top, so its pin and label stay
+                // visible.
+                ForEach(orderedPlaces, id: \.candidate.id) { place in
+                    marker(place.candidate, isSelected: place.candidate.id == selectedID)
+                }
             }
-            // The selected place last: MapKit tends to draw later annotations on top, so its pin and label stay visible.
-            ForEach(orderedPlaces, id: \.candidate.id) { place in
-                marker(place.candidate, isSelected: place.candidate.id == selectedID)
+            .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll,
+                                showsTraffic: false))
+            // Only our own controls (below); MapKit's would follow without telling the selection.
+            .mapControls {}
+            .onMapCameraChange(frequency: .continuous) { context in
+                if cameraHeading != context.camera.heading { cameraHeading = context.camera.heading }
             }
+            // The free part of the map, inside the safe area; transparent to touches, its buttons are not.
+            Color.clear
+                .allowsHitTesting(false)
+                .overlay(alignment: .topTrailing) { controls }
         }
-        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll, showsTraffic: false))
-        .mapControls {
-            MapCompass()
+        .mapScope(mapScope)
+        .onChange(of: model.position, initial: true) { _, position in
+            guard !framedOwner, let position else { return }
+            framedOwner = true
+            self.position = .region(Self.region(around: position))
+        }
+    }
+
+    private var controls: some View {
+        VStack(spacing: Theme.Spacing.unit) {
+            MapCompass(scope: mapScope)
                 .mapControlVisibility(.visible)
-            MapUserLocationButton()
+            Button(action: locate) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.Colour.forest)
+                    .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
+                    .background(Theme.Colour.ivory, in: Circle())
+                    .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(AroundTexts.locate(language))
         }
-        .mapControlVisibility(.visible)
-        .onMapCameraChange(frequency: .continuous) { context in
-            if cameraHeading != context.camera.heading { cameraHeading = context.camera.heading }
+        .padding(.trailing, Theme.Spacing.margin)
+        .padding(.top, Theme.Spacing.unit)
+    }
+
+    /// Re-centres on the owner at the framing span, then follows them (MapKit keeps that zoom while following);
+    /// automatic selection resumes. Following ends again when the owner pans.
+    private func locate() {
+        model.resumeAutomatic()
+        guard let centre = model.position else {
+            position = .userLocation(fallback: .automatic)
+            return
         }
+        let framed = Self.region(around: centre)
+        withAnimation { position = .region(framed) }
+        Task { @MainActor in
+            // After the re-centring animation, unless the owner has taken the map meanwhile.
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !position.positionedByUser else { return }
+            position = .userLocation(followsHeading: false, fallback: .region(framed))
+        }
+    }
+
+    static func region(around centre: Coordinate) -> MKCoordinateRegion {
+        MKCoordinateRegion(center: centre.clCoordinate, latitudinalMeters: ownerSpan, longitudinalMeters: ownerSpan)
     }
 
     private func marker(_ candidate: Candidate, isSelected: Bool) -> some MapContent {

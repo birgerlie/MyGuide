@@ -22,6 +22,10 @@ enum AroundTexts {
         language == .norwegian ? "Historikk" : "History"
     }
 
+    static func locate(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Vis meg på kartet" : "Show me on the map"
+    }
+
     static func settings(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Innstillinger" : "Settings"
     }
@@ -91,16 +95,16 @@ enum AroundTexts {
         language == .norwegian ? "Gå en tur" : "Go for a walk"
     }
 
+    static func continueWalk(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Fortsett turen" : "Continue the walk"
+    }
+
     static func walkLine(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Få beskjed om interessante steder underveis" : "Get told about interesting places on the way"
     }
 
     /// The same word in both languages.
     static func pause(_ language: StoryLanguage) -> String { "Pause" }
-
-    static func resume(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Fortsett" : "Resume"
-    }
 
     static func stopWalk(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Avslutt turen" : "End the walk"
