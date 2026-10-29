@@ -96,14 +96,14 @@ final class DayStoryModel {
         do {
             flow = try services.makeDayStoryFlow()
         } catch {
-            alert = .error(UserFacingMessage.message(for: error, language: AppServices.currentStoryLanguage()))
+            alert = .error(UserFacingMessage.message(for: error, language: UILanguage.current))
             return
         }
         guard let current = loadDay() else { return }
         guard let day = current.day else {
             // Every entry of the day has been deleted since the diary was read.
             alert = .error(UserFacingMessage.message(for: DayStoryError.noPhotos,
-                                                     language: AppServices.currentStoryLanguage()))
+                                                     language: UILanguage.current))
             return
         }
         let language = Self.storyLanguage()
@@ -124,13 +124,13 @@ final class DayStoryModel {
                 writeTask = nil
                 unreadable = unreadable && !saved
                 show(written, photoTimes: current.photoTimes)
-                if !saved { alert = .error(DiaryTexts.saveFailed(AppServices.currentStoryLanguage())) }
+                if !saved { alert = .error(DiaryTexts.saveFailed(UILanguage.current)) }
             } catch {
                 guard !Task.isCancelled else { return }
                 writeTask = nil
-                let message = UserFacingMessage.message(for: error, language: language)
+                let message = UserFacingMessage.message(for: error, language: UILanguage.current)
                 // A cancellation nobody asked for is still a failure the owner must see.
-                alert = .error(message.isEmpty ? ScreenText.somethingWentWrong(language) : message)
+                alert = .error(message.isEmpty ? ScreenText.somethingWentWrong(UILanguage.current) : message)
             }
         }
     }
@@ -165,7 +165,7 @@ final class DayStoryModel {
             if images.count == contents.count {
                 shareSet = ShareSet(images: images)
             } else {
-                alert = .error(DiaryTexts.shareFailed(AppServices.currentStoryLanguage()))
+                alert = .error(DiaryTexts.shareFailed(UILanguage.current))
             }
         }
     }
@@ -193,9 +193,9 @@ final class DayStoryModel {
         return DiaryTexts.countNote(sent: story.photoIDs.count, total: story.totalPhotos, story.language)
     }
 
-    /// Date and city for the summary page.
+    /// Date and city for the summary page; the date is worded in the story's own language, like the rest of the page.
     var header: DayStoryPageView.Header {
-        DayStoryPageView.Header(date: date, city: city)
+        DayStoryPageView.Header(date: date, city: city, language: story?.language ?? Self.storyLanguage())
     }
 
     // MARK: - Lifetime
@@ -224,7 +224,7 @@ final class DayStoryModel {
             }
         } catch {
             AppServices.logMemoryFailure("diary load failed", error)
-            alert = .error(DiaryTexts.loadFailed(AppServices.currentStoryLanguage()))
+            alert = .error(DiaryTexts.loadFailed(UILanguage.current))
             return nil
         }
         // All photos, not just this day's: a story's photos stay its own even if the phone's time zone moved
@@ -239,6 +239,6 @@ final class DayStoryModel {
     }
 
     private static func storyLanguage() -> StoryLanguage {
-        UserDefaults.standard.string(forKey: AppServices.storyLanguageKey).flatMap(StoryLanguage.init(rawValue:)) ?? .english
+        AppServices.currentStoryLanguage()
     }
 }

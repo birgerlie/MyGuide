@@ -3,6 +3,7 @@ import HealthKit
 import MyGuideCore
 import os
 import SwiftData
+import UIKit
 
 /// Builds the network clients and the story flow. The API key is read from the Keychain on every call,
 /// so a key saved or removed in Settings takes effect without a relaunch.
@@ -196,9 +197,27 @@ final class AppServices {
         Task.detached(priority: .utility) { await sharedPlaceImages.prefetch(titles) }
     }
 
-    /// The story language setting as it is now; refreshes of the nearby list use it.
+    /// The story language setting as it is now; refreshes of the nearby list, walking stories and day stories use it.
+    /// Without a stored choice it is `defaultStoryLanguage`.
     nonisolated static func currentStoryLanguage() -> StoryLanguage {
-        UserDefaults.standard.string(forKey: storyLanguageKey).flatMap(StoryLanguage.init(rawValue:)) ?? .english
+        UserDefaults.standard.string(forKey: storyLanguageKey).flatMap(StoryLanguage.init(rawValue:))
+            ?? defaultStoryLanguage
+    }
+
+    /// The story language before any choice in Settings (spec 17): the iPhone's language when it is Norwegian,
+    /// English otherwise. The one default: `currentStoryLanguage()` and every `@AppStorage` of the setting use it.
+    nonisolated static var defaultStoryLanguage: StoryLanguage { UILanguage.current }
+
+    /// Stores the first-launch story language once, so a later change of the iPhone's language does not change the
+    /// stories' language behind the owner's back. A stored value (an explicit choice, or an earlier first launch) is
+    /// never overwritten. Called at launch and on becoming active. Nothing is written while protected data is
+    /// unavailable (a location wake before the first unlock): the stored settings cannot be read then, so a stored
+    /// choice would look absent and be overwritten. Until it is stored, every reader falls back to the same default.
+    static func settleStoryLanguage() {
+        let defaults = UserDefaults.standard
+        guard UIApplication.shared.isProtectedDataAvailable,
+              defaults.string(forKey: storyLanguageKey).flatMap(StoryLanguage.init(rawValue:)) == nil else { return }
+        defaults.set(defaultStoryLanguage.rawValue, forKey: storyLanguageKey)
     }
 
     /// Logs a nearby-list failure: the error's type, domain and code, and its description (no personal data: the
@@ -278,9 +297,11 @@ final class AppServices {
     /// Foreground fixes less accurate than this (metres) never start a refresh.
     nonisolated static let foregroundAccuracy = 50.0
 
-    /// The app became active. With a store that fell back at a background launch, logs (once) that the owner now
-    /// sees the banner asking to relaunch; the store itself is not reopened in this process.
+    /// The app became active. Stores the first-launch story language if a background launch before the first unlock
+    /// could not. With a store that fell back at a background launch, logs (once) that the owner now sees the banner
+    /// asking to relaunch; the store itself is not reopened in this process.
     func noteBecameActive() {
+        Self.settleStoryLanguage()
         guard memoryFallback == .lockedAtBackgroundLaunch, !loggedActiveWithLockedStore else { return }
         loggedActiveWithLockedStore = true
         Self.memoryLog.notice("app active with the in-memory store from a background launch; relaunch banner shown")

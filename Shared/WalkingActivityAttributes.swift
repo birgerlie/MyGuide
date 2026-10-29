@@ -19,7 +19,7 @@ struct WalkingActivityAttributes: ActivityAttributes {
     }
 
     var startedAt: Date
-    /// The story language when the activity started, "nb" or "en"; picks the paused texts.
+    /// The iPhone's screen language when the activity started (`UILanguage`), "nb" or "en"; picks the paused texts.
     var language: String = "en"
 
     var isNorwegian: Bool { language == "nb" }

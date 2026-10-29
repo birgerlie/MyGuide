@@ -27,7 +27,8 @@ struct DiaryView: View {
     @State private var visible = false
     /// The screen's one alert, so an error and an import summary never compete.
     @State private var alert: DiaryAlert?
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,11 +37,11 @@ struct DiaryView: View {
         }
         .foregroundStyle(Theme.Colour.text)
         .background(Theme.Colour.background.ignoresSafeArea())
-        .themedTitle(DiaryTexts.title(storyLanguage))
+        .themedTitle(DiaryTexts.title(screenLanguage))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 // Read here: the picker's label closure is Sendable and cannot reach the view's state.
-                let addPhotos = DiaryTexts.addPhotos(storyLanguage)
+                let addPhotos = DiaryTexts.addPhotos(screenLanguage)
                 PhotosPicker(selection: $pickerItems, maxSelectionCount: LibraryImport.maxSelection,
                              matching: .images, preferredItemEncoding: .current, photoLibrary: .shared()) {
                     Label(addPhotos, systemImage: "photo.badge.plus")
@@ -53,7 +54,7 @@ struct DiaryView: View {
         .overlay {
             if isImporting {
                 ProgressView {
-                    Text(DiaryTexts.addingPhotos(storyLanguage))
+                    Text(DiaryTexts.addingPhotos(screenLanguage))
                         .font(Theme.Font.body)
                 }
                 .tint(Theme.Colour.text)
@@ -69,12 +70,12 @@ struct DiaryView: View {
             }
         }
         .fullScreenCover(item: $fullScreenPhoto) { photo in
-            LibraryPhotoScreen(id: photo.id, memory: services.memory, language: storyLanguage)
+            LibraryPhotoScreen(id: photo.id, memory: services.memory, language: screenLanguage)
         }
-        .alert(alert?.title(storyLanguage) ?? "", isPresented: alertPresented, presenting: alert) { _ in
-            Button(DiaryTexts.ok(storyLanguage), role: .cancel) {}
+        .alert(alert?.title(screenLanguage) ?? "", isPresented: alertPresented, presenting: alert) { _ in
+            Button(DiaryTexts.ok(screenLanguage), role: .cancel) {}
         } message: { alert in
-            Text(alert.message(storyLanguage))
+            Text(alert.message(screenLanguage))
         }
         .onAppear {
             visible = true
@@ -95,8 +96,8 @@ struct DiaryView: View {
     private var content: some View {
         if days.isEmpty {
             if loaded {
-                ThemedEmptyState(title: DiaryTexts.emptyTitle(storyLanguage), systemImage: "book",
-                                 description: DiaryTexts.emptyDescription(storyLanguage))
+                ThemedEmptyState(title: DiaryTexts.emptyTitle(screenLanguage), systemImage: "book",
+                                 description: DiaryTexts.emptyDescription(screenLanguage))
             } else {
                 Color.clear
             }
@@ -108,7 +109,7 @@ struct DiaryView: View {
                             row(entry)
                         }
                     } header: {
-                        DiaryDayHeader(day: day, language: storyLanguage) { openDayStory(day) }
+                        DiaryDayHeader(day: day, language: screenLanguage) { openDayStory(day) }
                     }
                     .themedRows()
                 }
@@ -120,12 +121,12 @@ struct DiaryView: View {
 
     private func row(_ entry: DiaryEntry) -> some View {
         Button { open(entry) } label: {
-            DiaryRow(entry: entry, caption: captions[entry.id], language: storyLanguage, loadThumbnail: thumbnail)
+            DiaryRow(entry: entry, caption: captions[entry.id], language: screenLanguage, loadThumbnail: thumbnail)
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if entry.kind == .libraryPhoto {
-                Button(DiaryTexts.delete(storyLanguage), systemImage: "trash", role: .destructive) { delete(entry) }
+                Button(DiaryTexts.delete(screenLanguage), systemImage: "trash", role: .destructive) { delete(entry) }
             }
         }
     }
@@ -142,7 +143,7 @@ struct DiaryView: View {
             }
         } catch {
             AppServices.logMemoryFailure("diary load failed", error)
-            showError(DiaryTexts.loadFailed(storyLanguage))
+            showError(DiaryTexts.loadFailed(screenLanguage))
             loaded = true
             return
         }
@@ -188,7 +189,7 @@ struct DiaryView: View {
 
     private func open(_ entry: DiaryEntry) {
         guard let id = entry.recordID else {
-            showError(HistoryTexts.corrupt(storyLanguage))
+            showError(HistoryTexts.corrupt(screenLanguage))
             return
         }
         switch entry.kind {
@@ -196,7 +197,7 @@ struct DiaryView: View {
             do {
                 guard let record = try fetchCapture(id) else {
                     // Deleted in History since the diary was read.
-                    showError(HistoryTexts.corrupt(storyLanguage))
+                    showError(HistoryTexts.corrupt(screenLanguage))
                     reload()
                     return
                 }
@@ -204,7 +205,7 @@ struct DiaryView: View {
                 story = StoryViewModel(session: session, services: services)
             } catch {
                 AppServices.logMemoryFailure("open session failed", error)
-                showError(HistoryTexts.corrupt(storyLanguage))
+                showError(HistoryTexts.corrupt(screenLanguage))
             }
         case .buzz, .stop:
             openWalkStory(id)
@@ -219,7 +220,7 @@ struct DiaryView: View {
             try services.memory.deleteLibraryPhoto(id: id)
         } catch {
             AppServices.logMemoryFailure("library photo delete failed", error)
-            showError(DiaryTexts.deleteFailed(storyLanguage))
+            showError(DiaryTexts.deleteFailed(screenLanguage))
         }
         reload()
     }

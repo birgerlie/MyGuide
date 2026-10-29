@@ -41,10 +41,11 @@ struct WalkStoryView: View {
             .task(id: pictureTitle) { await loadPicture() }
             .sheet(isPresented: $showingSources) {
                 if let story {
+                    // The photo credit's wording belongs to the story; the sheet's own words are screen texts.
                     SourcesSheet(sources: StorySources.list(for: story, image: pictureInfo, language: story.language),
-                                 language: story.language,
-                                 emptyText: WalkStoryText.noPlaceSources(story.language),
-                                 note: WalkStoryText.aiNote(story.language))
+                                 language: UILanguage.current,
+                                 emptyText: WalkStoryText.noPlaceSources(UILanguage.current),
+                                 note: WalkStoryText.aiNote(UILanguage.current))
                 }
             }
     }
@@ -83,10 +84,9 @@ struct WalkStoryView: View {
 
     // MARK: - Preparing and gone
 
-    /// The story's text is being written: the same sheet with the step in words and Lytt disabled. Before the text
-    /// the story (and so its language and place) is unknown here: the app's story language is used.
+    /// The story's text is being written: the same sheet with the step in words and Lytt disabled.
     private var preparing: some View {
-        let language = AppServices.currentStoryLanguage()
+        let language = UILanguage.current
         return StorySheetPage(photo: nil) {
             HStack(spacing: Theme.Spacing.unit) {
                 ProgressView()
@@ -103,7 +103,7 @@ struct WalkStoryView: View {
 
     /// No prepared or stored story: the failure that ended it when there is one, else that it is gone.
     private var gone: some View {
-        let language = AppServices.currentStoryLanguage()
+        let language = UILanguage.current
         let message = failure(language)
         return StorySheetPage(photo: nil) {
             Label {
@@ -118,10 +118,11 @@ struct WalkStoryView: View {
 
     // MARK: - Story
 
+    /// The screen's words in the iPhone's language; the story's text and its photo credit in the story's language.
     private func storyPage(_ story: WalkStory) -> some View {
-        let language = story.language
+        let language = UILanguage.current
         let shownCredit = pictureInfo.flatMap {
-            NotificationText.photoCredit(author: $0.author, licence: $0.licence, language)
+            NotificationText.photoCredit(author: $0.author, licence: $0.licence, story.language)
         }
         return StorySheetPage(photo: picture, photoCredit: shownCredit) {
             header(story)
@@ -170,7 +171,7 @@ struct WalkStoryView: View {
     /// The status label, the name in Playfair and the line with where the place was from the walker. The label stays
     /// its own VoiceOver heading; the name and the where-line are read as one.
     private func header(_ story: WalkStory) -> some View {
-        let language = story.language
+        let language = UILanguage.current
         return VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
             SectionLabel(story.kind == .stop
                          ? NotificationText.stoppedLabel(language) : NotificationText.nearbyLabel(language))
@@ -256,7 +257,7 @@ struct WalkStoryView: View {
     }
 }
 
-/// The walk story screen's texts in the story language.
+/// The walk story screen's texts, in the language they are given (`UILanguage.current`, spec 17).
 enum WalkStoryText {
     static func skip(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Hopp over dette stedet" : "Skip this place"
@@ -277,7 +278,7 @@ enum WalkStoryText {
     /// "Roma, Italia · 50 m · til venstre for deg": the walker's address city line when known, then (a buzz or chosen
     /// story) the distance and the place's direction relative to the walking direction when the story was made
     /// (`AroundText.whereLine`, "i nærheten · 50 m" without a course). A stop story has only the city line; nil with
-    /// neither part.
+    /// neither part. The words are screen texts, in the iPhone's language.
     static func whereLine(_ story: WalkStory) -> String? {
         var parts = [PlaceLocationLine.text(story.address)].compactMap { $0 }
         if story.kind != .stop, let place = story.place {
@@ -285,7 +286,7 @@ enum WalkStoryText {
             let relative = story.course.map {
                 PlaceSelector.offset(heading: $0, bearing: GeoMath.bearing(from: story.position, to: place.coordinate))
             }
-            parts.append(AroundText.whereLine(distance: distance, relative: relative, language: story.language))
+            parts.append(AroundText.whereLine(distance: distance, relative: relative, language: UILanguage.current))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

@@ -11,7 +11,8 @@ struct HistoryView: View {
     @Query(sort: \CaptureRecord.takenAt, order: .reverse) private var records: [CaptureRecord]
     @State private var story: StoryViewModel?
     @State private var errorText: String?
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,14 +21,14 @@ struct HistoryView: View {
         }
         .foregroundStyle(Theme.Colour.text)
         .background(Theme.Colour.background.ignoresSafeArea())
-        .themedTitle(HistoryTexts.title(storyLanguage))
+        .themedTitle(HistoryTexts.title(screenLanguage))
         .navigationDestination(isPresented: storyPresented) {
             if let story {
                 StoryView(model: story, location: location)
             }
         }
-        .alert(HistoryTexts.failedTitle(storyLanguage), isPresented: errorPresented) {
-            Button(HistoryTexts.ok(storyLanguage), role: .cancel) {}
+        .alert(HistoryTexts.failedTitle(screenLanguage), isPresented: errorPresented) {
+            Button(HistoryTexts.ok(screenLanguage), role: .cancel) {}
         } message: {
             Text(errorText ?? "")
         }
@@ -36,8 +37,8 @@ struct HistoryView: View {
     @ViewBuilder
     private var content: some View {
         if records.isEmpty {
-            ThemedEmptyState(title: HistoryTexts.emptyTitle(storyLanguage), systemImage: "clock.arrow.circlepath",
-                             description: HistoryTexts.emptyDescription(storyLanguage))
+            ThemedEmptyState(title: HistoryTexts.emptyTitle(screenLanguage), systemImage: "clock.arrow.circlepath",
+                             description: HistoryTexts.emptyDescription(screenLanguage))
         } else {
             List {
                 ForEach(records) { record in
@@ -70,7 +71,7 @@ struct HistoryView: View {
             story = StoryViewModel(session: session, services: services)
         } catch {
             AppServices.logMemoryFailure("open session failed", error)
-            errorText = HistoryTexts.corrupt(storyLanguage)
+            errorText = HistoryTexts.corrupt(screenLanguage)
         }
     }
 
@@ -81,7 +82,7 @@ struct HistoryView: View {
             do {
                 try services.deleteHistoryEntry(record)
             } catch {
-                errorText = HistoryTexts.deleteFailed(storyLanguage)
+                errorText = HistoryTexts.deleteFailed(screenLanguage)
                 return
             }
         }
@@ -132,10 +133,11 @@ private struct HistoryRow: View {
 /// Shown when the persistent store could not be opened and memory lives in RAM only, worded by why.
 struct MemoryUnavailableNotice: View {
     let fallback: MemoryFallback
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     var body: some View {
-        Text(fallback.notice(language: storyLanguage))
+        Text(fallback.notice(language: screenLanguage))
             .font(.footnote)
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)

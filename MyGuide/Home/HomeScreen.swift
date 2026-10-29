@@ -40,7 +40,8 @@ struct HomeScreen: View {
     @State private var errorText: String?
     @Query(HomeScreen.recentPhotos) private var photos: [CaptureRecord]
     @Query(HomeScreen.recentWalks) private var walks: [WalkStoryRecord]
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
     @Environment(\.scenePhase) private var scenePhase
 
     /// How many stories «Sist oppdaget» shows.
@@ -70,7 +71,7 @@ struct HomeScreen: View {
     }
 
     var body: some View {
-        RootTabs(selection: $tab, language: storyLanguage) {
+        RootTabs(selection: $tab, language: screenLanguage) {
             NavigationStack(path: $path) {
                 explore
                     .navigationDestination(for: HomeRoute.self, destination: destination)
@@ -81,8 +82,8 @@ struct HomeScreen: View {
                     .navigationDestination(for: HomeRoute.self, destination: destination)
             }
         }
-        .alert(AroundTexts.openFailed(storyLanguage), isPresented: errorPresented) {
-            Button(AroundTexts.ok(storyLanguage), role: .cancel) {}
+        .alert(AroundTexts.openFailed(screenLanguage), isPresented: errorPresented) {
+            Button(AroundTexts.ok(screenLanguage), role: .cancel) {}
         } message: {
             Text(errorText ?? "")
         }
@@ -133,7 +134,7 @@ struct HomeScreen: View {
 
     private var explore: some View {
         ZStack {
-            AroundMap(model: around, position: $mapPosition, language: storyLanguage)
+            AroundMap(model: around, position: $mapPosition, language: screenLanguage)
             // The free part of the map (inside the safe area, above the sheet), whatever the map itself does with
             // safe areas: the pill and the camera button are placed in it. Transparent to touches; the buttons are
             // not.
@@ -152,7 +153,7 @@ struct HomeScreen: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             AroundSheet(model: around, walking: services.walking, placeImages: services.placeImages,
                         memoryFallback: services.memoryFallback, authorization: location.authorization,
-                        language: storyLanguage, recent: recentStories, isExpanded: $sheetExpanded,
+                        language: screenLanguage, recent: recentStories, isExpanded: $sheetExpanded,
                         maxListHeight: exploreHeight * Self.listShare, openSelected: openSelectedPlace,
                         openCamera: openCamera, openRecent: openRecent)
         }
@@ -186,7 +187,7 @@ struct HomeScreen: View {
                     .background(Theme.Colour.coral, in: Circle())
                     .overlay(Circle().strokeBorder(Theme.Colour.ivory, lineWidth: 2))
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
-                Text(AroundTexts.lookingAt(storyLanguage))
+                Text(AroundTexts.lookingAt(screenLanguage))
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.Colour.forest)
                     .padding(.horizontal, 10)
@@ -199,7 +200,7 @@ struct HomeScreen: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(AroundTexts.cameraLabel(storyLanguage))
+        .accessibilityLabel(AroundTexts.cameraLabel(screenLanguage))
         .padding(.trailing, Theme.Spacing.margin)
         .padding(.bottom, Theme.Spacing.margin)
     }
@@ -217,13 +218,13 @@ struct HomeScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink(value: HomeRoute.history) { Image(systemName: "clock.arrow.circlepath") }
-                        .accessibilityLabel(AroundTexts.history(storyLanguage))
+                        .accessibilityLabel(AroundTexts.history(screenLanguage))
                         // The diary keeps the owner on it while photos are added, so the summary is always seen.
                         .disabled(services.diary.isImporting)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: HomeRoute.settings) { Image(systemName: "gearshape") }
-                        .accessibilityLabel(AroundTexts.settings(storyLanguage))
+                        .accessibilityLabel(AroundTexts.settings(screenLanguage))
                         .disabled(services.diary.isImporting)
                 }
             }
@@ -328,7 +329,7 @@ struct HomeScreen: View {
                 path.append(.photoStory)
             } catch {
                 AppServices.logMemoryFailure("open session failed", error)
-                errorText = AroundTexts.openFailedMessage(storyLanguage)
+                errorText = AroundTexts.openFailedMessage(screenLanguage)
             }
         }
     }

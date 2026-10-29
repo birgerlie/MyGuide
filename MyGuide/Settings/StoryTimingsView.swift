@@ -13,6 +13,8 @@ struct StoryTimingsView: View {
     /// Its own position source while the screen is open, for the list's distance; stopped when it closes.
     @State private var location = LocationProvider()
     private let language = AppServices.currentStoryLanguage()
+    /// The words follow the iPhone's language (spec 17); `language` is the list's.
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     /// How many of the newest entries are listed one by one.
     static let recentCount = 20
@@ -23,7 +25,7 @@ struct StoryTimingsView: View {
             if let entries {
                 if entries.isEmpty {
                     Section {
-                        Text(SettingsTexts.noTimings(language))
+                        Text(SettingsTexts.noTimings(screenLanguage))
                             .opacity(0.75)
                     }
                     .themedRows()
@@ -37,7 +39,7 @@ struct StoryTimingsView: View {
             }
         }
         .themedList()
-        .themedTitle(SettingsTexts.storyTimings(language))
+        .themedTitle(SettingsTexts.storyTimings(screenLanguage))
         .task { entries = await AppServices.photoTimings() }
         .task {
             list = await AppServices.sharedNearby.current(language: language)
@@ -59,20 +61,20 @@ struct StoryTimingsView: View {
                     let status = NearbyListStatus(list: list, position: location.fix(at: context.date)?.coordinate,
                                                   now: context.date)
                     VStack(spacing: Theme.Spacing.unit) {
-                        LabeledContent(SettingsTexts.list(language), value: SettingsTexts.yes(language))
-                        LabeledContent(SettingsTexts.age(language), value: status.ageS.map { "\($0) s" } ?? "—")
-                        LabeledContent(SettingsTexts.distanceFromYou(language),
+                        LabeledContent(SettingsTexts.list(screenLanguage), value: SettingsTexts.yes(screenLanguage))
+                        LabeledContent(SettingsTexts.age(screenLanguage), value: status.ageS.map { "\($0) s" } ?? "—")
+                        LabeledContent(SettingsTexts.distanceFromYou(screenLanguage),
                                        value: status.distanceM.map { "\($0) m" } ?? "—")
                     }
                     .monospacedDigit()
                 }
             } else {
-                LabeledContent(SettingsTexts.list(language), value: SettingsTexts.none(language))
+                LabeledContent(SettingsTexts.list(screenLanguage), value: SettingsTexts.none(screenLanguage))
             }
         } header: {
-            ListSectionHeader(SettingsTexts.nearbyListSection(listLanguage: language, language))
+            ListSectionHeader(SettingsTexts.nearbyListSection(listLanguage: language, screenLanguage))
         } footer: {
-            ListSectionFooter(SettingsTexts.nearbyListFooter(language))
+            ListSectionFooter(SettingsTexts.nearbyListFooter(screenLanguage))
         }
         .themedRows()
     }
@@ -83,30 +85,32 @@ struct StoryTimingsView: View {
         let timings = entries.map(\.timings)
         let fresh = timings.filter(\.listFresh).count
         return Section {
-            row(SettingsTexts.startToFirstStep(language), milliseconds: timings.map(\.feedbackMs), of: timings.count)
-            row(SettingsTexts.startToLikelyPlace(language), milliseconds: timings.compactMap(\.guessMs),
+            row(SettingsTexts.startToFirstStep(screenLanguage), milliseconds: timings.map(\.feedbackMs),
                 of: timings.count)
-            row(SettingsTexts.placeSearch(language), milliseconds: timings.compactMap(\.placeSearchMs),
+            row(SettingsTexts.startToLikelyPlace(screenLanguage), milliseconds: timings.compactMap(\.guessMs),
                 of: timings.count)
-            row(SettingsTexts.articleText(language), milliseconds: timings.compactMap(\.articleMs), of: timings.count)
-            row(SettingsTexts.requestToFirstWords(language), milliseconds: timings.compactMap(\.firstTextMs),
+            row(SettingsTexts.placeSearch(screenLanguage), milliseconds: timings.compactMap(\.placeSearchMs),
                 of: timings.count)
-            row(SettingsTexts.requestToCompleteStory(language), milliseconds: timings.map(\.modelMs),
+            row(SettingsTexts.articleText(screenLanguage), milliseconds: timings.compactMap(\.articleMs),
                 of: timings.count)
-            row(SettingsTexts.speechRequest(language), milliseconds: timings.compactMap(\.speechMs),
+            row(SettingsTexts.requestToFirstWords(screenLanguage), milliseconds: timings.compactMap(\.firstTextMs),
                 of: timings.count)
-            row(SettingsTexts.listAge(language),
+            row(SettingsTexts.requestToCompleteStory(screenLanguage), milliseconds: timings.map(\.modelMs),
+                of: timings.count)
+            row(SettingsTexts.speechRequest(screenLanguage), milliseconds: timings.compactMap(\.speechMs),
+                of: timings.count)
+            row(SettingsTexts.listAge(screenLanguage),
                 value: PhotoTimingsLog.median(timings.compactMap(\.listAgeS)).map { "\($0) s" },
                 count: timings.compactMap(\.listAgeS).count, of: timings.count)
-            row(SettingsTexts.articleCharacters(language),
+            row(SettingsTexts.articleCharacters(screenLanguage),
                 value: PhotoTimingsLog.median(timings.map(\.articleChars)).map(String.init),
                 count: timings.count, of: timings.count)
-            LabeledContent(SettingsTexts.freshList(language),
-                           value: SettingsTexts.countOf(fresh, timings.count, language))
+            LabeledContent(SettingsTexts.freshList(screenLanguage),
+                           value: SettingsTexts.countOf(fresh, timings.count, screenLanguage))
         } header: {
-            ListSectionHeader(SettingsTexts.medianSection(timings.count, language))
+            ListSectionHeader(SettingsTexts.medianSection(timings.count, screenLanguage))
         } footer: {
-            ListSectionFooter(SettingsTexts.medianFooter(language))
+            ListSectionFooter(SettingsTexts.medianFooter(screenLanguage))
         }
         .themedRows()
     }
@@ -146,19 +150,19 @@ struct StoryTimingsView: View {
                 }
             }
         } header: {
-            ListSectionHeader(SettingsTexts.lastSection(min(Self.recentCount, entries.count), language))
+            ListSectionHeader(SettingsTexts.lastSection(min(Self.recentCount, entries.count), screenLanguage))
         }
         .themedRows()
     }
 
     /// "fresh, 120 s old" / "not fresh, no list".
     private func listText(_ t: PhotoStoryTimings) -> String {
-        SettingsTexts.listState(fresh: t.listFresh, ageS: t.listAgeS, language)
+        SettingsTexts.listState(fresh: t.listFresh, ageS: t.listAgeS, screenLanguage)
     }
 
     /// The entry's timings in milliseconds on one line (a missing value is left out), then the article length.
     private func details(_ t: PhotoStoryTimings) -> String {
-        let label = SettingsTexts.timingLabels(language)
+        let label = SettingsTexts.timingLabels(screenLanguage)
         var parts = ["\(label.step) \(t.feedbackMs)"]
         if let v = t.guessMs { parts.append("\(label.guess) \(v)") }
         if let v = t.placeSearchMs { parts.append("\(label.search) \(v)") }

@@ -3,8 +3,9 @@ import UserNotifications
 
 /// Posts and manages walking-mode notifications: a buzz (Listen, Skip), the offer of the next part (More, Skip)
 /// a story that could not be told and a stop story. Every one carries its buzz id in `userInfo["buzzID"]`; BUZZ, MORE
-/// and STOP also carry a `NotificationPayload` for the expanded view. Texts and action titles follow the story language
-/// (spec 7.1).
+/// and STOP also carry a `NotificationPayload` for the expanded view. Action titles, labels, distance and direction
+/// follow the iPhone's language (`UILanguage`); the factual line and the photo credit belong to the place's story and
+/// follow the story language (spec 7.1, 17).
 enum BuzzNotifier {
     nonisolated static let category = "BUZZ"
     nonisolated static let moreCategory = "MORE"
@@ -20,12 +21,11 @@ enum BuzzNotifier {
 
     /// Registers BUZZ, MORE, STORY_FAILED and STOP, merging with the categories other features registered (never
     /// replacing them). The actions run in the background: the story plays without unlocking the phone. Their titles
-    /// are in the story language; call again when it changes.
+    /// are in the iPhone's language, which cannot change while the app runs: registering once at launch is enough.
     static func registerCategories() async {
         let center = UNUserNotificationCenter.current()
         let existing = await center.notificationCategories()
-        // Read after the wait: of two overlapping calls, the one that sets last uses the language as it is then.
-        let language = AppServices.currentStoryLanguage()
+        let language = UILanguage.current
         let tellMe = UNNotificationAction(identifier: tellMeAction, title: NotificationText.listen(language), options: [])
         let more = UNNotificationAction(identifier: moreAction, title: NotificationText.more(language), options: [])
         let skip = UNNotificationAction(identifier: skipAction, title: NotificationText.skip(language), options: [])
@@ -56,16 +56,17 @@ enum BuzzNotifier {
 
     /// Delivers the buzz at once; the request identifier is the buzz id. Title the place name, subtitle its distance
     /// and direction from `course` (the one the buzz was decided with), body the factual line (spec 7.1, 7.2).
+    /// `language` is the story language, for the factual line and the photo credit.
     static func post(_ buzz: Buzz, course: Double?, language: StoryLanguage, picture: StoredPlaceImage?) async throws {
         let candidate = buzz.place.candidate
         let line = BuzzText.localizedDetail(distance: buzz.distance, bearing: buzz.bearing, course: course,
-                                            language: language)
+                                            language: UILanguage.current)
         let fact = FactLine.text(for: candidate, language: language)
         let content = content(category: category, title: buzz.title, body: fact ?? "", id: buzz.id)
         content.subtitle = line
         content.userInfo["placeID"] = candidate.id
-        let payload = NotificationPayload(label: NotificationText.nearbyLabel(language), name: buzz.title, line: line,
-                                          fact: fact, credit: nil)
+        let payload = NotificationPayload(label: NotificationText.nearbyLabel(UILanguage.current), name: buzz.title,
+                                          line: line, fact: fact, credit: nil)
         try await add(content, payload: payload, picture: picture, language: language, identifier: buzz.id.uuidString)
     }
 
@@ -73,8 +74,10 @@ enum BuzzNotifier {
     /// would be stale by now).
     static func postMore(id: UUID, title: String, place: Candidate?, language: StoryLanguage,
                          picture: StoredPlaceImage?) async throws {
-        let content = content(category: moreCategory, title: title, body: NotificationText.moreBody(language), id: id)
-        let payload = NotificationPayload(label: NotificationText.nextPartLabel(language), name: title, line: nil,
+        let content = content(category: moreCategory, title: title, body: NotificationText.moreBody(UILanguage.current),
+                              id: id)
+        let payload = NotificationPayload(label: NotificationText.nextPartLabel(UILanguage.current), name: title,
+                                          line: nil,
                                           fact: place.flatMap { FactLine.text(for: $0, language: language) },
                                           credit: nil)
         try await add(content, payload: payload, picture: picture, language: language, identifier: "\(id)-more")
@@ -86,14 +89,16 @@ enum BuzzNotifier {
         let level1 = story.levels.first ?? ""
         let content = content(category: stopCategory, title: story.title, body: level1, id: story.id)
         if quiet { content.sound = nil }
-        let payload = NotificationPayload(label: NotificationText.stoppedLabel(language), name: story.title, line: nil,
+        let payload = NotificationPayload(label: NotificationText.stoppedLabel(UILanguage.current), name: story.title,
+                                          line: nil,
                                           fact: NotificationText.stopExcerpt(level1), credit: nil)
         try await add(content, payload: payload, picture: nil, language: language, identifier: story.id.uuidString)
     }
 
-    /// Says a story could not be told; `body` is the reason in the story language (`FailureCategory`).
-    static func postFailure(id: UUID, body: String, language: StoryLanguage) async throws {
-        let content = content(category: failedCategory, title: NotificationText.failedTitle(language), body: body, id: id)
+    /// Says a story could not be told; `body` is the reason in the iPhone's language (`FailureCategory`).
+    static func postFailure(id: UUID, body: String) async throws {
+        let content = content(category: failedCategory, title: NotificationText.failedTitle(UILanguage.current),
+                              body: body, id: id)
         try await add(content, identifier: "\(id)-failed")
     }
 
@@ -187,9 +192,9 @@ enum BuzzNotifier {
         return content
     }
 
-    /// Adds the request with `payload` in its `userInfo` and the picture attached, its credit in the payload. iOS checks
-    /// the picture only when the request is added: when that fails with a picture attached, the notification is added
-    /// once more without it (spec 7.3: a picture never costs the notification).
+    /// Adds the request with `payload` in its `userInfo` and the picture attached, its credit in the payload in the
+    /// story language `language`. iOS checks the picture only when the request is added: when that fails with a picture
+    /// attached, the notification is added once more without it (spec 7.3: a picture never costs the notification).
     private static func add(_ content: UNMutableNotificationContent, payload: NotificationPayload,
                             picture: StoredPlaceImage?, language: StoryLanguage, identifier: String) async throws {
         var payload = payload

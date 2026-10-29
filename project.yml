@@ -1,6 +1,8 @@
 name: MyGuide
 options:
   bundleIdPrefix: io.github.birgerlie
+  # Screen texts follow the iPhone (spec 17): English is the development language, Norwegian Bokmål the other.
+  developmentLanguage: en
   deploymentTarget: { iOS: "26.0" }
 configFiles:
   Debug: Config/Signing.xcconfig

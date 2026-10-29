@@ -1,7 +1,8 @@
 import MyGuideCore
 
-/// Every word on the diary, its rows, the library photo screen, the photo import summary and the day story, in the
-/// story language (spec 15).
+/// Every word on the diary, its rows, the library photo screen, the photo import summary and the day story (spec 15),
+/// in the iPhone's language (`UILanguage.current`, spec 17). `countNote` is the exception: it is printed on the day
+/// story's summary page, so it is given the story's own language.
 enum DiaryTexts {
     static func title(_ language: StoryLanguage) -> String { AroundTexts.diaryTab(language) }
 

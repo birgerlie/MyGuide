@@ -17,7 +17,8 @@ struct WalkLogRunView: View {
     @State private var loaded: Loaded?
     @State private var position: MapCameraPosition = .automatic
     @State private var hideFixes = true
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     var body: some View {
         List {
@@ -39,7 +40,7 @@ struct WalkLogRunView: View {
                     summarySection(summary)
                 }
                 Section {
-                    Toggle(SettingsTexts.hideFixes(storyLanguage), isOn: $hideFixes)
+                    Toggle(SettingsTexts.hideFixes(screenLanguage), isOn: $hideFixes)
                         .tint(ScreenChrome.toggleTint)
                     // The event lines are the log's own data; a failure gets a warning symbol as well as red.
                     ForEach(timeline(loaded.events)) { item in
@@ -51,13 +52,13 @@ struct WalkLogRunView: View {
                                     .font(Theme.Font.caption)
                                     .foregroundStyle(.red)
                             }
-                            Text(WalkLogFormat.timelineText(item.event.kind, storyLanguage))
+                            Text(WalkLogFormat.timelineText(item.event.kind, screenLanguage))
                                 .font(Theme.Font.caption)
                                 .foregroundStyle(isFailure(item.event.kind) ? Color.red : Theme.Colour.text)
                         }
                     }
                 } header: {
-                    ListSectionHeader(SettingsTexts.timeline(storyLanguage))
+                    ListSectionHeader(SettingsTexts.timeline(screenLanguage))
                 }
                 .themedRows()
             } else {
@@ -66,7 +67,7 @@ struct WalkLogRunView: View {
             }
         }
         .themedList()
-        .themedTitle(SettingsTexts.walk(storyLanguage))
+        .themedTitle(SettingsTexts.walk(screenLanguage))
         .toolbar {
             ToolbarItem(placement: .primaryAction) { ShareLink(item: url) }
         }
@@ -117,12 +118,12 @@ struct WalkLogRunView: View {
                 }
             }
             ForEach(Array(data.stops.enumerated()), id: \.offset) { _, stop in
-                Marker(SettingsTexts.stopMarker(storyLanguage), systemImage: "mappin.and.ellipse",
+                Marker(SettingsTexts.stopMarker(screenLanguage), systemImage: "mappin.and.ellipse",
                        coordinate: coordinate(stop))
                     .tint(Theme.Colour.text)
             }
             ForEach(Array(data.pauses.enumerated()), id: \.offset) { _, pause in
-                Annotation(SettingsTexts.pausedMarker(storyLanguage), coordinate: coordinate(pause)) {
+                Annotation(SettingsTexts.pausedMarker(screenLanguage), coordinate: coordinate(pause)) {
                     Image(systemName: "pause.circle.fill").font(.title2)
                         .foregroundStyle(Theme.Colour.text, Theme.Colour.background)
                 }
@@ -131,7 +132,7 @@ struct WalkLogRunView: View {
     }
 
     private func summarySection(_ s: WalkLogSummary) -> some View {
-        let language = storyLanguage
+        let language = screenLanguage
         return Section {
             LabeledContent(SettingsTexts.distance(language), value: WalkLogFormat.distance(s.distance))
             LabeledContent(SettingsTexts.duration(language), value: WalkLogFormat.duration(s.duration))
@@ -162,7 +163,7 @@ struct WalkLogRunView: View {
 
     private func load() async {
         let url = url
-        let language = storyLanguage
+        let language = screenLanguage
         let result = await Task.detached(priority: .userInitiated) { () -> Loaded in
             do {
                 let read = WalkLogReader.read(try Data(contentsOf: url))

@@ -1,7 +1,7 @@
 import MyGuideCore
 
-/// Every word on History, in the story language (spec 15). `corrupt` is also the diary's text for a story that cannot
-/// be opened.
+/// Every word on History (spec 15), in the iPhone's language (`UILanguage.current`, spec 17). `corrupt` is also the
+/// diary's text for a story that cannot be opened.
 enum HistoryTexts {
     static func title(_ language: StoryLanguage) -> String { AroundTexts.history(language) }
 

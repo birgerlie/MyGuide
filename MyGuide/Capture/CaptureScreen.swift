@@ -4,7 +4,7 @@ import SwiftUI
 
 /// "Hva ser du på?": the camera preview under the design package's overlay (heading, focus corners, shutter, library
 /// picker and the coral "Finn stedet" button), with a one-line HUD showing what position and heading will be sent. The
-/// new texts follow the story language (spec 5). Pushed from
+/// texts follow the iPhone's language (spec 17); the photo's story is told in the story language. Pushed from
 /// Home, which starts the shared camera while this screen is on top and stops it otherwise; this screen only shows
 /// and drives it. A finished photo (taken or picked) is handed to Home through `onPhoto`; Home starts the story and
 /// replaces this screen with it.
@@ -20,8 +20,10 @@ struct CaptureScreen: View {
     @State private var errorText: String?
     /// The zoom when the current pinch began; nil between pinches. GestureState also resets on a cancelled pinch.
     @GestureState private var pinchBase: Double?
-    /// Read when the photo is taken or picked, so a change in Settings never affects a photo already in flight.
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The story language, read when the photo is taken or picked, so a change in Settings never affects a photo
+    /// already in flight.
+    @AppStorage(AppServices.storyLanguageKey)
+    private var storyLanguage: StoryLanguage = AppServices.defaultStoryLanguage
 
     private var camera: CameraController { services.camera }
 
@@ -54,7 +56,7 @@ struct CaptureScreen: View {
                     .frame(maxHeight: .infinity)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
-                Text(ScreenText.lookingAt(storyLanguage))
+                Text(ScreenText.lookingAt(UILanguage.current))
                     .font(Theme.Font.display)
                     .foregroundStyle(Theme.Colour.ivory)
                     .multilineTextAlignment(.center)
@@ -149,7 +151,7 @@ struct CaptureScreen: View {
             // Takes the photo, same as the shutter. Coral with forest-green text (never light text on coral).
             Button(action: shutter) {
                 HStack(spacing: Theme.Spacing.unit) {
-                    Text(ScreenText.findPlace(storyLanguage))
+                    Text(ScreenText.findPlace(UILanguage.current))
                     Image(systemName: "arrow.right")
                         .accessibilityHidden(true)
                 }

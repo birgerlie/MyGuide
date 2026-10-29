@@ -1,8 +1,9 @@
 import CoreLocation
 import MyGuideCore
 
-/// Every word on the walking check, its test notification and its test Live Activity, in the story language
-/// (spec 15). Error descriptions from the system and the watch's last message type stay as they come.
+/// Every word on the walking check, its test notification and its test Live Activity (spec 15), in the iPhone's
+/// language (`UILanguage.current`, spec 17). Error descriptions from the system and the watch's last message type stay
+/// as they come.
 enum WalkingCheckTexts {
     static func title(_ language: StoryLanguage) -> String { SettingsTexts.walkingCheck(language) }
 
@@ -107,7 +108,7 @@ enum WalkingCheckTexts {
     }
 
     static func tellMe(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Lytt" : "Tell me"
+        language == .norwegian ? "Lytt" : "Listen"
     }
 
     static func skip(_ language: StoryLanguage) -> String {
@@ -119,7 +120,7 @@ enum WalkingCheckTexts {
     }
 
     static func testBody(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Trykk Lytt på klokken" : "Tap Tell me on your watch"
+        language == .norwegian ? "Trykk Lytt på klokken" : "Tap Listen on your watch"
     }
 
     static func scheduleFailed(_ description: String, _ language: StoryLanguage) -> String {
@@ -133,7 +134,7 @@ enum WalkingCheckTexts {
     static func notificationScheduled(inS seconds: Int, _ language: StoryLanguage) -> String {
         language == .norwegian
             ? "Varsel om \(seconds) s. Lås telefonen og trykk Lytt på klokken."
-            : "Notification in \(seconds) s. Lock the phone and tap Tell me on the watch."
+            : "Notification in \(seconds) s. Lock the phone and tap Listen on the watch."
     }
 
     static func cancelled(_ language: StoryLanguage) -> String {
@@ -147,7 +148,7 @@ enum WalkingCheckTexts {
     static func noActionWithin(_ seconds: Int, _ language: StoryLanguage) -> String {
         language == .norwegian
             ? "Ingen Lytt eller Hopp over innen \(seconds) s"
-            : "No Tell me or Skip within \(seconds) s"
+            : "No Listen or Skip within \(seconds) s"
     }
 
     static func skipped(_ language: StoryLanguage) -> String {
@@ -155,7 +156,7 @@ enum WalkingCheckTexts {
     }
 
     static func skippedDetail(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Hoppet over – trykk Lytt for å teste lyden" : "Skipped — tap Tell me to test audio"
+        language == .norwegian ? "Hoppet over – trykk Lytt for å teste lyden" : "Skipped — tap Listen to test audio"
     }
 
     static func openedWithoutAction(_ language: StoryLanguage) -> String {
@@ -187,12 +188,12 @@ enum WalkingCheckTexts {
     }
 
     static func noWatchTell(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Ingen Lytt fra klokken ennå" : "No Tell me received from the watch yet"
+        language == .norwegian ? "Ingen Lytt fra klokken ennå" : "No Listen received from the watch yet"
     }
 
-    /// "Lytt fra klokken: spiller tonen" / "Tell me from the watch: playing the tone".
+    /// "Lytt fra klokken: spiller tonen" / "Listen from the watch: playing the tone".
     static func watchTell(_ status: String, _ language: StoryLanguage) -> String {
-        "\(language == .norwegian ? "Lytt fra klokken" : "Tell me from the watch"): \(status.lowercased())"
+        "\(language == .norwegian ? "Lytt fra klokken" : "Listen from the watch"): \(status.lowercased())"
     }
 
     // MARK: Live Activity

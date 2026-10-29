@@ -26,7 +26,7 @@ final class WalkingStories {
     }
 
     struct Failure: Equatable {
-        /// What went wrong, shown in the story language (spec 12.10's fixed categories).
+        /// What went wrong, shown in the iPhone's language (spec 12.10's fixed categories, spec 17).
         enum Kind: Equatable {
             /// The story is no longer prepared or stored.
             case gone
@@ -44,7 +44,7 @@ final class WalkingStories {
         }
     }
 
-    /// The story is no longer prepared or stored, in the story language.
+    /// The story is no longer prepared or stored; a screen text, in the language it is given (`UILanguage.current`).
     nonisolated static func goneText(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Fortellingen finnes ikke lenger." : "That story is no longer available."
     }
@@ -573,8 +573,8 @@ final class WalkingStories {
 
     /// Posts STORY_FAILED. Our own cancellation (a `CancellationError`) is silent; no error means the story is gone.
     /// A chosen story's failure only sets `lastFailure`, for the app to show: it posts no notifications. The
-    /// notification and `lastFailure` give the reason as one of the fixed categories (spec 12.10), shown in the story
-    /// language; a gone story (no error, or `StoryGone`) is `.gone` in `lastFailure`.
+    /// notification and `lastFailure` give the reason as one of the fixed categories (spec 12.10), shown in the
+    /// iPhone's language (`UILanguage`, spec 17); a gone story (no error, or `StoryGone`) is `.gone` in `lastFailure`.
     private func report(_ id: UUID, error: Error?) {
         let kind: Failure.Kind
         if let error, !(error is StoryGone) {
@@ -586,13 +586,12 @@ final class WalkingStories {
         }
         lastFailure = Failure(id: id, kind: kind)
         if isChosen(id) || (prepared.story(id) == nil && storedStory(id)?.kind == .chosen) { return }
-        let language = AppServices.currentStoryLanguage()
         // A gone story (no error, or `StoryGone`) is `.other`, as `FailureCategory` maps any unknown error.
-        let reason = (error.map(FailureCategory.init) ?? .other).text(language)
+        let reason = (error.map(FailureCategory.init) ?? .other).text(UILanguage.current)
         Task {
             do {
                 try await posting(.storyFailed, id: id) {
-                    try await BuzzNotifier.postFailure(id: id, body: reason, language: language)
+                    try await BuzzNotifier.postFailure(id: id, body: reason)
                 }
             } catch {
                 // Memory log only: the walk log's `notifyFailed` line already holds the error.

@@ -1,7 +1,8 @@
 import MyGuideCore
 
-/// Every word on Settings and its sub-screens (Story timings, Buzz log, Walk log and one walk), in the story language
-/// (spec 15). Log content (the walk log's event lines, a buzz's kind and outcome, timing numbers) stays as data.
+/// Every word on Settings and its sub-screens (Story timings, Buzz log, Walk log and one walk), in the language it is
+/// given: the iPhone's (`UILanguage.current`, spec 17). Log content (the walk log's event lines, a buzz's kind and
+/// outcome, timing numbers) stays as data.
 enum SettingsTexts {
     static func title(_ language: StoryLanguage) -> String { AroundTexts.settings(language) }
 
@@ -62,8 +63,10 @@ enum SettingsTexts {
 
     static func languageFooter(_ language: StoryLanguage) -> String {
         language == .norwegian
-            ? "Gjelder nye bilder. Fortellinger som alt er fortalt, beholder språket sitt."
-            : "Applies to new photos. Stories already told keep their language."
+            ? "Gjelder nye bilder. Fortellinger som alt er fortalt, beholder språket sitt. "
+                + "Skjermtekstene følger iPhonens språk."
+            : "Applies to new photos. Stories already told keep their language. "
+                + "Screen texts follow the iPhone's language."
     }
 
     // MARK: Photo stories

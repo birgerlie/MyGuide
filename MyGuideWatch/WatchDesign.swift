@@ -28,16 +28,13 @@ struct WatchButtonStyle: ButtonStyle {
     }
 }
 
-/// Every word on the watch. The phone does not send its story language to the watch, so the watch follows its own
-/// language setting: Norwegian when the first preferred language is Norwegian (nb, no or nn), English otherwise.
-/// `Locale.preferredLanguages` is read rather than `Locale.current`, which follows the app's own (English-only)
-/// localisation. The phone's reason for a failed start arrives in English and is shown with `problem(_:)`.
+/// Every word on the watch, in the watch's own language (spec 17): Norwegian when its first preferred language is
+/// Norwegian (nb, no or nn), English otherwise, by the same rule as the phone's screen texts
+/// (`StoryLanguage.matching`). The phone does not send its language to the watch. The phone's reason for a failed
+/// start arrives in English and is shown with `problem(_:)`.
 enum WatchTexts {
-    static var norwegian: Bool {
-        guard let first = Locale.preferredLanguages.first,
-              let code = Locale.Language(identifier: first).languageCode?.identifier else { return false }
-        return ["nb", "no", "nn"].contains(code)
-    }
+    /// Read once: watchOS ends the app when the watch's language changes.
+    static let norwegian = StoryLanguage.matching(preferredLanguages: Locale.preferredLanguages) == .norwegian
 
     static var title: String { norwegian ? "Guidet tur" : "Guided walk" }
     static var check: String { norwegian ? "Sjekk" : "Check" }

@@ -26,7 +26,8 @@ struct StoryView: View {
             }
     }
 
-    private var language: StoryLanguage { model.language }
+    /// Every word on this screen is a screen text, in the iPhone's language (spec 17); the story keeps its own.
+    private var language: StoryLanguage { UILanguage.current }
 
     /// The place's name once identified; empty while guessing or when not sure.
     private var navigationTitle: String {

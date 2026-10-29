@@ -28,7 +28,7 @@ final class WalkingCheckModel: NSObject {
 
     // Buzz from the watch
     private(set) var buzzPending = false
-    /// nil until the test runs: the view words that as «Ikke startet» in the story language of the moment.
+    /// nil until the test runs: the view words that as «Ikke startet» in the iPhone's language.
     private(set) var buzzStatus: String?
     private(set) var buzzResult: CheckResult?
 
@@ -53,8 +53,8 @@ final class WalkingCheckModel: NSObject {
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var buzzTimer: Task<Void, Never>?
 
-    /// The story language as it is now: each status is worded when it is set, and the computed ones when shown.
-    private var language: StoryLanguage { AppServices.currentStoryLanguage() }
+    /// The iPhone's language: every status is a screen text (spec 17).
+    private var language: StoryLanguage { UILanguage.current }
 
     override init() {
         authorization = manager.authorizationStatus

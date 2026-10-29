@@ -12,7 +12,8 @@ struct DayStoryScreen: View {
     @State private var selection = 0
     /// False while another screen covers this one: its alert and share sheet wait until it is back on top.
     @State private var visible = false
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -26,7 +27,7 @@ struct DayStoryScreen: View {
         .overlay {
             if model.isWriting || model.isRendering {
                 ProgressView {
-                    Text(model.isWriting ? DiaryTexts.writing(storyLanguage) : DiaryTexts.rendering(storyLanguage))
+                    Text(model.isWriting ? DiaryTexts.writing(screenLanguage) : DiaryTexts.rendering(screenLanguage))
                         .font(Theme.Font.body)
                 }
                 .tint(Theme.Colour.ivory)
@@ -46,16 +47,17 @@ struct DayStoryScreen: View {
         }
         .onDisappear { visible = false }
         .onChange(of: model.pages) { selection = 0 }
-        .alert(model.alert?.title(storyLanguage) ?? "", isPresented: alertPresented, presenting: model.alert) { alert in
+        .alert(model.alert?.title(screenLanguage) ?? "", isPresented: alertPresented,
+               presenting: model.alert) { alert in
             switch alert {
             case .confirmRewrite:
-                Button(DiaryTexts.writeAgain(storyLanguage)) { model.write() }
-                Button(DiaryTexts.cancel(storyLanguage), role: .cancel) {}
+                Button(DiaryTexts.writeAgain(screenLanguage)) { model.write() }
+                Button(DiaryTexts.cancel(screenLanguage), role: .cancel) {}
             case .error:
-                Button(DiaryTexts.ok(storyLanguage), role: .cancel) {}
+                Button(DiaryTexts.ok(screenLanguage), role: .cancel) {}
             }
         } message: { alert in
-            Text(alert.message(storyLanguage))
+            Text(alert.message(screenLanguage))
         }
         .sheet(item: shareSet) { set in
             ActivityView(items: set.images) { model.shareSet = nil }
@@ -69,12 +71,12 @@ struct DayStoryScreen: View {
         if let pages = model.pages {
             pager(pages)
         } else if model.unreadable, !model.isWriting {
-            emptyState(DiaryTexts.dayStoryUnreadable(storyLanguage), systemImage: "exclamationmark.triangle",
-                       action: DiaryTexts.writeAgain(storyLanguage)) { model.requestRewrite() }
+            emptyState(DiaryTexts.dayStoryUnreadable(screenLanguage), systemImage: "exclamationmark.triangle",
+                       action: DiaryTexts.writeAgain(screenLanguage)) { model.requestRewrite() }
         } else if model.loaded, !model.isWriting {
             // The first write failed (its alert said why) or could not start.
-            emptyState(DiaryTexts.noDayStory(storyLanguage), systemImage: "book.pages",
-                       action: DiaryTexts.writeDayStory(storyLanguage)) { model.write() }
+            emptyState(DiaryTexts.noDayStory(screenLanguage), systemImage: "book.pages",
+                       action: DiaryTexts.writeDayStory(screenLanguage)) { model.write() }
         }
     }
 
@@ -123,15 +125,15 @@ struct DayStoryScreen: View {
     private var controls: some View {
         HStack(spacing: Theme.Spacing.unit + 4) {
             if model.pages != nil {
-                controlButton(DiaryTexts.share(storyLanguage), systemImage: "square.and.arrow.up") { model.share() }
+                controlButton(DiaryTexts.share(screenLanguage), systemImage: "square.and.arrow.up") { model.share() }
                     .disabled(model.busy)
-                controlButton(DiaryTexts.writeAgain(storyLanguage), systemImage: "arrow.clockwise") {
+                controlButton(DiaryTexts.writeAgain(screenLanguage), systemImage: "arrow.clockwise") {
                     model.requestRewrite()
                 }
                 .disabled(model.busy)
             }
             // Always available: going back stops a running write or share.
-            controlButton(DiaryTexts.close(storyLanguage), systemImage: "xmark") { dismiss() }
+            controlButton(DiaryTexts.close(screenLanguage), systemImage: "xmark") { dismiss() }
         }
         .padding(Theme.Spacing.margin)
     }
@@ -199,6 +201,8 @@ struct DayStoryPageView: View {
     struct Header: Equatable {
         var date: Date?
         var city: String?
+        /// The page belongs to the story: its date is worded in the story's language, not the screen's.
+        var language: StoryLanguage
     }
 
     enum Content {
@@ -235,7 +239,8 @@ struct DayStoryPageView: View {
         case .summary(let header, let summary, let note):
             VStack(alignment: .leading, spacing: 10) {
                 if let date = header.date {
-                    Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide).year()))
+                    Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide).year()
+                        .locale(Locale(identifier: header.language.rawValue))))
                         .font(Theme.Font.title)
                 }
                 if let city = header.city, !city.isEmpty {

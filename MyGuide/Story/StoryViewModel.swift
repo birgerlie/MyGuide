@@ -65,9 +65,6 @@ final class StoryViewModel {
     /// Speech state per level index; a missing entry means idle. At most one level is not idle at a time.
     private(set) var speech: [Int: SpeechState] = [:]
 
-    /// The language of the screen's texts: the session's once there is one, else the one the story is told in.
-    var language: StoryLanguage { session?.language ?? newSessionLanguage }
-
     @ObservationIgnored private let services: AppServices
     @ObservationIgnored private var photoJPEG: Data?
     @ObservationIgnored private var capture: CaptureContext?
@@ -206,8 +203,9 @@ final class StoryViewModel {
                 // A broken stream keeps nothing of the partial level.
                 self.moreTextThrottle?.cancel()
                 self.moreText = nil
-                let message = UserFacingMessage.message(for: error, language: self.language)
-                self.moreState = .failed(message: message.isEmpty ? ScreenText.somethingWentWrong(self.language) : message)
+                let message = UserFacingMessage.message(for: error, language: UILanguage.current)
+                self.moreState = .failed(message: message.isEmpty
+                                         ? ScreenText.somethingWentWrong(UILanguage.current) : message)
             }
         }
     }
@@ -332,9 +330,10 @@ final class StoryViewModel {
                 // A broken or late stream keeps nothing: no partial text, no card from it, no session.
                 self.storyText?.cancel()
                 self.runID = UUID()
-                let message = UserFacingMessage.message(for: error, language: self.language)
+                let message = UserFacingMessage.message(for: error, language: UILanguage.current)
                 // A CancellationError we did not ask for must not leave the spinner up with no way out.
-                self.state = .failed(message: message.isEmpty ? ScreenText.somethingWentWrong(self.language) : message,
+                let shown = message.isEmpty ? ScreenText.somethingWentWrong(UILanguage.current) : message
+                self.state = .failed(message: shown,
                                      canUseCurrentPosition: (error as? PhotoStoryError) == .noPosition)
             }
         }
@@ -465,8 +464,9 @@ final class StoryViewModel {
             } catch {
                 // Our own cancel is silence, whatever error type the sources report it with.
                 guard !Task.isCancelled, let self else { return }
-                let message = UserFacingMessage.message(for: error, language: self.language)
-                self.thenState = .failed(message: message.isEmpty ? ScreenText.somethingWentWrong(self.language) : message)
+                let message = UserFacingMessage.message(for: error, language: UILanguage.current)
+                self.thenState = .failed(message: message.isEmpty
+                                         ? ScreenText.somethingWentWrong(UILanguage.current) : message)
             }
         }
     }
@@ -540,7 +540,7 @@ final class StoryViewModel {
                 var message: String?
                 if let e = error as? OpenAIError,
                    e == .invalidAPIKey || e == .quotaExceeded || e == .missingAPIKey || e == .modelRetired {
-                    message = UserFacingMessage.message(for: e, language: self.language)
+                    message = UserFacingMessage.message(for: e, language: UILanguage.current)
                 }
                 self.speech[level] = .failed(message: message)
             }
@@ -599,15 +599,14 @@ final class StoryViewModel {
         let wasWorking = isWorking
         cancel()
         if wasWorking {
-            state = .failed(message: ScreenText.somethingWentWrong(language), canUseCurrentPosition: false)
+            state = .failed(message: ScreenText.somethingWentWrong(UILanguage.current), canUseCurrentPosition: false)
         }
     }
 }
 
 // MARK: - Screen texts
 
-/// The camera and story screens' texts in the story language (spec 5, 6, 9; the app has no localisation, so only these
-/// new texts come in both languages).
+/// The camera and story screens' texts, in the language they are given: the iPhone's (`UILanguage.current`, spec 17).
 enum ScreenText {
     static func lookingAt(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Hva ser du på?" : "What are you looking at?"

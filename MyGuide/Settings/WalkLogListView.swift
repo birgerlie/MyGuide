@@ -17,7 +17,8 @@ struct WalkLogListView: View {
     @State private var rows: [Row] = []
     @State private var loaded = false
     @State private var errorText: String?
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     var body: some View {
         List {
@@ -29,7 +30,7 @@ struct WalkLogListView: View {
                 .themedRows()
             }
             if loaded && rows.isEmpty && errorText == nil {
-                Section { Text(SettingsTexts.noWalks(storyLanguage)).opacity(0.75) }
+                Section { Text(SettingsTexts.noWalks(screenLanguage)).opacity(0.75) }
                     .themedRows()
             }
             ForEach(rows) { row in
@@ -41,7 +42,7 @@ struct WalkLogListView: View {
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if !row.isCurrent {
                         Button(role: .destructive) { delete(row) } label: {
-                            Label(SettingsTexts.delete(storyLanguage), systemImage: "trash")
+                            Label(SettingsTexts.delete(screenLanguage), systemImage: "trash")
                         }
                     }
                 }
@@ -49,7 +50,7 @@ struct WalkLogListView: View {
             .themedRows()
         }
         .themedList()
-        .themedTitle(SettingsTexts.walkLog(storyLanguage))
+        .themedTitle(SettingsTexts.walkLog(screenLanguage))
         .onAppear { refresh() }
     }
 
@@ -66,21 +67,21 @@ struct WalkLogListView: View {
                 }
                 Text(SettingsTexts.walkLine(duration: WalkLogFormat.duration(summary.duration),
                                             distance: WalkLogFormat.distance(summary.distance),
-                                            buzzes: summary.buzzes, storyLanguage))
+                                            buzzes: summary.buzzes, screenLanguage))
                     .font(Theme.Font.caption).opacity(0.75)
                 if row.isCurrent {
-                    Text(SettingsTexts.inProgress(storyLanguage)).font(Theme.Font.caption).opacity(0.75)
+                    Text(SettingsTexts.inProgress(screenLanguage)).font(Theme.Font.caption).opacity(0.75)
                 } else if summary.stopReason == nil {
-                    problem(SettingsTexts.endedWithoutStop(storyLanguage))
+                    problem(SettingsTexts.endedWithoutStop(screenLanguage))
                 }
                 if summary.failures > 0 {
-                    problem(SettingsTexts.failures(summary.failures, storyLanguage))
+                    problem(SettingsTexts.failures(summary.failures, screenLanguage))
                 }
             } else {
                 Text(row.url.lastPathComponent)
-                problem(SettingsTexts.unreadable(storyLanguage))
+                problem(SettingsTexts.unreadable(screenLanguage))
                 if row.isCurrent {
-                    Text(SettingsTexts.inProgress(storyLanguage)).font(Theme.Font.caption).opacity(0.75)
+                    Text(SettingsTexts.inProgress(screenLanguage)).font(Theme.Font.caption).opacity(0.75)
                 }
             }
         }
@@ -129,7 +130,7 @@ struct WalkLogListView: View {
                     errorText = nil
                 } else {
                     WalkLog.logger.error("walk log list failed: \(String(describing: error), privacy: .public)")
-                    errorText = SettingsTexts.walkLogsFailed(error, storyLanguage)
+                    errorText = SettingsTexts.walkLogsFailed(error, screenLanguage)
                 }
             }
             loaded = true
@@ -144,7 +145,7 @@ struct WalkLogListView: View {
             errorText = nil
         } catch {
             WalkLog.logger.error("walk log delete failed: \(String(describing: error), privacy: .public)")
-            errorText = SettingsTexts.walkLogDeleteFailed(error, storyLanguage)
+            errorText = SettingsTexts.walkLogDeleteFailed(error, screenLanguage)
         }
     }
 }

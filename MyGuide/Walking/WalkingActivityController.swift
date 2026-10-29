@@ -4,7 +4,8 @@ import MyGuideCore
 
 /// The Live Activity of walking mode (spec 7.5): «Gåmodus» / «Walking» (or the paused text) with the latest buzzed or
 /// playing place and its factual line, «Ser etter steder rundt deg» before the first one, and a stop story on the
-/// lock screen. Every text is computed here in the story language; the widget only displays. A place never alerts
+/// lock screen. Every text is computed here, the headline and the waiting text in the iPhone's language (`UILanguage`)
+/// and the place's factual line in the story language (spec 17); the widget only displays. A place never alerts
 /// (its notification already did); a stop story does unless `quiet`. An
 /// update works with the app in the background; one that cannot be made throws, so the caller can fall back to a
 /// notification. Updates are applied in the order they were made. Every push carries a stale date
@@ -58,8 +59,7 @@ final class WalkingActivityController {
         showingStop = false
         lastPush = nil
         let stale = WalkingStatus.activityStaleDate(lastFixAt: nil, startedAt: date)
-        let language = AppServices.currentStoryLanguage()
-        let first = walkingShown(language: language)
+        let first = walkingShown(storyLanguage: AppServices.currentStoryLanguage())
         shown = first
         staleDate = stale
         pushedStaleDate = stale
@@ -68,8 +68,8 @@ final class WalkingActivityController {
         guard generation == mine, ActivityAuthorizationInfo().areActivitiesEnabled else { return nil }
         do {
             let state = Self.state(first, at: date)
-            let requested = try Activity.request(attributes: WalkingActivityAttributes(startedAt: date,
-                                                                                       language: language.rawValue),
+            let attributes = WalkingActivityAttributes(startedAt: date, language: UILanguage.current.rawValue)
+            let requested = try Activity.request(attributes: attributes,
                                                  content: ActivityContent(state: state, staleDate: stale))
             activity = requested
             return requested.id
@@ -80,16 +80,16 @@ final class WalkingActivityController {
         }
     }
 
-    /// Shows the walking status when it changed (a pause or a resume, or the story language), not on every fix; and
-    /// pushes what is shown again when `staleDate` has moved on enough (`WalkingStatus.needsStaleRefresh`). A stop
-    /// story on show stays up until the next buzz (or `clearStop()`).
+    /// Shows the walking status when it changed (a pause or a resume, or the story language of the factual line), not
+    /// on every fix; and pushes what is shown again when `staleDate` has moved on enough
+    /// (`WalkingStatus.needsStaleRefresh`). A stop story on show stays up until the next buzz (or `clearStop()`).
     func updateStatus(paused: Bool, buzzCount count: Int, staleDate stale: Date) {
         buzzCount = count
         staleDate = stale
         isPaused = paused
         guard activity != nil else { return }
         if showingStop, count != stopBuzzCount { showingStop = false }
-        let next = showingStop ? shown : walkingShown(language: AppServices.currentStoryLanguage())
+        let next = showingStop ? shown : walkingShown(storyLanguage: AppServices.currentStoryLanguage())
         guard let next else { return }
         if next != shown || WalkingStatus.needsStaleRefresh(pushed: pushedStaleDate, next: stale) {
             push(next, alert: nil)
@@ -102,7 +102,7 @@ final class WalkingActivityController {
         place = candidate
         guard activity != nil else { return }
         showingStop = false
-        let next = walkingShown(language: AppServices.currentStoryLanguage())
+        let next = walkingShown(storyLanguage: AppServices.currentStoryLanguage())
         if next != shown { push(next, alert: nil) }
     }
 
@@ -183,16 +183,16 @@ final class WalkingActivityController {
     }
 
     /// The walking status with the latest place, or the waiting text before the first (spec 7.5). No distance: it
-    /// would be stale between updates.
-    private func walkingShown(language: StoryLanguage) -> Shown {
-        let norwegian = language == .norwegian
+    /// would be stale between updates. The status is in the iPhone's language, the factual line in `storyLanguage`.
+    private func walkingShown(storyLanguage: StoryLanguage) -> Shown {
+        let norwegian = UILanguage.current == .norwegian
         let headline = isPaused ? WalkingActivityAttributes.pausedHeadline(norwegian: norwegian)
                                 : (norwegian ? "Gåmodus" : "Walking")
         guard let place else {
             return Shown(headline: headline, body: norwegian ? "Ser etter steder rundt deg" : "Looking for places around you",
                          storyID: nil, placeName: nil, placeFact: nil)
         }
-        let fact = FactLine.text(for: place, language: language)
+        let fact = FactLine.text(for: place, language: storyLanguage)
         return Shown(headline: headline, body: fact ?? "", storyID: nil, placeName: place.name, placeFact: fact)
     }
 

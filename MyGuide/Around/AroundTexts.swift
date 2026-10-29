@@ -1,6 +1,7 @@
 import MyGuideCore
 
-/// Every word on the «Rundt deg» screen and its tab bar, in the story language (spec 6.5, 14, 16).
+/// Every word on the «Rundt deg» screen and its tab bar (spec 6.5, 14, 16), in the language it is given: the iPhone's
+/// (`UILanguage.current`, spec 17).
 enum AroundTexts {
     static func appName() -> String { "MyGuide" }
 

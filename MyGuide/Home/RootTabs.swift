@@ -9,8 +9,8 @@ enum RootTab: Hashable {
     case diary
 }
 
-/// The tab bar: «Utforsk» (map symbol) and «Dagbok» (book symbol), named in the story language. The tabs' contents
-/// and their navigation stacks belong to `HomeScreen`, which owns the shared location provider for both.
+/// The tab bar: «Utforsk» (map symbol) and «Dagbok» (book symbol), named in the iPhone's language. The tabs'
+/// contents and their navigation stacks belong to `HomeScreen`, which owns the shared location provider for both.
 struct RootTabs<Explore: View, Diary: View>: View {
     @Binding var selection: RootTab
     let language: StoryLanguage

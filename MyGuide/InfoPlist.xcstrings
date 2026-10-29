@@ -1,0 +1,150 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSCameraUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide uses the camera to photograph what you want a story about."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide bruker kameraet til å fotografere det du vil ha en fortelling om."
+          }
+        }
+      }
+    },
+    "NSHealthShareUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide starts the guided walk on your Apple Watch, where it is recorded as a walking workout. The iPhone app reads no health data."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide starter den guidede turen på Apple Watch, der den registreres som en gåtur-økt. iPhone-appen leser ingen helsedata."
+          }
+        }
+      }
+    },
+    "NSHealthUpdateUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide starts the guided walk on your Apple Watch, which saves it to Health as a walking workout. The iPhone app writes no health data."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide starter den guidede turen på Apple Watch, som lagrer den i Helse som en gåtur-økt. iPhone-appen skriver ingen helsedata."
+          }
+        }
+      }
+    },
+    "NSLocationAlwaysAndWhenInUseUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass, and it prepares the places around you in the background so the camera answers faster."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I gåmodus følger MyGuide posisjonen din mens telefonen er låst, så den kan fortelle deg om steder du går forbi, og den forbereder stedene rundt deg i bakgrunnen, så kameraet svarer raskere."
+          }
+        }
+      }
+    },
+    "NSLocationWhenInUseUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide uses your exact position and compass heading to work out what you are looking at."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide bruker den nøyaktige posisjonen din og kompassretningen for å finne ut hva du ser på."
+          }
+        }
+      }
+    },
+    "NSMotionUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide notices when you stop and start walking, so walking mode can pause itself and save battery."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide merker når du stopper og går videre, så gåmodus kan sette seg selv på pause og spare batteri."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryAddUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide saves the day story pages you choose to save to your photo library."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide lagrer sidene fra dagsfortellingen som du velger å lagre, i bildebiblioteket ditt."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryUsageDescription" : {
+      "comment" : "Permission prompt on the iPhone; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide reads when and where a picked photo was taken, to tell its story and to place it in your diary."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide leser når og hvor et valgt bilde ble tatt, for å fortelle om det og plassere det i dagboken din."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

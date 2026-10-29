@@ -12,6 +12,7 @@
 		05DDE787377A90B8BFDC6DDE /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
 		08860B174F861BFCF4807666 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
 		08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */; };
+		097F55845DB702827C20E9EF /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 3213E88F0E2AABF7072E545C /* InfoPlist.xcstrings */; };
 		0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */; };
 		0D2B5B8D505B303F92B8CF04 /* WalkingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90746D6CA8E40DE76B97D622 /* WalkingController.swift */; };
 		0FF0C6DF04DE23355656B2C3 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
@@ -29,6 +30,7 @@
 		2BB7ADB87183D830935BFF6B /* BackgroundPlaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2EC6BE86575DCCDD7559C6 /* BackgroundPlaces.swift */; };
 		2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */; };
 		2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */; };
+		34BB99A458D0273BFCE0B045 /* UILanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D650A7A9FDB98BDD27E899D /* UILanguage.swift */; };
 		357BDDD00F40A1DF41E20DC6 /* WalkingStories.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC982992B37C30453C7F88D8 /* WalkingStories.swift */; };
 		395515A7A501BA457B009E28 /* GuidedWalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A5C636C046DB5D8AB64F46 /* GuidedWalkView.swift */; };
 		3AF03156542508C7009B121A /* WalkLogListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962FB606403221C1C07B5A34 /* WalkLogListView.swift */; };
@@ -49,6 +51,7 @@
 		5EFA0074A45D0C954418D2A4 /* MyGuideWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5FA86F274E41178B17735956 /* WalkStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7A49C840514706DE718EF1 /* WalkStoryView.swift */; };
 		60A784568EAE6A93C0CD99BD /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
+		62FFD7C93D1208B2634036C3 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 78C3496B83E7A2D55E1AAB29 /* InfoPlist.xcstrings */; };
 		63FB5DD93DBAABFA5C74374A /* StoryComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DD5402F214E227621581EF /* StoryComponents.swift */; };
 		6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7601A9D4143D662A6232BA41 /* AppServices.swift */; };
 		65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */; };
@@ -181,11 +184,13 @@
 		283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedWalkModel.swift; sourceTree = "<group>"; };
 		2A2EC6BE86575DCCDD7559C6 /* BackgroundPlaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundPlaces.swift; sourceTree = "<group>"; };
 		2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWidgetsBundle.swift; sourceTree = "<group>"; };
+		3213E88F0E2AABF7072E545C /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		32CB088E737DE4DD25A20C41 /* DiaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryView.swift; sourceTree = "<group>"; };
 		3509B449881359F212693562 /* WatchAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppDelegate.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
 		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
 		3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Regular.ttf"; sourceTree = "<group>"; };
+		3D650A7A9FDB98BDD27E899D /* UILanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UILanguage.swift; sourceTree = "<group>"; };
 		3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryImport.swift; sourceTree = "<group>"; };
 		4D718A718A1BAB633570C16E /* WalkingCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckView.swift; sourceTree = "<group>"; };
@@ -207,6 +212,7 @@
 		73FCA42F11E8350044FC2AA8 /* StoryText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryText.swift; sourceTree = "<group>"; };
 		746E8A1175813126816BD7DE /* Inter-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Inter-OFL.txt"; sourceTree = "<group>"; };
 		7601A9D4143D662A6232BA41 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
+		78C3496B83E7A2D55E1AAB29 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		7CFF1615F9030516CF876C85 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScreen.swift; sourceTree = "<group>"; };
@@ -318,6 +324,7 @@
 				7601A9D4143D662A6232BA41 /* AppServices.swift */,
 				7CFF1615F9030516CF876C85 /* Assets.xcassets */,
 				D4F54BE4CD7C5098E4E6DACF /* Info.plist */,
+				3213E88F0E2AABF7072E545C /* InfoPlist.xcstrings */,
 				96B316F6601D1952CFEF86BE /* MyGuide.entitlements */,
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
 				83736A5586F323BC23C72938 /* Around */,
@@ -344,6 +351,7 @@
 				283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */,
 				04A5C636C046DB5D8AB64F46 /* GuidedWalkView.swift */,
 				F878CC395772D74A4E843693 /* Info.plist */,
+				78C3496B83E7A2D55E1AAB29 /* InfoPlist.xcstrings */,
 				6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */,
 				4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */,
 				F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */,
@@ -389,6 +397,7 @@
 				FB62877340E610053D66495A /* BackgroundTaskHold.swift */,
 				C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */,
 				B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */,
+				3D650A7A9FDB98BDD27E899D /* UILanguage.swift */,
 			);
 			path = Platform;
 			sourceTree = "<group>";
@@ -665,6 +674,7 @@
 			knownRegions = (
 				Base,
 				en,
+				nb,
 			);
 			mainGroup = E2C3F65B6C1CC8B6B541D5BD;
 			minimizedProjectReferenceProxies = 1;
@@ -701,6 +711,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F8DE2811C1B6D114F0707472 /* Assets.xcassets in Resources */,
+				62FFD7C93D1208B2634036C3 /* InfoPlist.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -709,6 +720,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EC6D778A693C83A46312B2AC /* Assets.xcassets in Resources */,
+				097F55845DB702827C20E9EF /* InfoPlist.xcstrings in Resources */,
 				1F68E52117A68240EF842AD4 /* Inter-Medium.ttf in Resources */,
 				EA4C8C8F006CB195A913C71F /* Inter-OFL.txt in Resources */,
 				40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */,
@@ -820,6 +832,7 @@
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
 				DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */,
+				34BB99A458D0273BFCE0B045 /* UILanguage.swift in Sources */,
 				581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */,
 				A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */,
 				3AF03156542508C7009B121A /* WalkLogListView.swift in Sources */,

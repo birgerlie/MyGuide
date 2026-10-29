@@ -2,7 +2,7 @@ import MyGuideCore
 import SwiftUI
 
 /// API key (Keychain only, never shown in full), story language, photo story and walking settings, usage, and the
-/// developer screens and checks. In the design package (spec 15), every word in the story language.
+/// developer screens and checks. In the design package (spec 15), every word in the iPhone's language (spec 17).
 struct SettingsView: View {
     let services: AppServices
 
@@ -15,7 +15,10 @@ struct SettingsView: View {
     @State private var totalsFailed = false
     @State private var confirmingReset = false
     @State private var resetFailed = false
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    @AppStorage(AppServices.storyLanguageKey)
+    private var storyLanguage: StoryLanguage = AppServices.defaultStoryLanguage
+    /// Every word here follows the iPhone's language (spec 17); `storyLanguage` is only the picker's value.
+    private var screenLanguage: StoryLanguage { UILanguage.current }
     @AppStorage(WalkingController.buzzesPerHourKey) private var buzzesPerHour = BuzzBudget.defaultPerHour
     @AppStorage(BackgroundPlaces.settingKey) private var prepareBackgroundPlaces = true
     @AppStorage(StoryViewModel.readAloudKey) private var readAloudAutomatically = true
@@ -24,21 +27,21 @@ struct SettingsView: View {
         Form {
             Section {
                 if hasSavedKey {
-                    Text(SettingsTexts.keySaved(suffix: savedKeySuffix, storyLanguage))
+                    Text(SettingsTexts.keySaved(suffix: savedKeySuffix, screenLanguage))
                 } else if usesBundledKey {
-                    Text(SettingsTexts.bundledKey(storyLanguage)).opacity(0.75)
+                    Text(SettingsTexts.bundledKey(screenLanguage)).opacity(0.75)
                 } else {
-                    Text(SettingsTexts.noKey(storyLanguage)).opacity(0.75)
+                    Text(SettingsTexts.noKey(screenLanguage)).opacity(0.75)
                 }
                 SecureField("sk-…", text: $draftKey)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .frame(minHeight: Theme.minimumTouchHeight)
-                Button(SettingsTexts.save(storyLanguage)) { save() }
+                Button(SettingsTexts.save(screenLanguage)) { save() }
                     .buttonStyle(.themePrimary(.coral))
                     .disabled(trimmedDraft.isEmpty)
                 if hasSavedKey {
-                    Button(SettingsTexts.removeKey(storyLanguage), role: .destructive) { remove() }
+                    Button(SettingsTexts.removeKey(screenLanguage), role: .destructive) { remove() }
                 }
                 if let errorText {
                     Label(errorText, systemImage: "exclamationmark.triangle")
@@ -46,93 +49,93 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
             } header: {
-                ListSectionHeader(SettingsTexts.keySection(storyLanguage))
+                ListSectionHeader(SettingsTexts.keySection(screenLanguage))
             } footer: {
-                ListSectionFooter(SettingsTexts.keyFooter(storyLanguage))
+                ListSectionFooter(SettingsTexts.keyFooter(screenLanguage))
             }
             .themedRows()
             Section {
-                Picker(SettingsTexts.storyLanguage(storyLanguage), selection: $storyLanguage) {
+                Picker(SettingsTexts.storyLanguage(screenLanguage), selection: $storyLanguage) {
                     Text("English").tag(StoryLanguage.english)
                     Text("Norsk").tag(StoryLanguage.norwegian)
                 }
             } header: {
-                ListSectionHeader(SettingsTexts.languageSection(storyLanguage))
+                ListSectionHeader(SettingsTexts.languageSection(screenLanguage))
             } footer: {
-                ListSectionFooter(SettingsTexts.languageFooter(storyLanguage))
+                ListSectionFooter(SettingsTexts.languageFooter(screenLanguage))
             }
             .themedRows()
             Section {
-                Toggle(ScreenText.readAloud(storyLanguage), isOn: $readAloudAutomatically)
+                Toggle(ScreenText.readAloud(screenLanguage), isOn: $readAloudAutomatically)
                     .tint(ScreenChrome.toggleTint)
-                NavigationLink(SettingsTexts.storyTimings(storyLanguage)) { StoryTimingsView() }
+                NavigationLink(SettingsTexts.storyTimings(screenLanguage)) { StoryTimingsView() }
             } header: {
-                ListSectionHeader(SettingsTexts.photoStoriesSection(storyLanguage))
+                ListSectionHeader(SettingsTexts.photoStoriesSection(screenLanguage))
             } footer: {
-                ListSectionFooter(SettingsTexts.readAloudFooter(storyLanguage))
+                ListSectionFooter(SettingsTexts.readAloudFooter(screenLanguage))
             }
             .themedRows()
             Section {
-                Toggle(SettingsTexts.prepareBackgroundPlaces(storyLanguage),
+                Toggle(SettingsTexts.prepareBackgroundPlaces(screenLanguage),
                        isOn: backgroundPlacesToggle(
                            alwaysGranted: BackgroundPlaces.shared.authorization == .authorizedAlways))
                 .tint(ScreenChrome.toggleTint)
             } footer: {
-                ListSectionFooter(SettingsTexts.prepareBackgroundPlacesFooter(storyLanguage))
+                ListSectionFooter(SettingsTexts.prepareBackgroundPlacesFooter(screenLanguage))
             }
             .themedRows()
             Section {
                 Stepper(value: $buzzesPerHour, in: 5...60, step: 5) {
-                    Text(SettingsTexts.buzzesPerHour(buzzesPerHour, storyLanguage))
+                    Text(SettingsTexts.buzzesPerHour(buzzesPerHour, screenLanguage))
                 }
-                NavigationLink(SettingsTexts.buzzLog(storyLanguage)) { BuzzLogView(services: services) }
-                NavigationLink(SettingsTexts.walkLog(storyLanguage)) { WalkLogListView(services: services) }
-                Button(ResetText.button(storyLanguage), role: .destructive) { confirmingReset = true }
-                    .confirmationDialog(ResetText.button(storyLanguage), isPresented: $confirmingReset,
+                NavigationLink(SettingsTexts.buzzLog(screenLanguage)) { BuzzLogView(services: services) }
+                NavigationLink(SettingsTexts.walkLog(screenLanguage)) { WalkLogListView(services: services) }
+                Button(ResetText.button(screenLanguage), role: .destructive) { confirmingReset = true }
+                    .confirmationDialog(ResetText.button(screenLanguage), isPresented: $confirmingReset,
                                         titleVisibility: .visible) {
-                        Button(ResetText.confirm(storyLanguage), role: .destructive) { resetPlaceNotifications() }
-                        Button(ResetText.cancel(storyLanguage), role: .cancel) {}
+                        Button(ResetText.confirm(screenLanguage), role: .destructive) { resetPlaceNotifications() }
+                        Button(ResetText.cancel(screenLanguage), role: .cancel) {}
                     } message: {
-                        Text(ResetText.message(storyLanguage))
+                        Text(ResetText.message(screenLanguage))
                     }
                 if resetFailed {
-                    Label(ResetText.failed(storyLanguage), systemImage: "exclamationmark.triangle")
+                    Label(ResetText.failed(screenLanguage), systemImage: "exclamationmark.triangle")
                         .font(Theme.Font.caption)
                         .foregroundStyle(.red)
                 }
             } header: {
-                ListSectionHeader(SettingsTexts.walkingSection(storyLanguage))
+                ListSectionHeader(SettingsTexts.walkingSection(screenLanguage))
             } footer: {
-                ListSectionFooter(SettingsTexts.walkingFooter(storyLanguage))
+                ListSectionFooter(SettingsTexts.walkingFooter(screenLanguage))
             }
             .themedRows()
             Section {
                 if let totals {
                     Text(SettingsTexts.thisMonth(UsageFormat.dollars(totals.monthUSD), requests: totals.monthRequests,
-                                                 storyLanguage))
-                    Text(SettingsTexts.allTime(UsageFormat.dollars(totals.allTimeUSD), storyLanguage))
+                                                 screenLanguage))
+                    Text(SettingsTexts.allTime(UsageFormat.dollars(totals.allTimeUSD), screenLanguage))
                     if totals.unpricedRequests > 0 {
-                        Text(SettingsTexts.unpriced(storyLanguage)).opacity(0.75)
+                        Text(SettingsTexts.unpriced(screenLanguage)).opacity(0.75)
                     }
                 } else if totalsFailed {
-                    Text(SettingsTexts.usageUnavailable(storyLanguage)).opacity(0.75)
+                    Text(SettingsTexts.usageUnavailable(screenLanguage)).opacity(0.75)
                 }
             } header: {
-                ListSectionHeader(SettingsTexts.usageSection(storyLanguage))
+                ListSectionHeader(SettingsTexts.usageSection(screenLanguage))
             } footer: {
-                ListSectionFooter(SettingsTexts.usageFooter(asOf: PriceTable.current.asOf, storyLanguage))
+                ListSectionFooter(SettingsTexts.usageFooter(asOf: PriceTable.current.asOf, screenLanguage))
             }
             .themedRows()
             Section {
-                NavigationLink(SettingsTexts.deviceCheck(storyLanguage)) { SelfCheckView() }
-                NavigationLink(SettingsTexts.walkingCheck(storyLanguage)) {
+                NavigationLink(SettingsTexts.deviceCheck(screenLanguage)) { SelfCheckView() }
+                NavigationLink(SettingsTexts.walkingCheck(screenLanguage)) {
                     WalkingCheckView(model: services.walkingCheck, watch: services.watchLink)
                 }
             }
             .themedRows()
         }
         .themedList()
-        .themedTitle(SettingsTexts.title(storyLanguage))
+        .themedTitle(SettingsTexts.title(screenLanguage))
         .onAppear { refresh() }
     }
 
@@ -173,7 +176,7 @@ struct SettingsView: View {
             draftKey = ""
             errorText = nil
         } catch {
-            errorText = SettingsTexts.saveKeyFailed(error, storyLanguage)
+            errorText = SettingsTexts.saveKeyFailed(error, screenLanguage)
         }
         refresh()
     }
@@ -183,7 +186,7 @@ struct SettingsView: View {
             try services.keychain.delete(AppServices.apiKeyAccount)
             errorText = nil
         } catch {
-            errorText = SettingsTexts.removeKeyFailed(error, storyLanguage)
+            errorText = SettingsTexts.removeKeyFailed(error, screenLanguage)
         }
         refresh()
     }
@@ -207,12 +210,12 @@ struct SettingsView: View {
             hasSavedKey = false
             usesBundledKey = false
             savedKeySuffix = nil
-            errorText = SettingsTexts.readKeychainFailed(error, storyLanguage)
+            errorText = SettingsTexts.readKeychainFailed(error, screenLanguage)
         }
     }
 }
 
-/// The reset button's texts in the story language (spec 13.5).
+/// The reset button's texts (spec 13.5), in the language it is given (`UILanguage.current`).
 enum ResetText {
     static func button(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Nullstill stedsvarsler" : "Reset place notifications"

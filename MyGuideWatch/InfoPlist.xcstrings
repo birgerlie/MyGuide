@@ -1,0 +1,42 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSHealthShareUsageDescription" : {
+      "comment" : "Permission prompt on the watch; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide keeps a guided walk running on the watch, recorded as a walking workout, so it can buzz you about places while your wrist is down."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide holder en guidet tur i gang på klokken, registrert som en gåtur-økt, så den kan varsle deg om steder mens armen er nede."
+          }
+        }
+      }
+    },
+    "NSHealthUpdateUsageDescription" : {
+      "comment" : "Permission prompt on the watch; the English text is the Info.plist value in project.yml.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide keeps a guided walk running on the watch, recorded as a walking workout, so it can buzz you about places while your wrist is down."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MyGuide holder en guidet tur i gang på klokken, registrert som en gåtur-økt, så den kan varsle deg om steder mens armen er nede."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

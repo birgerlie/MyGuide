@@ -130,8 +130,8 @@ final class SelfCheckModel {
     func run() async {
         guard !running else { return }
         running = true
-        // The results are worded in the story language as it is when the run starts.
-        let language = AppServices.currentStoryLanguage()
+        // The results are screen texts: in the iPhone's language (spec 17).
+        let language = UILanguage.current
         camera = nil; location = nil; keychain = nil; swiftData = nil
         // Local checks first so they always run, even if a permission prompt never resolves.
         keychain = checkKeychain(language)
@@ -192,23 +192,24 @@ final class SelfCheckModel {
 
 struct SelfCheckView: View {
     @State private var model = SelfCheckModel()
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     var body: some View {
         // Pushed from Settings, so it lives in the app's NavigationStack rather than its own.
         List {
             Section {
-                row(SelfCheckTexts.camera(storyLanguage), model.camera)
-                row(SelfCheckTexts.location(storyLanguage), model.location)
-                row(SelfCheckTexts.keychain(storyLanguage), model.keychain)
-                row(SelfCheckTexts.swiftData(storyLanguage), model.swiftData)
+                row(SelfCheckTexts.camera(screenLanguage), model.camera)
+                row(SelfCheckTexts.location(screenLanguage), model.location)
+                row(SelfCheckTexts.keychain(screenLanguage), model.keychain)
+                row(SelfCheckTexts.swiftData(screenLanguage), model.swiftData)
             }
             .themedRows()
         }
         .themedList()
-        .themedTitle(SelfCheckTexts.title(storyLanguage))
+        .themedTitle(SelfCheckTexts.title(screenLanguage))
         .toolbar {
-            Button(SelfCheckTexts.runChecks(storyLanguage)) { Task { await model.run() } }
+            Button(SelfCheckTexts.runChecks(screenLanguage)) { Task { await model.run() } }
                 .disabled(model.running)
         }
         .task { await model.run() }
@@ -217,11 +218,12 @@ struct SelfCheckView: View {
     @ViewBuilder
     private func row(_ title: String, _ result: CheckResult?) -> some View {
         HStack(alignment: .top, spacing: Theme.Spacing.unit) {
-            CheckMark(passed: result?.passed, passedText: SelfCheckTexts.passed(storyLanguage),
-                      failedText: SelfCheckTexts.failed(storyLanguage), waitingText: SelfCheckTexts.waiting(storyLanguage))
+            CheckMark(passed: result?.passed, passedText: SelfCheckTexts.passed(screenLanguage),
+                      failedText: SelfCheckTexts.failed(screenLanguage),
+                      waitingText: SelfCheckTexts.waiting(screenLanguage))
             VStack(alignment: .leading, spacing: Theme.Spacing.unit / 4) {
                 Text(title).font(Theme.Font.bodyMedium)
-                Text(result?.detail ?? SelfCheckTexts.waiting(storyLanguage))
+                Text(result?.detail ?? SelfCheckTexts.waiting(screenLanguage))
                     .font(Theme.Font.caption)
                     .opacity(0.75)
             }

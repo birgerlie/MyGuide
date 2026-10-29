@@ -1,7 +1,7 @@
 import MyGuideCore
 
-/// Every word on the device check, in the story language (spec 15). Error descriptions from the system stay as they
-/// come.
+/// Every word on the device check (spec 15), in the iPhone's language (`UILanguage.current`, spec 17). Error
+/// descriptions from the system stay as they come.
 enum SelfCheckTexts {
     static func title(_ language: StoryLanguage) -> String { SettingsTexts.deviceCheck(language) }
 

@@ -500,7 +500,7 @@ final class WalkingController {
         case .lowBattery: .lowBattery
         case .pausedTooLong: .pausedTooLong
         }
-        stop(reason: stopReason, source: nil, autoOffMessage: AutoOff.message(reason, language: Self.storyLanguage()))
+        stop(reason: stopReason, source: nil, autoOffMessage: AutoOff.message(reason, language: UILanguage.current))
     }
 
     // MARK: - Pause
@@ -1038,7 +1038,7 @@ final class WalkingController {
     }
 
     private static func storyLanguage() -> StoryLanguage {
-        UserDefaults.standard.string(forKey: AppServices.storyLanguageKey).flatMap(StoryLanguage.init(rawValue:)) ?? .english
+        AppServices.currentStoryLanguage()
     }
 
     /// The city at `location`, or nil when there is no position, the lookup fails or it takes longer than 8 s.

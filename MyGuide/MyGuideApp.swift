@@ -9,10 +9,10 @@ struct MyGuideApp: App {
     private let container: ModelContainer
     @State private var services: AppServices
     @Environment(\.scenePhase) private var scenePhase
-    /// The notification action titles follow it: they are registered again when it changes.
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     init() {
+        // Before any screen or background work reads the setting: the first launch stores its default once.
+        AppServices.settleStoryLanguage()
         let container: ModelContainer
         var fallback: MemoryFallback?
         do {
@@ -48,6 +48,7 @@ struct MyGuideApp: App {
             }
         }
         Theme.Font.verifyBundled()
+        // The action titles are in the iPhone's language, fixed for the process: registered once, here.
         Task { await BuzzNotifier.registerCategories() }
         services.walking.endLeftoverActivities()
     }
@@ -61,9 +62,6 @@ struct MyGuideApp: App {
             .onChange(of: scenePhase) {
                 services.walking.noteScenePhase($1)
                 if $1 == .active { services.noteBecameActive() }
-            }
-            .onChange(of: storyLanguage) {
-                Task { await BuzzNotifier.registerCategories() }
             }
             // myguide://walk/<id>, from the Live Activity: open that walk story.
             .onOpenURL { url in

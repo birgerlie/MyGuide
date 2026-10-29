@@ -11,7 +11,8 @@ struct BuzzLogView: View {
     @State private var counts: [KindCount] = []
     @State private var exportURL: URL?
     @State private var errorText: String?
-    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+    /// The screen texts follow the iPhone's language (spec 17).
+    private var screenLanguage: StoryLanguage { UILanguage.current }
 
     var body: some View {
         List {
@@ -23,7 +24,7 @@ struct BuzzLogView: View {
                 .themedRows()
             }
             if entries.isEmpty && errorText == nil {
-                Section { Text(SettingsTexts.noBuzzes(storyLanguage)).opacity(0.75) }
+                Section { Text(SettingsTexts.noBuzzes(screenLanguage)).opacity(0.75) }
                     .themedRows()
             }
             if !counts.isEmpty {
@@ -33,12 +34,12 @@ struct BuzzLogView: View {
                             Text(count.kind)
                             Text(SettingsTexts.kindCounts(buzzes: count.buzzes, heard: count.heard,
                                                           skipped: count.skipped, ignored: count.ignored,
-                                                          storyLanguage))
+                                                          screenLanguage))
                                 .font(Theme.Font.caption).opacity(0.75)
                         }
                     }
                 } header: {
-                    ListSectionHeader(SettingsTexts.byKind(storyLanguage))
+                    ListSectionHeader(SettingsTexts.byKind(screenLanguage))
                 }
                 .themedRows()
                 Section {
@@ -51,18 +52,18 @@ struct BuzzLogView: View {
                         }
                     }
                 } header: {
-                    ListSectionHeader(SettingsTexts.newest(storyLanguage))
+                    ListSectionHeader(SettingsTexts.newest(screenLanguage))
                 } footer: {
                     if entries.count > Self.shownLimit {
                         ListSectionFooter(SettingsTexts.newestFooter(shown: Self.shownLimit, of: entries.count,
-                                                                     storyLanguage))
+                                                                     screenLanguage))
                     }
                 }
                 .themedRows()
             }
         }
         .themedList()
-        .themedTitle(SettingsTexts.buzzLog(storyLanguage))
+        .themedTitle(SettingsTexts.buzzLog(screenLanguage))
         .toolbar {
             if let exportURL {
                 ToolbarItem(placement: .primaryAction) { ShareLink(item: exportURL) }
@@ -82,7 +83,7 @@ struct BuzzLogView: View {
             exportURL = url
         } catch {
             AppServices.logMemoryFailure("buzz log failed", error)
-            errorText = SettingsTexts.buzzLogFailed(error, storyLanguage)
+            errorText = SettingsTexts.buzzLogFailed(error, screenLanguage)
             exportURL = nil
         }
     }
