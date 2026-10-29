@@ -443,3 +443,27 @@ Owner: «følg iphonens språk, ta det etter denne runden».
   kind labels, the walk story text and the photo credit wording.
 - **Notification action titles and categories** follow the iPhone language and are registered at launch.
 - **Order:** this is done after the current round (Task 14), before the whole-branch review.
+
+## 18. A buzz reaches the watch during a guided walk (walk log 29 Oct 13:07–14:20)
+
+**What the log shows:**
+- Both buzzes were posted with every notification setting on: Horrea Galbae at 13:16:47 and Santa Maria
+  Liberatrice at 13:16:56.
+- The phone app was in the foreground from 13:16:34 to 13:16:49, so the iPhone was unlocked.
+- iOS forwards an iPhone notification to the watch only when the iPhone is locked or asleep. That explains why
+  no notification reached the watch. Even with the phone locked, a watch app that runs a workout and is in the
+  foreground gets notifications for its own app through its notification delegate. The watch app has none, so
+  they may not show. *(Uncertain; to verify on the device.)*
+- OpenStreetMap failed on both endpoints again ("connection lost", "timed out"), so only 13 Wikipedia places
+  were found.
+
+**Decision** *(Claude's call, from the owner's report «jeg fikk ikke noe haptic eller notification på klokken»)*:
+1. While a guided walk runs on the watch, the phone also sends each buzz straight to the watch over
+   WatchConnectivity: `sendMessage` when reachable, otherwise `transferUserInfo`. The message carries the buzz id,
+   the place name and the direction line.
+2. The watch plays a notification haptic and shows the place in the guided walk view, with «Lytt», which sends
+   the existing tell-me command to the phone.
+3. The watch app gets a `UNUserNotificationCenter` delegate. It presents forwarded notifications while the app is
+   frontmost, and skips one it has already shown through WatchConnectivity (same buzz id), so a buzz is felt once.
+4. A third Overpass endpoint is added as a last fallback: `https://maps.mail.ru/osm/tools/overpass/api/interpreter`.
+   The second endpoint's failure is logged with its error.

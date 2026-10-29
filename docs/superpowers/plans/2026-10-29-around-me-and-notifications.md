@@ -917,3 +917,35 @@ Spec section 17 is binding. This task runs after Task 14.
       story-language change is no longer needed for actions.
 - [ ] Build. Then a manual check in the simulator with the device language set to English and to Norwegian.
 - [ ] Commit `feat(i18n): screen language follows the iPhone; story language stays its own setting`.
+
+### Task 16: A buzz reaches the watch during a guided walk (phone + watch + core)
+
+Spec section 18 is binding. This task runs after Task 15, before the final review.
+
+**Files:**
+- Modify: `MyGuide/Watch/WatchLink.swift`, `MyGuide/Walking/WalkingController.swift` (send on deliver while a guided
+  walk is active), `MyGuideWatch/PhoneLink.swift`, `GuidedWalkModel.swift`, `GuidedWalkView.swift`,
+  `WatchAppDelegate.swift` (notification delegate) and `MyGuideWatchApp.swift`.
+- Modify: `Packages/MyGuideCore/Sources/MyGuideCore/Grounding/OverpassClient.swift` (third endpoint) and its tests.
+- Shared message keys: put them beside the existing guided-walk message constants (find where WatchLink and
+  PhoneLink agree on keys today).
+
+**Interfaces:**
+- Message `buzz`: `{type: "buzz", id: UUID string, name: String, line: String}`. The line is in the iPhone UI
+  language (spec 17).
+- Watch: `GuidedWalkModel.showBuzz(id:name:line:)` plays `WKInterfaceDevice.current().play(.notification)`,
+  shows the place card with «Lytt» (it sends the existing tell-me command with the id), and remembers the id for
+  10 minutes.
+- Watch notification delegate `willPresent`:
+  - returns `[]` when the notification's buzz id (userInfo `buzzID`) was already shown through WatchConnectivity;
+  - otherwise `[.banner, .sound]`.
+
+**Steps:**
+- [ ] Core: Overpass endpoints become [overpass-api.de, overpass.kumi.systems, maps.mail.ru …]. Each is tried
+      once in order on failure. Cancellation is never retried. Update the tests: 3 requests when all fail; stop at
+      the first success.
+- [ ] Phone: on `deliver`, if a guided walk is active on the watch, send the buzz message. Never block the
+      notification post.
+- [ ] Watch: handle the message (haptic + card), add the notification delegate, and dedupe by id.
+- [ ] Build the app (the watch is embedded), then core `swift test`.
+- [ ] Commit `feat(watch): buzzes reach the watch during a guided walk; third Overpass endpoint`.
