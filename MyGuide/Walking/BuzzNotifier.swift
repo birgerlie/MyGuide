@@ -1,8 +1,10 @@
 import MyGuideCore
 import UserNotifications
 
-/// Posts and manages walking-mode notifications: a buzz (Tell me, Skip), the offer of the next part (More, Skip)
-/// a story that could not be told and a stop story. Every one carries its buzz id in `userInfo["buzzID"]`.
+/// Posts and manages walking-mode notifications: a buzz (Listen, Skip), the offer of the next part (More, Skip)
+/// a story that could not be told and a stop story. Every one carries its buzz id in `userInfo["buzzID"]`; BUZZ, MORE
+/// and STOP also carry a `NotificationPayload` for the expanded view. Texts and action titles follow the story language
+/// (spec 7.1).
 enum BuzzNotifier {
     nonisolated static let category = "BUZZ"
     nonisolated static let moreCategory = "MORE"
@@ -16,16 +18,17 @@ enum BuzzNotifier {
     private static let thread = "walk"
     private static let buzzIDKey = "buzzID"
 
-    static let failedTitle = "Couldn't get the story"
-    static let moreBody = "Tap More for the next part."
-
     /// Registers BUZZ, MORE, STORY_FAILED and STOP, merging with the categories other features registered (never
-    /// replacing them). The actions run in the background: the story plays without unlocking the phone.
+    /// replacing them). The actions run in the background: the story plays without unlocking the phone. Their titles
+    /// are in the story language; call again when it changes.
     static func registerCategories() async {
         let center = UNUserNotificationCenter.current()
-        let tellMe = UNNotificationAction(identifier: tellMeAction, title: "Tell me", options: [])
-        let more = UNNotificationAction(identifier: moreAction, title: "More", options: [])
-        let skip = UNNotificationAction(identifier: skipAction, title: "Skip", options: [])
+        let existing = await center.notificationCategories()
+        // Read after the wait: of two overlapping calls, the one that sets last uses the language as it is then.
+        let language = AppServices.currentStoryLanguage()
+        let tellMe = UNNotificationAction(identifier: tellMeAction, title: NotificationText.listen(language), options: [])
+        let more = UNNotificationAction(identifier: moreAction, title: NotificationText.more(language), options: [])
+        let skip = UNNotificationAction(identifier: skipAction, title: NotificationText.skip(language), options: [])
         let ours = [
             UNNotificationCategory(identifier: category, actions: [tellMe, skip], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: moreCategory, actions: [more, skip], intentIdentifiers: [], options: []),
@@ -33,34 +36,65 @@ enum BuzzNotifier {
             UNNotificationCategory(identifier: stopCategory, actions: [], intentIdentifiers: [], options: []),
         ]
         let ourIDs = Set(ours.map(\.identifier))
-        var categories = await center.notificationCategories().filter { !ourIDs.contains($0.identifier) }
+        var categories = existing.filter { !ourIDs.contains($0.identifier) }
         categories.formUnion(ours)
         center.setNotificationCategories(categories)
     }
 
-    /// Delivers the buzz at once; the request identifier is the buzz id.
-    static func post(_ buzz: Buzz) async throws {
-        let content = content(category: category, title: buzz.title, body: buzz.detail, id: buzz.id)
-        content.userInfo["placeID"] = buzz.place.candidate.id
-        try await add(content, identifier: buzz.id.uuidString)
+    /// The place's picture for its notification: the cached one, else fetched for at most `PlaceImages.notificationCap`
+    /// (1.5 s; spec 7.3). nil without a picture, past the cap, or for a place without an article.
+    static func picture(for candidate: Candidate, from images: PlaceImages) async -> StoredPlaceImage? {
+        guard let title = PlaceImages.title(for: candidate) else { return nil }
+        return await images.image(wikipediaTitle: title, within: PlaceImages.notificationCap)
     }
 
-    /// Offers the next part of a story that just finished.
-    static func postMore(id: UUID, title: String) async throws {
-        try await add(content(category: moreCategory, title: title, body: moreBody, id: id), identifier: "\(id)-more")
+    /// The place's picture only when it is already cached; never fetches.
+    static func cachedPicture(for candidate: Candidate?, from images: PlaceImages) async -> StoredPlaceImage? {
+        guard let candidate, let title = PlaceImages.title(for: candidate) else { return nil }
+        return await images.cached(wikipediaTitle: title)
     }
 
-    /// Delivers a stop story: its title and text, the story id as request identifier. `quiet` leaves out the sound
-    /// (another story is playing). Used when the Live Activity cannot show it.
-    static func postStop(_ story: WalkStory, quiet: Bool) async throws {
-        let content = content(category: stopCategory, title: story.title, body: story.levels.first ?? "", id: story.id)
+    /// Delivers the buzz at once; the request identifier is the buzz id. Title the place name, subtitle its distance
+    /// and direction from `course` (the one the buzz was decided with), body the factual line (spec 7.1, 7.2).
+    static func post(_ buzz: Buzz, course: Double?, language: StoryLanguage, picture: StoredPlaceImage?) async throws {
+        let candidate = buzz.place.candidate
+        let line = BuzzText.localizedDetail(distance: buzz.distance, bearing: buzz.bearing, course: course,
+                                            language: language)
+        let fact = FactLine.text(for: candidate, language: language)
+        let content = content(category: category, title: buzz.title, body: fact ?? "", id: buzz.id)
+        content.subtitle = line
+        content.userInfo["placeID"] = candidate.id
+        let payload = NotificationPayload(label: NotificationText.nearbyLabel(language), name: buzz.title, line: line,
+                                          fact: fact, credit: nil)
+        try await add(content, payload: payload, picture: picture, language: language, identifier: buzz.id.uuidString)
+    }
+
+    /// Offers the next part of a story that just finished: the place's factual line and picture, no distance (it
+    /// would be stale by now).
+    static func postMore(id: UUID, title: String, place: Candidate?, language: StoryLanguage,
+                         picture: StoredPlaceImage?) async throws {
+        let content = content(category: moreCategory, title: title, body: NotificationText.moreBody(language), id: id)
+        let payload = NotificationPayload(label: NotificationText.nextPartLabel(language), name: title, line: nil,
+                                          fact: place.flatMap { FactLine.text(for: $0, language: language) },
+                                          credit: nil)
+        try await add(content, payload: payload, picture: picture, language: language, identifier: "\(id)-more")
+    }
+
+    /// Delivers a stop story: its title and text, the story id as request identifier, no picture. `quiet` leaves out
+    /// the sound (another story is playing). Used when the Live Activity cannot show it.
+    static func postStop(_ story: WalkStory, quiet: Bool, language: StoryLanguage) async throws {
+        let level1 = story.levels.first ?? ""
+        let content = content(category: stopCategory, title: story.title, body: level1, id: story.id)
         if quiet { content.sound = nil }
-        try await add(content, identifier: story.id.uuidString)
+        let payload = NotificationPayload(label: NotificationText.stoppedLabel(language), name: story.title, line: nil,
+                                          fact: NotificationText.stopExcerpt(level1), credit: nil)
+        try await add(content, payload: payload, picture: nil, language: language, identifier: story.id.uuidString)
     }
 
-    /// Says a story could not be told; `body` is the user-facing reason.
-    static func postFailure(id: UUID, body: String) async throws {
-        try await add(content(category: failedCategory, title: failedTitle, body: body, id: id), identifier: "\(id)-failed")
+    /// Says a story could not be told; `body` is the reason in the story language (`FailureCategory`).
+    static func postFailure(id: UUID, body: String, language: StoryLanguage) async throws {
+        let content = content(category: failedCategory, title: NotificationText.failedTitle(language), body: body, id: id)
+        try await add(content, identifier: "\(id)-failed")
     }
 
     /// Says walking mode turned itself off. A plain notification: no category, so `stop()` leaves it in place.
@@ -153,8 +187,61 @@ enum BuzzNotifier {
         return content
     }
 
+    /// Adds the request with `payload` in its `userInfo` and the picture attached, its credit in the payload. iOS checks
+    /// the picture only when the request is added: when that fails with a picture attached, the notification is added
+    /// once more without it (spec 7.3: a picture never costs the notification).
+    private static func add(_ content: UNMutableNotificationContent, payload: NotificationPayload,
+                            picture: StoredPlaceImage?, language: StoryLanguage, identifier: String) async throws {
+        var payload = payload
+        if let picture, let attachment = attachment(for: picture) {
+            content.attachments = [attachment]
+            payload.credit = NotificationText.photoCredit(author: picture.info.author, licence: picture.info.licence,
+                                                          language)
+        }
+        content.userInfo[NotificationPayload.userInfoKey] = payload.encoded()
+        do {
+            try await add(content, identifier: identifier)
+        } catch where !content.attachments.isEmpty {
+            AppServices.logMemoryFailure("notification with picture refused, adding it without", error)
+            content.attachments = []
+            payload.credit = nil
+            content.userInfo[NotificationPayload.userInfoKey] = payload.encoded()
+            try await add(content, identifier: identifier)
+        }
+    }
+
+    /// An attachment holding a copy of the picture; nil when it cannot be attached (the notification then goes
+    /// without one). A copy, because the attachment moves its file into the notification store: the cache keeps its
+    /// own. The cache names every file `.jpg` whatever it holds, so the copy is named and typed by its bytes.
+    private static func attachment(for picture: StoredPlaceImage) -> UNNotificationAttachment? {
+        guard let format = PlaceImageFormat(contentsOf: picture.fileURL) else { return nil }
+        let copy = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-picture-\(UUID().uuidString)")
+            .appendingPathExtension(format.fileExtension)
+        do {
+            try FileManager.default.copyItem(at: picture.fileURL, to: copy)
+            let attachment = try UNNotificationAttachment(
+                identifier: "picture", url: copy,
+                options: [UNNotificationAttachmentOptionsTypeHintKey: format.typeIdentifier,
+                          UNNotificationAttachmentOptionsThumbnailHiddenKey: false])
+            return attachment
+        } catch {
+            try? FileManager.default.removeItem(at: copy)
+            AppServices.logMemoryFailure("notification picture not attached", error)
+            return nil
+        }
+    }
+
     private static func add(_ content: UNNotificationContent, identifier: String) async throws {
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
-        try await UNUserNotificationCenter.current().add(request)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            // A refused request leaves its picture copy in the temporary directory otherwise.
+            for attachment in content.attachments where attachment.url.isFileURL {
+                try? FileManager.default.removeItem(at: attachment.url)
+            }
+            throw error
+        }
     }
 }

@@ -32,4 +32,14 @@ public enum AutoOff {
         case .pausedTooLong: "Walking mode turned off after an hour without walking."
         }
     }
+
+    /// `message` in the story language: the auto-off notification follows it (spec 7.1).
+    public static func message(_ reason: AutoOffReason, language: StoryLanguage) -> String {
+        guard language == .norwegian else { return message(reason) }
+        switch reason {
+        case .timeLimit: return "Gåmodus slo seg av etter 4 timer."
+        case .lowBattery: return "Gåmodus slo seg av: batteriet er under 15 %."
+        case .pausedTooLong: return "Gåmodus slo seg av etter en time uten at du gikk."
+        }
+    }
 }

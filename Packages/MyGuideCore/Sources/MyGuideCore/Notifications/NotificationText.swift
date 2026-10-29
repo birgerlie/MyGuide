@@ -29,4 +29,23 @@ public enum NotificationText {
         guard !parts.isEmpty else { return nil }
         return (pick(l, nb: "Foto: ", en: "Photo: ") + (parts + ["Wikimedia Commons"]).joined(separator: ", "))
     }
+
+    /// The most a stop excerpt holds: about two lines in the expanded notification.
+    public static let stopExcerptLength = 160
+
+    /// The first two lines of a stop story for its notification (spec 12.9): the first two sentences of `text` when
+    /// together they fit in `stopExcerptLength`, else the first sentence alone, cut at a word with "…" when even that
+    /// is too long. nil for empty text.
+    public static func stopExcerpt(_ text: String) -> String? {
+        guard let first = FactLine.firstSentence(text) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `firstSentence` returns a prefix of the trimmed text.
+        let rest = String(trimmed.dropFirst(first.count))
+        if let second = FactLine.firstSentence(rest) {
+            let both = first + " " + second
+            if both.count <= stopExcerptLength { return both }
+        }
+        return FactLine.limit(first, to: stopExcerptLength)
+    }
 }
+

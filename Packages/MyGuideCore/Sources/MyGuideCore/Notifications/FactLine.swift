@@ -80,9 +80,11 @@ public enum FactLine {
         KindRow(any: [("historic", "building")], also: nil, nb: "Historisk bygning", en: "Historic building"),
     ]
 
+    // MARK: - Shared with NotificationText
+
     /// Up to and including the first ./!/? followed by whitespace + uppercase/digit, or by the end of the text.
     /// "St. Olav" is split wrongly: a known limit.
-    private static func firstSentence(_ text: String) -> String? {
+    static func firstSentence(_ text: String) -> String? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return nil }
         let chars = Array(t)
@@ -97,11 +99,12 @@ public enum FactLine {
     }
 
     /// At most `maxLength` characters: longer text is cut at the last space at or before index maxLength − 1, plus "…".
-    private static func limit(_ s: String) -> String {
+    static func limit(_ s: String, to maxLength: Int = maxLength) -> String {
         guard s.count > maxLength else { return s }
         let head = Array(s.prefix(maxLength))
         let cut = head.lastIndex(of: " ") ?? (maxLength - 1)
-        // cut ≤ 139, so at most 139 characters + "…" = 140. Without any space the hard cut keeps 139.
+        // cut ≤ maxLength − 1, so at most maxLength − 1 characters + "…". Without any space the hard cut keeps
+        // maxLength − 1.
         let kept = head[..<cut]
         return String(kept).trimmingCharacters(in: .whitespaces) + "…"
     }

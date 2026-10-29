@@ -30,6 +30,7 @@
 		40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
 		4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */; };
 		46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CB088E737DE4DD25A20C41 /* DiaryView.swift */; };
+		488B69ECBEBD43BE7A961581 /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
 		4A41F0BABB7371E08C5F20E8 /* MyGuideWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */; };
 		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
 		56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */; };
@@ -79,6 +80,7 @@
 		EC6DC3036B2DE3C3D1B8572F /* WalkingLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */; };
 		ECA8499C6DF9275A4004C77E /* PlaceSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 635B227C5CCD96148DF5AF1F /* PlaceSymbol.swift */; };
 		F0B8DAD8B104CB1D547EA859 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D59629C52B71A28FA9DCBB /* WatchLink.swift */; };
+		F199AE42802893D5B109B128 /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
 		F8DE2811C1B6D114F0707472 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68E63B23D5D4103DCC816284 /* Assets.xcassets */; };
 		FF0E80F8AF923A70D8B6E274 /* AroundTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00B654124830A6916016517 /* AroundTexts.swift */; };
 		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
@@ -181,6 +183,7 @@
 		9399C561071230F13BDD5526 /* WalkingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingPanel.swift; sourceTree = "<group>"; };
 		962FB606403221C1C07B5A34 /* WalkLogListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogListView.swift; sourceTree = "<group>"; };
 		96B316F6601D1952CFEF86BE /* MyGuide.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuide.entitlements; sourceTree = "<group>"; };
+		99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPayload.swift; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryWork.swift; sourceTree = "<group>"; };
 		A1937BD8CD114DE987914DC8 /* WalkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLog.swift; sourceTree = "<group>"; };
@@ -358,6 +361,7 @@
 		87526A6788AC8C36C40DAF1D /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */,
 				F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */,
 			);
 			path = Shared;
@@ -621,6 +625,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */,
+				488B69ECBEBD43BE7A961581 /* NotificationPayload.swift in Sources */,
 				6AD7BBF413B4C419E0755A62 /* WalkingActivityAttributes.swift in Sources */,
 				BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */,
 			);
@@ -672,6 +677,7 @@
 				97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */,
 				0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */,
 				6AF2350B859D194A378A3A70 /* MyGuideApp.swift in Sources */,
+				F199AE42802893D5B109B128 /* NotificationPayload.swift in Sources */,
 				DFDF2CE095968F322A0273DA /* PhoneHeadingProvider.swift in Sources */,
 				1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */,
 				ECA8499C6DF9275A4004C77E /* PlaceSymbol.swift in Sources */,

@@ -497,7 +497,7 @@ final class WalkingController {
         case .lowBattery: .lowBattery
         case .pausedTooLong: .pausedTooLong
         }
-        stop(reason: stopReason, source: nil, autoOffMessage: AutoOff.message(reason))
+        stop(reason: stopReason, source: nil, autoOffMessage: AutoOff.message(reason, language: Self.storyLanguage()))
     }
 
     // MARK: - Pause
@@ -831,7 +831,9 @@ final class WalkingController {
             } catch {
                 guard isOn, runToken == run else { return }
                 do {
-                    try await walkLog.posting(.stop, id: story.id) { try await BuzzNotifier.postStop(story, quiet: quiet) }
+                    try await walkLog.posting(.stop, id: story.id) {
+                        try await BuzzNotifier.postStop(story, quiet: quiet, language: Self.storyLanguage())
+                    }
                     if isOn, runToken == run { walkLog.log(.stopShown(via: .notification)) }
                 } catch {
                     // Memory log only: the walk log's `notifyFailed` line already holds the error.
@@ -850,10 +852,15 @@ final class WalkingController {
         buzzCount += 1
         publishState()
         let run = runToken
+        let language = Self.storyLanguage()
         Task { [weak self] in
             guard let self, self.isOn, self.runToken == run else { return }
             do {
-                try await self.walkLog.posting(.buzz, id: buzz.id) { try await BuzzNotifier.post(buzz) }
+                // The picture wait (at most 1.5 s) is part of the posting, so the walk log's timing includes it.
+                try await self.walkLog.posting(.buzz, id: buzz.id) {
+                    let picture = await BuzzNotifier.picture(for: buzz.place.candidate, from: AppServices.sharedPlaceImages)
+                    try await BuzzNotifier.post(buzz, course: direction, language: language, picture: picture)
+                }
             } catch {
                 // Memory log only: the walk log's `notifyFailed` line already holds the error.
                 AppServices.logMemoryFailure("buzz post failed", error)

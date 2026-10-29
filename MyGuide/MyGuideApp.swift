@@ -9,6 +9,8 @@ struct MyGuideApp: App {
     private let container: ModelContainer
     @State private var services: AppServices
     @Environment(\.scenePhase) private var scenePhase
+    /// The notification action titles follow it: they are registered again when it changes.
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     init() {
         let container: ModelContainer
@@ -59,6 +61,9 @@ struct MyGuideApp: App {
             .onChange(of: scenePhase) {
                 services.walking.noteScenePhase($1)
                 if $1 == .active { services.noteBecameActive() }
+            }
+            .onChange(of: storyLanguage) {
+                Task { await BuzzNotifier.registerCategories() }
             }
             // myguide://walk/<id>, from the Live Activity: open that walk story.
             .onOpenURL { url in

@@ -43,4 +43,15 @@ import Testing
         #expect(AutoOff.message(.lowBattery) == "Walking mode turned off: battery below 15%.")
         #expect(AutoOff.message(.pausedTooLong) == "Walking mode turned off after an hour without walking.")
     }
+
+    @Test func messagesInBothStoryLanguages() {
+        #expect(AutoOff.message(.timeLimit, language: .norwegian) == "Gåmodus slo seg av etter 4 timer.")
+        #expect(AutoOff.message(.lowBattery, language: .norwegian) == "Gåmodus slo seg av: batteriet er under 15 %.")
+        #expect(AutoOff.message(.pausedTooLong, language: .norwegian)
+                == "Gåmodus slo seg av etter en time uten at du gikk.")
+        // English is the existing message, word for word.
+        for reason in [AutoOffReason.timeLimit, .lowBattery, .pausedTooLong] {
+            #expect(AutoOff.message(reason, language: .english) == AutoOff.message(reason))
+        }
+    }
 }

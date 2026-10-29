@@ -517,10 +517,15 @@ final class WalkingStories {
     /// Posts MORE; never for a chosen story (it posts no notifications, spec 12.1).
     private func offerMore(_ id: UUID) {
         guard let story = prepared.story(id) ?? storedStory(id), story.kind != .chosen else { return }
-        let title = story.title
+        let title = story.title, place = story.place
+        let language = AppServices.currentStoryLanguage()
         Task {
             do {
-                try await posting(.more, id: id) { try await BuzzNotifier.postMore(id: id, title: title) }
+                try await posting(.more, id: id) {
+                    let picture = await BuzzNotifier.cachedPicture(for: place, from: AppServices.sharedPlaceImages)
+                    try await BuzzNotifier.postMore(id: id, title: title, place: place, language: language,
+                                                    picture: picture)
+                }
             } catch {
                 // Memory log only: the walk log's `notifyFailed` line already holds the error.
                 AppServices.logMemoryFailure("more post failed", error)
@@ -545,7 +550,9 @@ final class WalkingStories {
     }
 
     /// Posts STORY_FAILED. Our own cancellation (a `CancellationError`) is silent; no error means the story is gone.
-    /// A chosen story's failure only sets `lastFailure`, for the app to show: it posts no notifications.
+    /// A chosen story's failure only sets `lastFailure`, for the app to show: it posts no notifications. The
+    /// notification gives the reason as one of the fixed categories in the story language (spec 12.10); `lastFailure`
+    /// keeps the detailed message.
     private func report(_ id: UUID, error: Error?) {
         let body: String
         if let error, !(error is StoryGone) {
@@ -557,9 +564,14 @@ final class WalkingStories {
         guard !body.isEmpty else { return }
         lastFailure = Failure(id: id, message: body)
         if isChosen(id) || (prepared.story(id) == nil && storedStory(id)?.kind == .chosen) { return }
+        let language = AppServices.currentStoryLanguage()
+        // A gone story (no error, or `StoryGone`) is `.other`, as `FailureCategory` maps any unknown error.
+        let reason = (error.map(FailureCategory.init) ?? .other).text(language)
         Task {
             do {
-                try await posting(.storyFailed, id: id) { try await BuzzNotifier.postFailure(id: id, body: body) }
+                try await posting(.storyFailed, id: id) {
+                    try await BuzzNotifier.postFailure(id: id, body: reason, language: language)
+                }
             } catch {
                 // Memory log only: the walk log's `notifyFailed` line already holds the error.
                 AppServices.logMemoryFailure("failure post failed", error)
