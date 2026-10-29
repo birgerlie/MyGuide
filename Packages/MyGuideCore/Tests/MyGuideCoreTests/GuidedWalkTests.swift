@@ -90,6 +90,35 @@ import Testing
         #expect(GuidedWalkState(message: [:]) == nil)
     }
 
+    @Test func nextStopRoundTrip() {
+        var state = Self.state(.walking, buzzes: 2)
+        state.nextStop = GuidedWalkNextStop(name: "Pantheon", line: "Neste: Pantheon · 300 m")
+        let m = state.message
+        let nested = m["nextStop"] as? [String: String]
+        #expect(nested == ["name": "Pantheon", "line": "Neste: Pantheon · 300 m"])
+        #expect(GuidedWalkState(message: m) == state)
+        // Without a tour the key is left out, as for the other optional fields.
+        #expect(Self.state(.walking).message["nextStop"] == nil)
+        #expect(GuidedWalkState(message: Self.state(.walking).message)?.nextStop == nil)
+    }
+
+    @Test func aMalformedNextStopIsDroppedButTheStateApplies() {
+        let good = Self.state(.walking, buzzes: 1)
+        for bad: Any in ["Pantheon", ["name": "Pantheon"], ["name": 5, "line": "x"], ["line": "x"]] {
+            var m = good.message
+            m["nextStop"] = bad
+            // The walk state is what the watch acts on; a line it cannot read must not hold that back.
+            #expect(GuidedWalkState(message: m) == good, "\(bad)")
+        }
+    }
+
+    @Test func aNewerPhonesUnknownFieldsAreIgnored() {
+        // What an older watch does with a newer phone's state: unknown keys are not read.
+        var m = Self.state(.walking, buzzes: 1).message
+        m["somethingNew"] = ["a": 1]
+        #expect(GuidedWalkState(message: m) == Self.state(.walking, buzzes: 1))
+    }
+
     @Test func olderSentAtIsNotApplied() {
         let current = Self.state(.walking)
         var equal = current; equal.phase = .off

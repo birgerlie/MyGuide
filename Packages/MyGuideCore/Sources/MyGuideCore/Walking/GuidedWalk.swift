@@ -19,9 +19,12 @@ public struct GuidedWalkState: Sendable, Equatable {
     public var problem: String?
     /// The phone's clock when this state was sent.
     public var sentAt: Date
+    /// The next stop while a tour runs (tours spec 7); nil without a tour. Added after the first watch builds: an
+    /// older watch never reads it.
+    public var nextStop: GuidedWalkNextStop?
 
     public init(phase: GuidedWalkPhase, buzzCount: Int, startedAt: Date?, pausedTotal: TimeInterval = 0,
-                pausedSince: Date? = nil, problem: String? = nil, sentAt: Date) {
+                pausedSince: Date? = nil, problem: String? = nil, sentAt: Date, nextStop: GuidedWalkNextStop? = nil) {
         self.phase = phase
         self.buzzCount = buzzCount
         self.startedAt = startedAt
@@ -29,6 +32,7 @@ public struct GuidedWalkState: Sendable, Equatable {
         self.pausedSince = pausedSince
         self.problem = problem
         self.sentAt = sentAt
+        self.nextStop = nextStop
     }
 
     public static func off(sentAt: Date, problem: String? = nil) -> GuidedWalkState {
@@ -70,11 +74,14 @@ public struct GuidedWalkState: Sendable, Equatable {
         if let startedAt { m["startedAt"] = startedAt.timeIntervalSince1970 }
         if let pausedSince { m["pausedSince"] = pausedSince.timeIntervalSince1970 }
         if let problem { m["problem"] = problem }
+        if let nextStop { m["nextStop"] = nextStop.message }
         return m
     }
 
     /// Nil when the type is not `walk.state` or a required field is missing or of the wrong type.
-    /// An optional field of the wrong type is also nil: a malformed message is not applied half-way.
+    /// An optional field of the wrong type is also nil: a malformed message is not applied half-way. The one exception
+    /// is `nextStop`, a display line only: one that cannot be read is left out and the state still applies, since the
+    /// watch acts on the state.
     public init?(message: [String: Any]) {
         guard message["type"] as? String == Self.messageType,
               let rawPhase = message["phase"] as? String, let phase = GuidedWalkPhase(rawValue: rawPhase),
@@ -96,7 +103,29 @@ public struct GuidedWalkState: Sendable, Equatable {
               let problem = optionalString("problem")
         else { return nil }
         self.init(phase: phase, buzzCount: buzzCount, startedAt: startedAt, pausedTotal: pausedTotal,
-                  pausedSince: pausedSince, problem: problem, sentAt: Date(timeIntervalSince1970: sentAt))
+                  pausedSince: pausedSince, problem: problem, sentAt: Date(timeIntervalSince1970: sentAt),
+                  nextStop: (message["nextStop"] as? [String: Any]).flatMap(GuidedWalkNextStop.init(message:)))
+    }
+}
+
+/// The next stop of a running tour as the watch shows it: its name and the line «Neste: Pantheon · 300 m», in the
+/// iPhone's screen language (`TourFormat.nextStop`).
+public struct GuidedWalkNextStop: Sendable, Equatable {
+    public var name: String
+    public var line: String
+
+    public init(name: String, line: String) {
+        self.name = name
+        self.line = line
+    }
+
+    /// The nested dictionary under `nextStop` in the walk state message.
+    public var message: [String: String] { ["name": name, "line": line] }
+
+    /// Nil when `name` or `line` is missing or not a string.
+    public init?(message: [String: Any]) {
+        guard let name = message["name"] as? String, let line = message["line"] as? String else { return nil }
+        self.init(name: name, line: line)
     }
 }
 

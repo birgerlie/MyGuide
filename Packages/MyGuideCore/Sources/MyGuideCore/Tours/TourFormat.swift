@@ -26,6 +26,11 @@ public enum TourFormat {
         let metres = min(metres, maxMetres)
         let tens = Int((metres / 10).rounded()) * 10
         guard tens >= 1000 else { return "\(tens) m" }
+        return kilometres(metres, language: language)
+    }
+
+    /// Kilometres with one decimal, rounded to the nearest tenth: «5,2 km» / «5.2 km». `metres` is finite and capped.
+    private static func kilometres(_ metres: Double, language: StoryLanguage) -> String {
         let tenths = Int((metres / 100).rounded())
         let separator = language == .norwegian ? "," : "."
         return "\(tenths / 10)\(separator)\(tenths % 10) km"
@@ -43,5 +48,35 @@ public enum TourFormat {
     /// «1 t 25 min · 5,2 km · 6 stopp».
     public static func totals(seconds: Double, metres: Double, stops count: Int, language: StoryLanguage) -> String {
         "\(duration(seconds, language: language)) · \(distance(metres, language: language)) · \(stops(count, language: language))"
+    }
+    // MARK: - During a tour (tours spec 6)
+
+    /// The distance to the next stop, coarser than `distance` so the line does not change with every few steps: under
+    /// a kilometre in steps of 50 m («300 m»), at least «50 m» for a positive distance; from there in kilometres with
+    /// one decimal («1,5 km»). Zero, negative or not finite → «0 m».
+    public static func approachDistance(_ metres: Double, language: StoryLanguage) -> String {
+        guard metres.isFinite, metres > 0 else { return "0 m" }
+        let metres = min(metres, maxMetres)
+        let fifties = max(1, Int((metres / 50).rounded())) * 50
+        guard fifties >= 1000 else { return "\(fifties) m" }
+        return kilometres(metres, language: language)
+    }
+
+    /// «Neste: Pantheon · 300 m», or «Neste: Pantheon» without a distance (no position yet).
+    public static func nextStop(_ name: String, metres: Double?, language: StoryLanguage) -> String {
+        let label = language == .norwegian ? "Neste" : "Next"
+        guard let metres else { return "\(label): \(name)" }
+        return "\(label): \(name) · \(approachDistance(metres, language: language))"
+    }
+
+    /// «2 av 6» / «2 of 6»: stops done of all. Negative counts count as 0.
+    public static func progress(done: Int, total: Int, language: StoryLanguage) -> String {
+        "\(max(0, done)) \(language == .norwegian ? "av" : "of") \(max(0, total))"
+    }
+
+    /// «Turen er ferdig · 6 stopp · 1 t 31 min».
+    public static func finished(stops count: Int, seconds: Double, language: StoryLanguage) -> String {
+        let head = language == .norwegian ? "Turen er ferdig" : "Tour finished"
+        return "\(head) · \(stops(count, language: language)) · \(duration(seconds, language: language))"
     }
 }

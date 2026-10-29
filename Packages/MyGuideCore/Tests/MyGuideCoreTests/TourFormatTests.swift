@@ -85,4 +85,48 @@ import Testing
         // 1800 s = 30 min; 2449 m / 100 = 24.49 → 24 tenths = 2.4 km.
         #expect(TourFormat.totals(seconds: 1800, metres: 2449, stops: 1, language: .english) == "30 min · 2.4 km · 1 stop")
     }
+    // MARK: - During a tour
+
+    @Test func approachDistanceInFiftyMetreSteps() {
+        // 312 / 50 = 6.24 → 6 → 300 m; 326 / 50 = 6.52 → 7 → 350 m; 974 / 50 = 19.48 → 19 → 950 m.
+        #expect(TourFormat.approachDistance(312, language: .norwegian) == "300 m")
+        #expect(TourFormat.approachDistance(326, language: .english) == "350 m")
+        #expect(TourFormat.approachDistance(974, language: .norwegian) == "950 m")
+        // 20 / 50 = 0.4 → 0, but a positive distance shows at least 50 m.
+        #expect(TourFormat.approachDistance(20, language: .norwegian) == "50 m")
+        // 975 / 50 = 19.5 → 20 → 1000 m, so kilometres: 975 / 100 = 9.75 → 10 tenths → 1,0 km (where `distance` still
+        // says 980 m: its 10 m steps reach 1000 m only from 995 m).
+        #expect(TourFormat.approachDistance(975, language: .norwegian) == "1,0 km")
+        // 1530 / 100 = 15.3 → 15 tenths → 1.5 km.
+        #expect(TourFormat.approachDistance(1530, language: .english) == "1.5 km")
+        #expect(TourFormat.approachDistance(0, language: .english) == "0 m")
+        #expect(TourFormat.approachDistance(-5, language: .english) == "0 m")
+        #expect(TourFormat.approachDistance(.nan, language: .english) == "0 m")
+        #expect(TourFormat.approachDistance(.infinity, language: .english) == "0 m")
+    }
+
+    @Test func nextStopLine() {
+        // 312 m → 300 m, as above.
+        #expect(TourFormat.nextStop("Pantheon", metres: 312, language: .norwegian) == "Neste: Pantheon · 300 m")
+        #expect(TourFormat.nextStop("Pantheon", metres: 312, language: .english) == "Next: Pantheon · 300 m")
+        // No position: the name alone.
+        #expect(TourFormat.nextStop("Pantheon", metres: nil, language: .norwegian) == "Neste: Pantheon")
+        #expect(TourFormat.nextStop("Pantheon", metres: nil, language: .english) == "Next: Pantheon")
+    }
+
+    @Test func progressLine() {
+        #expect(TourFormat.progress(done: 2, total: 6, language: .norwegian) == "2 av 6")
+        #expect(TourFormat.progress(done: 2, total: 6, language: .english) == "2 of 6")
+        #expect(TourFormat.progress(done: -1, total: -3, language: .english) == "0 of 0")
+    }
+
+    @Test func finishedLine() {
+        // 5460 s / 60 = 91 min = 1 t 31 min (the spec's example).
+        #expect(TourFormat.finished(stops: 6, seconds: 5460, language: .norwegian)
+            == "Turen er ferdig · 6 stopp · 1 t 31 min")
+        #expect(TourFormat.finished(stops: 6, seconds: 5460, language: .english)
+            == "Tour finished · 6 stops · 1 h 31 min")
+        // 1500 s / 60 = 25 min.
+        #expect(TourFormat.finished(stops: 1, seconds: 1500, language: .english) == "Tour finished · 1 stop · 25 min")
+    }
 }
