@@ -196,6 +196,19 @@ private struct Boom: Error {}
         #expect(!list.serves(walkerAt: .at(), now: t0.addingTimeInterval(-1)))
     }
 
+    @Test func listStatusForTheTimingsScreen() {
+        let list = Self.list()   // centre (0, 0), fetched at t0
+        // t0 + 125.9 s: 125.9 rounded down → 125 s. Position 85.4 m north: `.at(north:)` is that many metres up to
+        // floating point, rounded → 85 m.
+        #expect(NearbyListStatus(list: list, position: .at(north: 85.4), now: Self.t0.addingTimeInterval(125.9))
+                == NearbyListStatus(ageS: 125, distanceM: 85))
+        // No position → no distance; age 0 at t0. 1 200.6 m rounds to 1 201 m.
+        #expect(NearbyListStatus(list: list, position: nil, now: Self.t0) == NearbyListStatus(ageS: 0, distanceM: nil))
+        #expect(NearbyListStatus(list: list, position: .at(north: 1200.6), now: Self.t0).distanceM == 1201)
+        // Dated after now (t0 − 1 s): age −1 is unknown → nil.
+        #expect(NearbyListStatus(list: list, position: nil, now: Self.t0.addingTimeInterval(-1)).ageS == nil)
+    }
+
     @Test func walkingRefreshesExactlyWhenTheListDoesNotServe() async throws {
         let clock = LockedBox(Self.t0)
         let places = Self.places(StubFetcher(.success([Self.castle("Burg", north: 30)])), clock: clock)

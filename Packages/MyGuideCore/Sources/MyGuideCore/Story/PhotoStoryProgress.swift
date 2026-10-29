@@ -17,9 +17,10 @@ public enum PhotoStoryProgress: Sendable, Equatable {
 
 /// How long the steps of one photo story took, in milliseconds on the flow's clock (spec 10). No story text, no photo.
 public struct PhotoStoryTimings: Sendable, Equatable, Codable {
-    /// Start of the flow (the shutter) to the first feedback step.
+    /// Start of the story flow (just after the photo is taken or picked, once it is in memory) to the first feedback
+    /// step. The camera's own capture time is not included.
     public var feedbackMs: Int
-    /// Start to the likely-place card; nil when there was none.
+    /// Start of the story flow to the likely-place card; nil when there was none.
     public var guessMs: Int?
     /// Start to the end of the fresh place search; nil when there was none, or it had not ended when the story did.
     public var placeSearchMs: Int?
@@ -35,9 +36,13 @@ public struct PhotoStoryTimings: Sendable, Equatable, Codable {
     public var listAgeS: Int?
     /// Characters of article text sent; 0 when none was sent.
     public var articleChars: Int
+    /// The first level's speech request, from its start to the audio file being ready; nil when speech was not
+    /// requested (reading aloud off, or the screen was left), failed or was stopped. Set by the app after the flow;
+    /// absent in lines written before it existed, which read as nil.
+    public var speechMs: Int?
 
     public init(feedbackMs: Int, guessMs: Int?, placeSearchMs: Int?, articleMs: Int?, firstTextMs: Int?, modelMs: Int,
-                listFresh: Bool, listAgeS: Int?, articleChars: Int) {
+                listFresh: Bool, listAgeS: Int?, articleChars: Int, speechMs: Int? = nil) {
         self.feedbackMs = feedbackMs
         self.guessMs = guessMs
         self.placeSearchMs = placeSearchMs
@@ -47,6 +52,7 @@ public struct PhotoStoryTimings: Sendable, Equatable, Codable {
         self.listFresh = listFresh
         self.listAgeS = listAgeS
         self.articleChars = articleChars
+        self.speechMs = speechMs
     }
 }
 

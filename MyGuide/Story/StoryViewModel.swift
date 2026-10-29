@@ -302,15 +302,28 @@ final class StoryViewModel {
                                                                      language: language, nearby: list,
                                                                      progress: progress)
                 }
-                // Paid calls and timings are recorded even if the screen was dropped meanwhile.
+                // Paid calls and timings are recorded even if the screen was dropped meanwhile. A "Try again with
+                // more places" run is not a first story: its timings would skew the medians, so they are not kept.
                 services.recordUsage(outcome.usage)
-                AppServices.recordPhotoTimings(outcome.timings, at: .now)
-                guard !Task.isCancelled, let self, self.runID == runID else { return }
+                let finishedAt = Date.now
+                let record: @MainActor (Int?) -> Void = { speechMs in
+                    guard places == nil else { return }
+                    var timings = outcome.timings
+                    timings.speechMs = speechMs
+                    AppServices.recordPhotoTimings(timings, at: finishedAt)
+                }
+                guard !Task.isCancelled, let self, self.runID == runID else {
+                    record(nil)
+                    return
+                }
                 self.show(outcome, runID: runID)
-                // The text is complete: speech starts now, or never when reading aloud is off.
+                // The text is complete: speech starts now, or never when reading aloud is off. The timings wait for
+                // the speech request, so they carry its time.
                 if Self.readsAloud {
                     heldBySpeech = true
-                    self.playSpeech(level: 0, backgroundWork: background)
+                    self.playSpeech(level: 0, backgroundWork: background, onAudioReady: record)
+                } else {
+                    record(nil)
                 }
             } catch {
                 // Our own cancel (or a superseding run) is silence, whatever error type the sources report it with.
@@ -500,10 +513,14 @@ final class StoryViewModel {
 
     /// Starts speaking one level, stopping whatever else is loading or playing. A replay hits the cache.
     /// Failure only marks that level as failed; the text is never affected.
-    /// `backgroundWork`, if given, is ended once the audio fetch finishes, however it finishes.
-    func playSpeech(level: Int, backgroundWork: UIBackgroundTaskIdentifier = .invalid) {
+    /// `backgroundWork`, if given, is ended once the audio fetch finishes, however it finishes. `onAudioReady`, if
+    /// given, is called exactly once when the fetch finishes, however it finishes: with the milliseconds from the
+    /// request's start to the audio file being ready, or nil when it failed, was stopped or never started.
+    func playSpeech(level: Int, backgroundWork: UIBackgroundTaskIdentifier = .invalid,
+                    onAudioReady: (@MainActor (Int?) -> Void)? = nil) {
         guard let session, session.levels.indices.contains(level) else {
             endBackgroundWork(backgroundWork)
+            onAudioReady?(nil)
             return
         }
         stopSpeech()
@@ -512,10 +529,16 @@ final class StoryViewModel {
         let language = session.language
         let key = "\(session.id.uuidString)-\(level + 1)"
         speechTask = Task { [weak self, services] in
-            defer { self?.endBackgroundWork(backgroundWork) }
+            var speechMs: Int?
+            defer {
+                self?.endBackgroundWork(backgroundWork)
+                onAudioReady?(speechMs)
+            }
             do {
                 let service = try services.makeSpeech()
+                let requested = ContinuousClock.now
                 let (url, usage) = try await service.audioFile(text: text, language: language, cacheKey: key)
+                speechMs = Int(((ContinuousClock.now - requested) / .milliseconds(1)).rounded())
                 // nil is a cache hit: nothing was paid for.
                 if let usage { services.recordUsage([usage]) }
                 guard !Task.isCancelled, let self else { return }

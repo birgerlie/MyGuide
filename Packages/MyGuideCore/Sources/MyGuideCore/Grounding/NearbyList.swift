@@ -48,6 +48,27 @@ public struct NearbyList: Sendable, Equatable, Codable {
     }
 }
 
+/// What the Story timings screen shows about a nearby list (spec 13 check 3, 14.5): its age, and its centre's
+/// distance from the owner when a recent position is known.
+public struct NearbyListStatus: Sendable, Equatable {
+    /// Whole seconds since the list was fetched, rounded down; nil when it is dated after `now` (the clock was set
+    /// back), so its age is unknown.
+    public var ageS: Int?
+    /// Whole metres from `position` to the list's centre, rounded; nil without a position.
+    public var distanceM: Int?
+
+    public init(ageS: Int?, distanceM: Int?) {
+        self.ageS = ageS
+        self.distanceM = distanceM
+    }
+
+    public init(list: NearbyList, position: Coordinate?, now: Date) {
+        let age = now.timeIntervalSince(list.fetchedAt)
+        ageS = age >= 0 ? Int(age.rounded(.towardZero)) : nil
+        distanceM = position.map { Int(GeoMath.distance(list.centre, $0).rounded()) }
+    }
+}
+
 /// Keeps one JSON file per story language in a directory, written atomically (temporary file, then rename).
 public struct NearbyListStore: Sendable {
     public let directory: URL

@@ -39,6 +39,30 @@ import Testing
         #expect(!text.contains("story"))
     }
 
+    @Test func speechTimeRoundTrips() throws {
+        let (dir, file) = try Self.tempURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var timings = Self.timings(3)
+        timings.speechMs = 1234
+        let entry = PhotoTimingsEntry(at: Self.t0, timings: timings)
+        try PhotoTimingsLog.append(entry, to: file)
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("\"speechMs\":1234"))
+        #expect(PhotoTimingsLog.read(file) == [entry])
+    }
+
+    @Test func lineWrittenBeforeSpeechTimeReadsAsNil() throws {
+        let (dir, file) = try Self.tempURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // A line as the previous version wrote it: no "speechMs" key. Its values are timings(1): feedback 1, search
+        // 1 × 2 = 2, first text 5, model 100 + 1 = 101, fresh 1 % 2 == 0 → false, no list age, 0 article characters.
+        let old = #"{"at":"1970-01-12T13:46:40.000Z","timings":{"articleChars":0,"feedbackMs":1,"firstTextMs":5,"listFresh":false,"modelMs":101,"placeSearchMs":2}}"#
+        try Data((old + "\n").utf8).write(to: file)
+        let entries = PhotoTimingsLog.read(file)
+        #expect(entries.count == 1)
+        #expect(entries.first?.timings == Self.timings(1))
+        #expect(entries.first?.timings.speechMs == nil)
+    }
+
     @Test func readOfMissingFileIsEmpty() throws {
         let (dir, file) = try Self.tempURL()
         defer { try? FileManager.default.removeItem(at: dir) }
