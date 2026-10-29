@@ -26,10 +26,12 @@
 		1F68E52117A68240EF842AD4 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
 		2372F6786301805D64B055F5 /* LibraryImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */; };
 		23A030D3EDB268804985A907 /* AroundPlaceCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2A1B1EA49BD03F0E4913A8 /* AroundPlaceCard.swift */; };
+		244C83493BD73DABBF5047ED /* ToursTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A45DD2897816AE5CA64139 /* ToursTexts.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
 		2BB7ADB87183D830935BFF6B /* BackgroundPlaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2EC6BE86575DCCDD7559C6 /* BackgroundPlaces.swift */; };
 		2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */; };
 		2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */; };
+		319A18DB62844B411715A8EF /* ToursTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BC6F16DA3A26DFDE1AC86FF /* ToursTab.swift */; };
 		34BB99A458D0273BFCE0B045 /* UILanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D650A7A9FDB98BDD27E899D /* UILanguage.swift */; };
 		357BDDD00F40A1DF41E20DC6 /* WalkingStories.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC982992B37C30453C7F88D8 /* WalkingStories.swift */; };
 		395515A7A501BA457B009E28 /* GuidedWalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A5C636C046DB5D8AB64F46 /* GuidedWalkView.swift */; };
@@ -37,6 +39,7 @@
 		3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */; };
 		3FF2CCCC1B0F2E31717008F2 /* StoryTimingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */; };
 		40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
+		407555736A8866E4B476EAC6 /* TourPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3556DD853CE1BC72CA58C83E /* TourPreviewView.swift */; };
 		408D65C82AD2DED76F5CB5E1 /* StoryTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34417561BF9F425246DF005C /* StoryTexts.swift */; };
 		418A9B486B3BE04C46C8A1ED /* ScreenChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB1AA4452D008193B28208D2 /* ScreenChrome.swift */; };
 		4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */; };
@@ -64,12 +67,14 @@
 		6E45AE573B3E9C4E3C3E8D7E /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		70623E8B571F401324C5D2AD /* DiaryTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D5A9F3266A7BD1AB592507 /* DiaryTexts.swift */; };
 		739CC53B7A785DD930F81C06 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
+		749C4648B7C19FE0ED8C63CD /* DestinationSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019A13E17BDBAD531CB33B40 /* DestinationSearch.swift */; };
 		7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AAB6A3685B614A563229E1E /* DayStoryModel.swift */; };
 		791D55EFA8664AC2961AA5FF /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
 		7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AC3F6758B70A451EA067EB /* SelfCheckView.swift */; };
 		7F16257E352A6AA5B5F55823 /* NotificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D41BC2F7B13FA2E2A7BE52 /* NotificationViewController.swift */; };
 		80E49C95E15C877B7EEFF2D2 /* RootTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE66C7AF4C2AC3FACB6E6C93 /* RootTabs.swift */; };
 		8B6BC3F5149C4ACF27549948 /* StoryText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73FCA42F11E8350044FC2AA8 /* StoryText.swift */; };
+		8B7E6D8608D5BF5E586060EA /* TourBuilderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A73709B779C58B549DA4E0E /* TourBuilderModel.swift */; };
 		8D2D4C576AFFAF1A8E839F8C /* DiaryWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */; };
 		905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */; };
 		97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */; };
@@ -167,7 +172,9 @@
 
 /* Begin PBXFileReference section */
 		0127669306FC88F71BBCDBF8 /* StoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryView.swift; sourceTree = "<group>"; };
+		019A13E17BDBAD531CB33B40 /* DestinationSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearch.swift; sourceTree = "<group>"; };
 		04A5C636C046DB5D8AB64F46 /* GuidedWalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedWalkView.swift; sourceTree = "<group>"; };
+		0A73709B779C58B549DA4E0E /* TourBuilderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TourBuilderModel.swift; sourceTree = "<group>"; };
 		0AAB6A3685B614A563229E1E /* DayStoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayStoryModel.swift; sourceTree = "<group>"; };
 		0D420089BC27852F1213A205 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		0E2A1B1EA49BD03F0E4913A8 /* AroundPlaceCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundPlaceCard.swift; sourceTree = "<group>"; };
@@ -185,12 +192,14 @@
 		281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogRunView.swift; sourceTree = "<group>"; };
 		283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedWalkModel.swift; sourceTree = "<group>"; };
 		2A2EC6BE86575DCCDD7559C6 /* BackgroundPlaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundPlaces.swift; sourceTree = "<group>"; };
+		2BC6F16DA3A26DFDE1AC86FF /* ToursTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToursTab.swift; sourceTree = "<group>"; };
 		2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWidgetsBundle.swift; sourceTree = "<group>"; };
 		3213E88F0E2AABF7072E545C /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		32CB088E737DE4DD25A20C41 /* DiaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryView.swift; sourceTree = "<group>"; };
 		34417561BF9F425246DF005C /* StoryTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryTexts.swift; sourceTree = "<group>"; };
 		3509B449881359F212693562 /* WatchAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppDelegate.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
+		3556DD853CE1BC72CA58C83E /* TourPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TourPreviewView.swift; sourceTree = "<group>"; };
 		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
 		3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Regular.ttf"; sourceTree = "<group>"; };
 		3D650A7A9FDB98BDD27E899D /* UILanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UILanguage.swift; sourceTree = "<group>"; };
@@ -208,6 +217,7 @@
 		618C1BE4968CEF097E30E75A /* PhoneHeadingProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneHeadingProvider.swift; sourceTree = "<group>"; };
 		635B227C5CCD96148DF5AF1F /* PlaceSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceSymbol.swift; sourceTree = "<group>"; };
 		6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuideWatch.entitlements; sourceTree = "<group>"; };
+		63A45DD2897816AE5CA64139 /* ToursTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToursTexts.swift; sourceTree = "<group>"; };
 		68E63B23D5D4103DCC816284 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Medium.ttf"; sourceTree = "<group>"; };
 		6FB5929240699451326DF1BD /* PhotoImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoImport.swift; sourceTree = "<group>"; };
@@ -569,7 +579,12 @@
 		F7A47276F93B7F82EAC12D80 /* Tours */ = {
 			isa = PBXGroup;
 			children = (
+				019A13E17BDBAD531CB33B40 /* DestinationSearch.swift */,
+				0A73709B779C58B549DA4E0E /* TourBuilderModel.swift */,
+				3556DD853CE1BC72CA58C83E /* TourPreviewView.swift */,
 				B4805A2814E968920A68F144 /* TourRouter.swift */,
+				2BC6F16DA3A26DFDE1AC86FF /* ToursTab.swift */,
+				63A45DD2897816AE5CA64139 /* ToursTexts.swift */,
 			);
 			path = Tours;
 			sourceTree = "<group>";
@@ -818,6 +833,7 @@
 				FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */,
 				7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */,
 				AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */,
+				749C4648B7C19FE0ED8C63CD /* DestinationSearch.swift in Sources */,
 				2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */,
 				70623E8B571F401324C5D2AD /* DiaryTexts.swift in Sources */,
 				46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */,
@@ -847,7 +863,11 @@
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
 				DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */,
+				8B7E6D8608D5BF5E586060EA /* TourBuilderModel.swift in Sources */,
+				407555736A8866E4B476EAC6 /* TourPreviewView.swift in Sources */,
 				A970E7A2D72A564F9913516D /* TourRouter.swift in Sources */,
+				319A18DB62844B411715A8EF /* ToursTab.swift in Sources */,
+				244C83493BD73DABBF5047ED /* ToursTexts.swift in Sources */,
 				34BB99A458D0273BFCE0B045 /* UILanguage.swift in Sources */,
 				581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */,
 				A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */,

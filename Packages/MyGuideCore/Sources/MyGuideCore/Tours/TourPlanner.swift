@@ -151,6 +151,28 @@ public enum TourPlanner {
         return result
     }
 
+    /// The plan without the stop `id` (the preview's «Fjern», spec 6): the other stops re-ordered by 2-opt, the
+    /// estimate and an A→B budget recomputed; a loop keeps its chosen duration. No stop is added in its place. An id
+    /// not in the plan gives the plan back unchanged; a repeated id loses its first occurrence. With an end that is
+    /// not finite the order is kept and the estimate and budget are 0, as `aToB` gives for such ends.
+    public static func removing(_ id: String, from plan: TourPlan) -> TourPlan {
+        guard let index = plan.stops.firstIndex(where: { $0.id == id }) else { return plan }
+        var result = plan
+        result.stops.remove(at: index)
+        guard isFinite(plan.start), isFinite(plan.end) else {
+            result.estimatedSeconds = 0
+            if result.kind == .aToB { result.budgetSeconds = 0 }
+            return result
+        }
+        result.stops = twoOpt(result.stops, start: result.start, end: result.end)
+        result.estimatedSeconds = estimatedSeconds(start: result.start, stops: result.stops, end: result.end)
+        if result.kind == .aToB {
+            result.budgetSeconds = aToBWalkingBudget(start: result.start, end: result.end)
+                + dwellSeconds * Double(result.stops.count)
+        }
+        return result
+    }
+
     // MARK: - Internals
 
     /// Walking + dwell for the route start → stops → end.

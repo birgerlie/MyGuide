@@ -53,6 +53,15 @@ final class AppServices {
     /// appear/disappear.
     private(set) lazy var around = AroundModel(services: self, location: location)
 
+    /// The «Turer» tab's planning flow over `location`, made on first use and kept across tab switches, so a tour
+    /// being planned keeps going while the owner looks at the map.
+    private(set) lazy var tourBuilder = TourBuilderModel(
+        location: location, memory: memory, placeImages: placeImages,
+        source: TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http)))
+    /// The tour «Start turen» handed over, until something starts it. Set by `HomeScreen.startTour`; the active tour
+    /// (tours task T5) takes it from here.
+    var pendingTour: RoutedTour?
+
     /// Why memory is held in RAM only this run; nil when the persistent store opened.
     let memoryFallback: MemoryFallback?
     /// Set once the app has become active with a store that fell back because of a background launch.

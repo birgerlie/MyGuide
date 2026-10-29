@@ -16,6 +16,27 @@ enum TourRouter {
         await TourRouting.fit(plan, maxRequests: maxRequests) { from, to in await leg(from: from, to: to) }
     }
 
+    /// As `fit(_:)`, but a leg `earlier` already walked (same start and end, in the same direction, not a straight
+    /// stand-in) is reused instead of asking MapKit again: after «Fjern» most legs are unchanged, and Apple throttles
+    /// directions at about 50 a minute. A reused leg still counts towards the 25 requests of `TourRouting.fit`.
+    static func fit(_ plan: TourPlan, reusing earlier: RoutedTour) async -> RoutedTour {
+        let points = [earlier.plan.start] + earlier.plan.stops.map(\.coordinate) + [earlier.plan.end]
+        var known: [LegEnds: RoutedLeg] = [:]
+        for (ends, leg) in zip(zip(points, points.dropFirst()), earlier.legs) where !leg.approximate {
+            known[LegEnds(from: ends.0, to: ends.1)] = leg
+        }
+        let reusable = known
+        return await TourRouting.fit(plan, maxRequests: maxRequests) { from, to in
+            if let leg = reusable[LegEnds(from: from, to: to)] { return leg }
+            return await leg(from: from, to: to)
+        }
+    }
+
+    private struct LegEnds: Hashable, Sendable {
+        let from: Coordinate
+        let to: Coordinate
+    }
+
     /// The walking route from `from` to `to`: MapKit's distance, timed at the tours' 1.3 m/s (`RoutedLeg.walked`, not
     /// MapKit's own walking speed), and the polyline's coordinates. Nil on a MapKit error, an answer without a route,
     /// after 10 s, or when the caller is cancelled.

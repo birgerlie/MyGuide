@@ -76,6 +76,8 @@ struct HomeScreen: View {
                 explore
                     .navigationDestination(for: HomeRoute.self, destination: destination)
             }
+        } tours: {
+            ToursTab(model: services.tourBuilder, language: screenLanguage, onStart: startTour)
         } diary: {
             NavigationStack(path: $diaryPath) {
                 diary
@@ -102,7 +104,8 @@ struct HomeScreen: View {
             keepDayStories()
         }
         .onChange(of: diaryPath) { keepDayStories() }
-        // Location runs while the map or the camera is on top, or while a story offers "Use where I am now".
+        // Location runs while the map or the camera is on top, while a story offers "Use where I am now", or while
+        // the tours tab is selected.
         .onChange(of: locationWanted, initial: true) { _, wanted in
             if wanted {
                 // Fixes while the map or the camera (or a story's "Use where I am now") is up keep the nearby list
@@ -285,11 +288,22 @@ struct HomeScreen: View {
         return model
     }
 
+    /// «Start turen» on the tour preview. For now the tour is only handed to `AppServices.pendingTour` and the map is
+    /// shown; the active tour (tours task T5) replaces this with starting walking mode on the tour.
+    private func startTour(_ tour: RoutedTour) {
+        services.pendingTour = tour
+        tab = .explore
+    }
+
     /// On top of whatever the selected tab shows; a walk story already on top is swapped for the new one.
     private func openWalkStory(_ id: UUID) {
         switch tab {
         case .explore: Self.push(.walkStory(id), onto: &path)
         case .diary: Self.push(.walkStory(id), onto: &diaryPath)
+        case .tours:
+            // The tours tab has no story routes; the story opens over the map.
+            tab = .explore
+            Self.push(.walkStory(id), onto: &path)
         }
     }
 
@@ -348,11 +362,13 @@ struct HomeScreen: View {
     // MARK: - What runs
 
     /// Whether location updates should run now (re-evaluated as the scene, the tab, the top screen or the story
-    /// changes): the Utforsk tab showing the map, the camera, or a story offering "Use where I am now". Never while
-    /// the Dagbok tab is selected. This screen alone starts and stops the shared provider and sets its `onFix`.
+    /// changes): the Utforsk tab showing the map, the camera, or a story offering "Use where I am now", and the Turer
+    /// tab. Never while the Dagbok tab is selected. This screen alone starts and stops the shared provider and sets its `onFix`.
     private var locationWanted: Bool {
-        scenePhase != .background && tab == .explore
-            && (path.isEmpty || path.last == .camera || storyOffersCurrentPosition)
+        guard scenePhase != .background else { return false }
+        // The tours tab plans from where the owner stands, and its destination search is biased to it.
+        if tab == .tours { return true }
+        return tab == .explore && (path.isEmpty || path.last == .camera || storyOffersCurrentPosition)
     }
 
     /// Whether the map is on screen: the Utforsk tab at its root, with the app not in the background.

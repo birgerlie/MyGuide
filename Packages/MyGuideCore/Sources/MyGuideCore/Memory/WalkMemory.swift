@@ -103,6 +103,17 @@ extension MemoryStore {
         }.map(\.id))
     }
 
+    /// Places heard or read (a story level saved, with `lastHeardAt`) at or after `now` − 30 days; skips do not count.
+    /// Tours halve the scores of places heard in the last 30 days (tours spec 4); the spec names hearing only, so a
+    /// skip keeps the full score. A heard place with `lastHeardAt` nil is not counted, as in `retiredPlaceIDs(now:)`.
+    public func heardPlaceIDs(now: Date) throws -> Set<String> {
+        let cutoff = now.addingTimeInterval(-TimeInterval(Self.placeRestDays) * 86_400)
+        let descriptor = FetchDescriptor<PlaceRecord>(predicate: #Predicate { place in place.deepestLevelHeard >= 1 })
+        return Set(try context.fetch(descriptor).filter { place in
+            place.lastHeardAt.map { $0 >= cutoff } ?? false
+        }.map(\.id))
+    }
+
     /// Makes every place eligible to buzz again (spec 13.5): clears `lastHeardAt` and `skippedAt` on every place.
     /// Levels heard, stories, captures, the buzz log and the track stay.
     public func resetPlaceNotifications() throws {

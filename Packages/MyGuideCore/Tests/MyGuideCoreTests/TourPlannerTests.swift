@@ -408,6 +408,74 @@ import Testing
         #expect(abs(plan.budgetSeconds - 1490) < Self.tight)
     }
 
+    // MARK: - removing («Fjern»)
+
+    @Test func removingAStopReordersTheRestAndRecomputesAnAToB() {
+        // A→B origin → E 300 m north, stops listed s2 (200 m north), x (500 m east), s1 (100 m north).
+        // Without x: [s2, s1] walks S→s2 200 + s2→s1 100 + s1→E 200 = 500 m; 2-opt reverses it to [s1, s2]:
+        // 100 + 100 + 100 = 300 m. Estimate 300 + 2 × 240 = 780 s. Budget 1.25 × 300 + 2 × 240 = 375 + 480 = 855 s.
+        let plan = TourPlan(kind: .aToB, start: Self.origin, end: .at(north: 300),
+                            stops: [Self.stop("s2", north: 200), Self.stop("x", east: 500), Self.stop("s1", north: 100)],
+                            estimatedSeconds: 0, budgetSeconds: 0)
+        let removed = TourPlanner.removing("x", from: plan)
+        #expect(removed.stops.map(\.id) == ["s1", "s2"])
+        #expect(abs(removed.estimatedSeconds - 780) < Self.tolerance)
+        #expect(abs(removed.budgetSeconds - 855) < Self.tolerance)
+        #expect(removed.kind == .aToB && removed.start == plan.start && removed.end == plan.end)
+    }
+
+    @Test func removingFromALoopKeepsTheDuration() {
+        // twoStopLoop without b: origin → a (100 m north) → origin = 100 + 100 + 240 = 440 s; budget stays 1800 s.
+        let removed = TourPlanner.removing("b", from: Self.twoStopLoop())
+        #expect(removed.stops.map(\.id) == ["a"])
+        #expect(abs(removed.estimatedSeconds - 440) < Self.tolerance)
+        #expect(removed.budgetSeconds == 1800)
+        // Removing the last stop too: origin → origin = 0 s, budget still 1800 s.
+        let empty = TourPlanner.removing("a", from: removed)
+        #expect(empty.stops.isEmpty)
+        #expect(empty.estimatedSeconds == 0)
+        #expect(empty.budgetSeconds == 1800)
+    }
+
+    @Test func removingTheLastStopOfAnAToBLeavesTheDirectRoute() {
+        // A→B origin → 1000 m north through c: direct estimate 1000 s, budget 1.25 × 1000 + 0 × 240 = 1250 s.
+        let plan = TourPlan(kind: .aToB, start: Self.origin, end: .at(north: 1000), stops: [Self.stop("c", north: 500)],
+                            estimatedSeconds: 1240, budgetSeconds: 1490)
+        let removed = TourPlanner.removing("c", from: plan)
+        #expect(removed.stops.isEmpty)
+        #expect(abs(removed.estimatedSeconds - 1000) < Self.tolerance)
+        #expect(abs(removed.budgetSeconds - 1250) < Self.tolerance)
+    }
+
+    @Test func removingAnUnknownIdChangesNothing() {
+        let plan = Self.twoStopLoop()
+        #expect(TourPlanner.removing("nope", from: plan) == plan)
+        let empty = TourPlan(kind: .loop, start: Self.origin, end: Self.origin, stops: [], estimatedSeconds: 0,
+                             budgetSeconds: 1800)
+        #expect(TourPlanner.removing("a", from: empty) == empty)
+    }
+
+    @Test func removingARepeatedIdTakesTheFirstOnly() {
+        // Loop through x (100 m east), y (100 m north), x again: the first x goes, [y, x] remains (2-opt finds no
+        // gain on two stops of a loop, since reversing the whole order walks the same). Estimate origin→y 100 +
+        // y→x √(100² + 100²) = 141.421 + x→origin 100 = 341.421 + 2 × 240 = 821.421 s.
+        let plan = TourPlan(kind: .loop, start: Self.origin, end: Self.origin,
+                            stops: [Self.stop("x", east: 100), Self.stop("y", north: 100), Self.stop("x", east: 100)],
+                            estimatedSeconds: 0, budgetSeconds: 1800)
+        let removed = TourPlanner.removing("x", from: plan)
+        #expect(removed.stops.map(\.id) == ["y", "x"])
+        #expect(abs(removed.estimatedSeconds - (200 + 20_000.0.squareRoot() + 480)) < Self.tolerance)
+    }
+
+    @Test func removingWithANonFiniteEndKeepsTheOrderAndZeroesTheEstimate() {
+        let plan = TourPlan(kind: .aToB, start: Self.origin, end: Coordinate(latitude: .nan, longitude: 0),
+                            stops: [Self.stop("s2", north: 200), Self.stop("x", east: 500), Self.stop("s1", north: 100)],
+                            estimatedSeconds: 0, budgetSeconds: 0)
+        let removed = TourPlanner.removing("x", from: plan)
+        #expect(removed.stops.map(\.id) == ["s2", "s1"])
+        #expect(removed.estimatedSeconds == 0 && removed.budgetSeconds == 0)
+    }
+
     // MARK: - dropWorst
 
     /// Loop from the origin through a (100 m north, score 2) and b (200 m north, score 3).
