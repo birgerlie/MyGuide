@@ -1,3 +1,4 @@
+import MyGuideCore
 import SwiftUI
 import WatchKit
 
@@ -66,8 +67,8 @@ final class WatchCheckModel {
         pingStatus = WatchTexts.pinging
         let start = ContinuousClock.now
         do {
-            let reply = try await PhoneLink.shared.send(["type": "ping"])
-            guard reply["type"] as? String == "pong" else { throw PhoneLinkError.unexpectedReply }
+            let reply = try await PhoneLink.shared.send(["type": WatchMessage.ping])
+            guard reply["type"] as? String == WatchMessage.pong else { throw PhoneLinkError.unexpectedReply }
             let elapsed = ContinuousClock.now - start
             let ms = Int((Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded())
             pingStatus = WatchTexts.pong(ms: ms)

@@ -130,3 +130,15 @@ import Testing
         #expect(GuidedWalkCommand(message: [:]) == nil)
     }
 }
+
+/// The watch–phone message types outside the guided walk. Older builds on the other side send and expect exactly
+/// these strings.
+@Suite struct WatchMessageTests {
+    @Test func wireStrings() {
+        #expect(WatchMessage.checkTell == "check.tell")
+        #expect(WatchMessage.ping == "ping")
+        #expect(WatchMessage.pong == "pong")
+        #expect(GuidedWalkState.messageType == "walk.state")
+        #expect(GuidedWalkBuzz.messageType == "buzz")
+    }
+}

@@ -1,4 +1,5 @@
 import Foundation
+import MyGuideCore
 import Observation
 import os
 import WatchConnectivity
@@ -127,7 +128,7 @@ final class WatchLink: NSObject {
 
     fileprivate func receive(_ message: [String: Any]) async -> [String: Any] {
         lastReceived = message["type"] as? String
-        if message["type"] as? String == "ping" { return ["type": "pong"] }
+        if message["type"] as? String == WatchMessage.ping { return ["type": WatchMessage.pong] }
         return await onCommand?(message) ?? [:]
     }
 }

@@ -294,7 +294,8 @@ final class WalkingCheckModel: NSObject {
                                                            body: WalkingCheckTexts.activityBody(language),
                                                            updatedAt: .now)
         do {
-            activityID = try Activity.request(attributes: WalkingActivityAttributes(startedAt: .now),
+            activityID = try Activity.request(attributes: WalkingActivityAttributes(startedAt: .now,
+                                                                                   language: UILanguage.current.rawValue),
                                               content: ActivityContent(state: state, staleDate: nil)).id
         } catch {
             activityRunning = false

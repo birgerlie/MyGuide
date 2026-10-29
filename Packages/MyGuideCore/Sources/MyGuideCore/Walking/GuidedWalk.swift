@@ -124,6 +124,17 @@ extension GuidedWalkCommand {
     }
 }
 
+/// The `type` of the watch–phone messages outside the guided walk (WatchConnectivity dictionaries). Builds on either
+/// side may be older than the other, so the strings never change.
+public enum WatchMessage {
+    /// Watch → phone, from the Action button's «Tell me» (`TellMeIntent`): the phone's Walking check plays its test
+    /// tone. It does not tell a story.
+    public static let checkTell = "check.tell"
+    /// Watch → phone from the watch's check screen; the phone answers `pong` at once.
+    public static let ping = "ping"
+    public static let pong = "pong"
+}
+
 /// A buzz the phone sends straight to the watch during a guided walk (spec 18), beside its notification: iOS forwards
 /// a notification to the watch only while the iPhone is locked. The watch plays a haptic and shows the place with
 /// «Lytt», which sends `tellMessage(id:)` back.

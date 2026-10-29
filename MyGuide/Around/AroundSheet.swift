@@ -168,7 +168,7 @@ struct AroundSheet: View {
         }
         // The first thing that keeps walking mode from starting, or that it lacks while on (e.g. location Always).
         if let problem = walking.problems.first {
-            Label(WalkingReadiness.localized(problem, language: language), systemImage: "exclamationmark.triangle")
+            Label(problem.text(language), systemImage: "exclamationmark.triangle")
                 .font(Theme.Font.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

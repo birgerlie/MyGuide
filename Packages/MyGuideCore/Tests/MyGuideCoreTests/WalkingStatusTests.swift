@@ -15,6 +15,22 @@ import Testing
         #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 7, now: Self.t0) == "Walking · 7 buzzes")
     }
 
+    @Test func freshnessEdgeIsExactlyStaleAfter() {
+        // Age 120 s = staleAfter → fresh; 120.001 s > 120 → waiting.
+        #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0, buzzCount: 1, now: Self.t0 + 120.001)
+                == "Walking · waiting for GPS")
+    }
+
+    @Test func hasFreshFix() {
+        // Age = now − lastFixAt. 120 = staleAfter → fresh; 120.001 > 120 → not; no fix → not.
+        #expect(WalkingStatus.hasFreshFix(lastFixAt: Self.t0, now: Self.t0 + 120))
+        #expect(!WalkingStatus.hasFreshFix(lastFixAt: Self.t0, now: Self.t0 + 120.001))
+        #expect(!WalkingStatus.hasFreshFix(lastFixAt: nil, now: Self.t0))
+        // Age 0 → fresh; age −5 (clock stepped back) → fresh, as in `text`.
+        #expect(WalkingStatus.hasFreshFix(lastFixAt: Self.t0, now: Self.t0))
+        #expect(WalkingStatus.hasFreshFix(lastFixAt: Self.t0 + 5, now: Self.t0))
+    }
+
     @Test func aFixFromTheFutureIsFresh() {
         // A clock that stepped back makes the age negative (-5 s), which is not older than 120 s.
         #expect(WalkingStatus.text(isOn: true, lastFixAt: Self.t0 + 5, buzzCount: 2, now: Self.t0) == "Walking · 2 buzzes")

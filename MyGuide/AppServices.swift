@@ -103,7 +103,7 @@ final class AppServices {
             if watchLink.isPaired, watchLink.isInstalled { watchLink.send(buzz.message) }
         }
         watchLink.onCommand = { message in
-            if message["type"] as? String == "check.tell" {
+            if message["type"] as? String == WatchMessage.checkTell {
                 walkingCheck.handleWatchTell()
                 return [:]
             }
@@ -140,7 +140,7 @@ final class AppServices {
             Task { @MainActor in
                 defer { hold.end() }
                 if let problem = await walking.start(source: .watch, interactive: false) {
-                    watchLink.pushState(GuidedWalkState.off(sentAt: .now, problem: problem).message)
+                    watchLink.pushState(GuidedWalkState.off(sentAt: .now, problem: problem.rawValue).message)
                 }
             }
             return starting.message

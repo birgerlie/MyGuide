@@ -32,7 +32,7 @@ final class WalkingController {
 
     private(set) var isOn = false
     /// Why walking mode did not start (or stopped); empty when nothing is in the way.
-    private(set) var problems: [String] = []
+    private(set) var problems: [WalkingProblem] = []
     private(set) var buzzCount = 0
     /// The time of the last fix the buzz engine could use; nil until one arrives. Not updated while paused.
     private(set) var lastFixAt: Date?
@@ -80,7 +80,7 @@ final class WalkingController {
     /// What started the auto-pause in progress, for the `resumed` line of a resume by command; nil otherwise.
     @ObservationIgnored private var autoPauseTrigger: PauseTrigger?
     /// Why the last start without prompts did not start; on the walk state until the next start (spec 5.3).
-    @ObservationIgnored private var startProblem: String?
+    @ObservationIgnored private var startProblem: WalkingProblem?
     /// The last walk state handed to `onStateChange`, with `sentAt` blanked, so only real changes are sent.
     @ObservationIgnored private var lastSentState: GuidedWalkState?
     /// The last motion reading, so a `motion` line is written only when the activity or confidence changes.
@@ -167,9 +167,9 @@ final class WalkingController {
 
     nonisolated private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "walking")
 
-    /// The problem text of a start without prompts that cannot start (spec 5.3). It goes to the watch in English and
-    /// is shown there in the watch's language (`WalkingReadiness.localized`).
-    static let setupProblem = WalkingReadiness.setupProblem
+    /// The problem of a start without prompts that cannot start (spec 5.3). It goes to the watch as its English
+    /// sentence (the rawValue) and is shown there in the watch's language (`WalkingProblem.text(received:language:)`).
+    static let setupProblem = WalkingProblem.setUpOnPhone
 
     /// Starts walking mode. Returns why it did not start, or nil when it started, was already on or starting, or was
     /// cancelled by `stop()`.
@@ -178,7 +178,7 @@ final class WalkingController {
     /// needs location Always, notifications allowed and the key, else it returns `setupProblem` at once, which the
     /// walk state carries until the next start. Motion stays as granted (spec 10.2).
     @discardableResult
-    func start(source: WalkSource = .phone, interactive: Bool = true) async -> String? {
+    func start(source: WalkSource = .phone, interactive: Bool = true) async -> WalkingProblem? {
         guard !isOn, startToken == nil else { return nil }
         let token = UUID()
         startToken = token
@@ -213,7 +213,7 @@ final class WalkingController {
                 // Only the walk state carries it: nobody asked on the phone, so its `problems` stay as they were.
                 // No run (and no walk log) exists yet, so the refusal goes to the system log; no personal data.
                 Self.log.notice("""
-                    start without prompts refused: \(Self.setupProblem, privacy: .public) \
+                    start without prompts refused: \(Self.setupProblem.rawValue, privacy: .public) \
                     location \(String(describing: state.location), privacy: .public), \
                     notifications \(String(describing: state.notifications), privacy: .public), \
                     key \(state.hasAPIKey, privacy: .public)
@@ -620,8 +620,11 @@ final class WalkingController {
     var guidedWalkState: GuidedWalkState {
         let now = Date.now
         guard isOn else {
-            if isStarting { return GuidedWalkState(phase: .starting, buzzCount: 0, startedAt: nil, problem: startProblem, sentAt: now) }
-            return .off(sentAt: now, problem: startProblem)
+            if isStarting {
+                return GuidedWalkState(phase: .starting, buzzCount: 0, startedAt: nil, problem: startProblem?.rawValue,
+                                       sentAt: now)
+            }
+            return .off(sentAt: now, problem: startProblem?.rawValue)
         }
         let phase: GuidedWalkPhase = switch pauseKind {
         case nil: .walking
@@ -629,7 +632,7 @@ final class WalkingController {
         case .manual: .pausedManual
         }
         return GuidedWalkState(phase: phase, buzzCount: buzzCount, startedAt: startedAt, pausedTotal: pausedTotal,
-                               pausedSince: pausedSince, problem: startProblem, sentAt: now)
+                               pausedSince: pausedSince, problem: startProblem?.rawValue, sentAt: now)
     }
 
     /// Hands the walk state to `onStateChange` when it differs from the last one handed over, `sentAt` aside. Called
@@ -740,8 +743,7 @@ final class WalkingController {
     /// Writes `gps` when the status changes between waiting for GPS and having GPS. Nothing while paused.
     private func noteGPS(now: Date) {
         guard isOn, !isPaused else { return }
-        let found = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now)
-            != WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: buzzCount, now: now)
+        let found = WalkingStatus.hasFreshFix(lastFixAt: lastFixAt, now: now)
         guard found != loggedGPS else { return }
         loggedGPS = found
         walkLog.log(.gps(found: found), at: now)
@@ -994,7 +996,7 @@ final class WalkingController {
         var notifications: WalkingReadiness.Notifications
         var hasAPIKey: Bool
 
-        var problems: [String] {
+        var problems: [WalkingProblem] {
             WalkingReadiness.problems(location: location, notifications: notifications, hasAPIKey: hasAPIKey)
         }
     }

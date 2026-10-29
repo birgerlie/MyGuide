@@ -28,10 +28,17 @@ public enum WalkingStatus {
         case .auto: return "\(paused) · \(nb ? "står stille" : "not moving") · \(buzzes)"
         case nil: break
         }
-        guard let lastFixAt, now.timeIntervalSince(lastFixAt) <= staleAfter else {
+        guard hasFreshFix(lastFixAt: lastFixAt, now: now) else {
             return "\(walking) · \(nb ? "venter på GPS" : "waiting for GPS")"
         }
         return "\(walking) · \(buzzes)"
+    }
+
+    /// True when there is a fix at most `staleAfter` old (exactly 120 s is still fresh). A fix timed after `now` (the
+    /// clock stepped back) counts as fresh.
+    public static func hasFreshFix(lastFixAt: Date?, now: Date) -> Bool {
+        guard let lastFixAt else { return false }
+        return now.timeIntervalSince(lastFixAt) <= staleAfter
     }
 
     /// When the Live Activity stops claiming "Walking" (the widget then shows that walking is paused): `staleAfter`

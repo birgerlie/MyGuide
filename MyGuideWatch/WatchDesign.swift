@@ -30,13 +30,14 @@ struct WatchButtonStyle: ButtonStyle {
     }
 }
 
-/// Every word on the watch, in the watch's own language (spec 17): Norwegian when its first preferred language is
-/// Norwegian (nb, no or nn), English otherwise, by the same rule as the phone's screen texts
-/// (`StoryLanguage.matching`). The phone does not send its language to the watch. The phone's reason for a failed
-/// start arrives in English and is shown with `problem(_:)`.
+/// Every word on the watch, in the watch's own screen language (spec 17), by the same rule as the phone's
+/// `UILanguage`: the localization watchOS picked for the watch app's bundle, else the watch's first preferred language
+/// (nb, no or nn → Norwegian, anything else English). The phone does not send its language to the watch. The phone's
+/// reason for a failed start arrives as its English sentence and is shown with `problem(_:)`.
 enum WatchTexts {
     /// Read once: watchOS ends the app when the watch's language changes.
-    static let norwegian = StoryLanguage.matching(preferredLanguages: Locale.preferredLanguages) == .norwegian
+    static let norwegian = StoryLanguage.screen(bundleLocalization: Bundle.main.preferredLocalizations.first,
+                                                preferredLanguages: Locale.preferredLanguages) == .norwegian
 
     static var title: String { norwegian ? "Guidet tur" : "Guided walk" }
     static var check: String { norwegian ? "Sjekk" : "Check" }
@@ -71,10 +72,10 @@ enum WatchTexts {
 
     static var off: String { norwegian ? "Av" : "Off" }
 
-    /// The phone's reason for a failed start (English on the wire) in the watch's language; a text it does not know
-    /// is shown as it came.
+    /// The phone's reason for a failed start (its English sentence on the wire) in the watch's language; a sentence
+    /// this build does not know is shown as it came.
     static func problem(_ text: String) -> String {
-        WalkingReadiness.localized(text, language: norwegian ? .norwegian : .english)
+        WalkingProblem.text(received: text, language: norwegian ? .norwegian : .english)
     }
 
     // MARK: Walk notes and errors
