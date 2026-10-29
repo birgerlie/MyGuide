@@ -6,34 +6,24 @@ public enum WalkLogWriterError: Error, Equatable { case closed }
 /// Not Sendable: the app uses it from the main actor.
 public final class WalkLogWriter {
     public let url: URL
-    private var handle: FileHandle?
+    private let file: JSONLinesFile
+    private var isClosed = false
 
     /// Creates the file (and intermediate directories) when missing, then opens it for appending.
     public init(url: URL) throws {
         self.url = url
-        let fm = FileManager.default
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: url.path) {
-            guard fm.createFile(atPath: url.path, contents: nil) else {
-                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
-            }
-        }
-        let h = try FileHandle(forWritingTo: url)
-        try h.seekToEnd()
-        handle = h
+        file = try JSONLinesFile(url: url)
     }
 
     public func append(_ event: WalkLogEvent) throws {
-        guard let handle else { throw WalkLogWriterError.closed }
-        try handle.write(contentsOf: WalkLogCodec.line(event))
+        guard !isClosed else { throw WalkLogWriterError.closed }
+        try file.append(WalkLogCodec.line(event))
     }
 
     public func close() {
-        try? handle?.close()
-        handle = nil
+        isClosed = true
+        file.close()
     }
-
-    deinit { try? handle?.close() }
 }
 
 public enum WalkLogReader {
