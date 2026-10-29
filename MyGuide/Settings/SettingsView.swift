@@ -1,7 +1,8 @@
 import MyGuideCore
 import SwiftUI
 
-/// API key (Keychain only, never shown in full) and the device check.
+/// API key (Keychain only, never shown in full), story language, photo story and walking settings, usage, and the
+/// developer screens and checks. In the design package (spec 15), every word in the story language.
 struct SettingsView: View {
     let services: AppServices
 
@@ -23,63 +24,67 @@ struct SettingsView: View {
         Form {
             Section {
                 if hasSavedKey {
-                    Text(savedKeySuffix.map { "Key saved ••••\($0)" } ?? "Key saved")
+                    Text(SettingsTexts.keySaved(suffix: savedKeySuffix, storyLanguage))
                 } else if usesBundledKey {
-                    Text("Using the test key built into this version").foregroundStyle(.secondary)
+                    Text(SettingsTexts.bundledKey(storyLanguage)).opacity(0.75)
                 } else {
-                    Text("No key saved").foregroundStyle(.secondary)
+                    Text(SettingsTexts.noKey(storyLanguage)).opacity(0.75)
                 }
                 SecureField("sk-…", text: $draftKey)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button("Save") { save() }
+                    .frame(minHeight: Theme.minimumTouchHeight)
+                Button(SettingsTexts.save(storyLanguage)) { save() }
+                    .buttonStyle(.themePrimary())
                     .disabled(trimmedDraft.isEmpty)
                 if hasSavedKey {
-                    Button("Remove key", role: .destructive) { remove() }
+                    Button(SettingsTexts.removeKey(storyLanguage), role: .destructive) { remove() }
                 }
                 if let errorText {
-                    Text(errorText).font(.footnote).foregroundStyle(.red)
+                    Label(errorText, systemImage: "exclamationmark.triangle")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.red)
                 }
             } header: {
-                Text("OpenAI API key")
+                ListSectionHeader(SettingsTexts.keySection(storyLanguage))
             } footer: {
-                Text("Stored only in this iPhone's Keychain.")
+                ListSectionFooter(SettingsTexts.keyFooter(storyLanguage))
             }
+            .themedRows()
             Section {
-                Picker("Story language", selection: $storyLanguage) {
+                Picker(SettingsTexts.storyLanguage(storyLanguage), selection: $storyLanguage) {
                     Text("English").tag(StoryLanguage.english)
                     Text("Norsk").tag(StoryLanguage.norwegian)
                 }
             } header: {
-                Text("Language")
+                ListSectionHeader(SettingsTexts.languageSection(storyLanguage))
             } footer: {
-                Text("Applies to new photos. Stories already told keep their language.")
+                ListSectionFooter(SettingsTexts.languageFooter(storyLanguage))
             }
+            .themedRows()
             Section {
                 Toggle(ScreenText.readAloud(storyLanguage), isOn: $readAloudAutomatically)
-                NavigationLink("Story timings") { StoryTimingsView() }
+                NavigationLink(SettingsTexts.storyTimings(storyLanguage)) { StoryTimingsView() }
             } header: {
-                Text("Photo stories")
+                ListSectionHeader(SettingsTexts.photoStoriesSection(storyLanguage))
             } footer: {
-                Text(storyLanguage == .norwegian
-                     ? "Av: ingen tale hentes; trykk Lytt for å høre fortellingen. Gjelder alle nivåer. Gåmodus har egne innstillinger."
-                     : "Off: no speech is fetched; tap Listen to hear the story. Applies to every level. Walking mode has its own settings.")
+                ListSectionFooter(SettingsTexts.readAloudFooter(storyLanguage))
             }
+            .themedRows()
             Section {
-                Toggle(storyLanguage == .norwegian ? "Forbered steder i bakgrunnen" : "Prepare places in the background",
+                Toggle(SettingsTexts.prepareBackgroundPlaces(storyLanguage),
                        isOn: backgroundPlacesToggle(
                            alwaysGranted: BackgroundPlaces.shared.authorization == .authorizedAlways))
             } footer: {
-                Text(storyLanguage == .norwegian
-                     ? "Henter stedene rundt deg når du har flyttet deg, også med appen lukket, så kameraet svarer raskere. Krever posisjon «Alltid»."
-                     : "Fetches the places around you when you have moved, also with the app closed, so the camera answers faster. Needs location access Always.")
+                ListSectionFooter(SettingsTexts.prepareBackgroundPlacesFooter(storyLanguage))
             }
+            .themedRows()
             Section {
                 Stepper(value: $buzzesPerHour, in: 5...60, step: 5) {
-                    Text("Buzzes per hour: \(buzzesPerHour)")
+                    Text(SettingsTexts.buzzesPerHour(buzzesPerHour, storyLanguage))
                 }
-                NavigationLink("Buzz log") { BuzzLogView(services: services) }
-                NavigationLink("Walk log") { WalkLogListView(services: services) }
+                NavigationLink(SettingsTexts.buzzLog(storyLanguage)) { BuzzLogView(services: services) }
+                NavigationLink(SettingsTexts.walkLog(storyLanguage)) { WalkLogListView(services: services) }
                 Button(ResetText.button(storyLanguage), role: .destructive) { confirmingReset = true }
                     .confirmationDialog(ResetText.button(storyLanguage), isPresented: $confirmingReset,
                                         titleVisibility: .visible) {
@@ -89,34 +94,43 @@ struct SettingsView: View {
                         Text(ResetText.message(storyLanguage))
                     }
                 if resetFailed {
-                    Text(ResetText.failed(storyLanguage)).font(.footnote).foregroundStyle(.red)
+                    Label(ResetText.failed(storyLanguage), systemImage: "exclamationmark.triangle")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.red)
                 }
             } header: {
-                Text("Walking")
+                ListSectionHeader(SettingsTexts.walkingSection(storyLanguage))
             } footer: {
-                Text("At most this many buzzes an hour in walking mode. A change also applies during a walk.")
+                ListSectionFooter(SettingsTexts.walkingFooter(storyLanguage))
             }
+            .themedRows()
             Section {
                 if let totals {
-                    Text("This month: \(UsageFormat.dollars(totals.monthUSD)) (\(totals.monthRequests) \(totals.monthRequests == 1 ? "request" : "requests"))")
-                    Text("All time: \(UsageFormat.dollars(totals.allTimeUSD))")
+                    Text(SettingsTexts.thisMonth(UsageFormat.dollars(totals.monthUSD), requests: totals.monthRequests,
+                                                 storyLanguage))
+                    Text(SettingsTexts.allTime(UsageFormat.dollars(totals.allTimeUSD), storyLanguage))
                     if totals.unpricedRequests > 0 {
-                        Text("some usage not priced").foregroundStyle(.secondary)
+                        Text(SettingsTexts.unpriced(storyLanguage)).opacity(0.75)
                     }
                 } else if totalsFailed {
-                    Text("Usage unavailable").foregroundStyle(.secondary)
+                    Text(SettingsTexts.usageUnavailable(storyLanguage)).opacity(0.75)
                 }
             } header: {
-                Text("Usage")
+                ListSectionHeader(SettingsTexts.usageSection(storyLanguage))
             } footer: {
-                Text("Failed requests are not counted. Prices as of \(PriceTable.current.asOf).")
+                ListSectionFooter(SettingsTexts.usageFooter(asOf: PriceTable.current.asOf, storyLanguage))
             }
+            .themedRows()
             Section {
-                NavigationLink("Device check") { SelfCheckView() }
-                NavigationLink("Walking check") { WalkingCheckView(model: services.walkingCheck, watch: services.watchLink) }
+                NavigationLink(SettingsTexts.deviceCheck(storyLanguage)) { SelfCheckView() }
+                NavigationLink(SettingsTexts.walkingCheck(storyLanguage)) {
+                    WalkingCheckView(model: services.walkingCheck, watch: services.watchLink)
+                }
             }
+            .themedRows()
         }
-        .navigationTitle("Settings")
+        .themedList()
+        .themedTitle(SettingsTexts.title(storyLanguage))
         .onAppear { refresh() }
     }
 
@@ -157,7 +171,7 @@ struct SettingsView: View {
             draftKey = ""
             errorText = nil
         } catch {
-            errorText = "Couldn't save the key: \(error)"
+            errorText = SettingsTexts.saveKeyFailed(error, storyLanguage)
         }
         refresh()
     }
@@ -167,7 +181,7 @@ struct SettingsView: View {
             try services.keychain.delete(AppServices.apiKeyAccount)
             errorText = nil
         } catch {
-            errorText = "Couldn't remove the key: \(error)"
+            errorText = SettingsTexts.removeKeyFailed(error, storyLanguage)
         }
         refresh()
     }
@@ -191,7 +205,7 @@ struct SettingsView: View {
             hasSavedKey = false
             usesBundledKey = false
             savedKeySuffix = nil
-            errorText = "Couldn't read the Keychain: \(error)"
+            errorText = SettingsTexts.readKeychainFailed(error, storyLanguage)
         }
     }
 }

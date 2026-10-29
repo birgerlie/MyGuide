@@ -11,43 +11,58 @@ struct BuzzLogView: View {
     @State private var counts: [KindCount] = []
     @State private var exportURL: URL?
     @State private var errorText: String?
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         List {
             if let errorText {
-                Section { Text(errorText).font(.footnote).foregroundStyle(.red) }
+                Section {
+                    Label(errorText, systemImage: "exclamationmark.triangle")
+                        .font(Theme.Font.caption).foregroundStyle(.red)
+                }
+                .themedRows()
             }
             if entries.isEmpty && errorText == nil {
-                Section { Text("No buzzes yet").foregroundStyle(.secondary) }
+                Section { Text(SettingsTexts.noBuzzes(storyLanguage)).opacity(0.75) }
+                    .themedRows()
             }
             if !counts.isEmpty {
-                Section("By kind") {
-                    ForEach(counts, id: \.kind) { count in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(count.kind)
-                            Text("\(count.buzzes) buzzes · \(count.heard) heard · \(count.skipped) skipped · \(count.ignored) ignored")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
-                }
                 Section {
-                    ForEach(entries.prefix(Self.shownLimit), id: \.id) { entry in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.placeName)
-                            Text("\(entry.at.formatted(date: .abbreviated, time: .shortened)) · \(entry.kind) · \(entry.outcome.rawValue)")
-                                .font(.footnote).foregroundStyle(.secondary)
+                    ForEach(counts, id: \.kind) { count in
+                        VStack(alignment: .leading, spacing: Theme.Spacing.unit / 4) {
+                            Text(count.kind)
+                            Text(SettingsTexts.kindCounts(buzzes: count.buzzes, heard: count.heard,
+                                                          skipped: count.skipped, ignored: count.ignored,
+                                                          storyLanguage))
+                                .font(Theme.Font.caption).opacity(0.75)
                         }
                     }
                 } header: {
-                    Text("Newest")
+                    ListSectionHeader(SettingsTexts.byKind(storyLanguage))
+                }
+                .themedRows()
+                Section {
+                    // The kind and outcome are the log's own data.
+                    ForEach(entries.prefix(Self.shownLimit), id: \.id) { entry in
+                        VStack(alignment: .leading, spacing: Theme.Spacing.unit / 4) {
+                            Text(entry.placeName)
+                            Text("\(entry.at.formatted(date: .abbreviated, time: .shortened)) · \(entry.kind) · \(entry.outcome.rawValue)")
+                                .font(Theme.Font.caption).opacity(0.75)
+                        }
+                    }
+                } header: {
+                    ListSectionHeader(SettingsTexts.newest(storyLanguage))
                 } footer: {
                     if entries.count > Self.shownLimit {
-                        Text("The newest \(Self.shownLimit) of \(entries.count). The export has them all.")
+                        ListSectionFooter(SettingsTexts.newestFooter(shown: Self.shownLimit, of: entries.count,
+                                                                     storyLanguage))
                     }
                 }
+                .themedRows()
             }
         }
-        .navigationTitle("Buzz log")
+        .themedList()
+        .themedTitle(SettingsTexts.buzzLog(storyLanguage))
         .toolbar {
             if let exportURL {
                 ToolbarItem(placement: .primaryAction) { ShareLink(item: exportURL) }
@@ -67,7 +82,7 @@ struct BuzzLogView: View {
             exportURL = url
         } catch {
             AppServices.logMemoryFailure("buzz log failed", error)
-            errorText = "Couldn't read or export the buzz log: \(error)"
+            errorText = SettingsTexts.buzzLogFailed(error, storyLanguage)
             exportURL = nil
         }
     }

@@ -101,6 +101,7 @@
 		F0B8DAD8B104CB1D547EA859 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D59629C52B71A28FA9DCBB /* WatchLink.swift */; };
 		F199AE42802893D5B109B128 /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
 		F21FD11B30BBDA0A46902314 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
+		F3AB1F3789ADC21AFBCE241F /* SettingsTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2132A99C34A9E966D433D285 /* SettingsTexts.swift */; };
 		F8DE2811C1B6D114F0707472 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68E63B23D5D4103DCC816284 /* Assets.xcassets */; };
 		FF0E80F8AF923A70D8B6E274 /* AroundTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00B654124830A6916016517 /* AroundTexts.swift */; };
 		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
@@ -167,6 +168,7 @@
 		18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckModel.swift; sourceTree = "<group>"; };
 		1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryRows.swift; sourceTree = "<group>"; };
 		1ED0A94E737227C527026CAC /* AroundSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundSheet.swift; sourceTree = "<group>"; };
+		2132A99C34A9E966D433D285 /* SettingsTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTexts.swift; sourceTree = "<group>"; };
 		217D212EDC5E2D502B4F362C /* MyGuideNotificationContent.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MyGuideNotificationContent.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCheckView.swift; sourceTree = "<group>"; };
 		23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzNotifier.swift; sourceTree = "<group>"; };
@@ -350,6 +352,7 @@
 			isa = PBXGroup;
 			children = (
 				F2EC60C12EF6858FD501AD51 /* BuzzLogView.swift */,
+				2132A99C34A9E966D433D285 /* SettingsTexts.swift */,
 				3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */,
 				E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */,
 				60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */,
@@ -798,6 +801,7 @@
 				80E49C95E15C877B7EEFF2D2 /* RootTabs.swift in Sources */,
 				418A9B486B3BE04C46C8A1ED /* ScreenChrome.swift in Sources */,
 				7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */,
+				F3AB1F3789ADC21AFBCE241F /* SettingsTexts.swift in Sources */,
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
 				63FB5DD93DBAABFA5C74374A /* StoryComponents.swift in Sources */,
 				8B6BC3F5149C4ACF27549948 /* StoryText.swift in Sources */,

@@ -28,19 +28,16 @@ enum WalkLogFormat {
         return String(format: "%d h %02d min", minutes / 60, minutes % 60)
     }
 
-    static func stopReason(_ reason: WalkStopReason) -> String {
-        switch reason {
-        case .user: "Stopped by you"
-        case .timeLimit: "Turned off after 4 hours of walking"
-        case .lowBattery: "Turned off: battery below 15%"
-        case .pausedTooLong: "Turned off after an hour without walking"
-        case .locationDenied: "Stopped: location access denied"
-        }
+    static func stopReason(_ reason: WalkStopReason, _ language: StoryLanguage) -> String {
+        SettingsTexts.stopReason(reason, language)
     }
 
-    /// The timeline text of an event; a stop reason reads as English instead of its raw value.
-    static func timelineText(_ kind: WalkLogEvent.Kind) -> String {
-        if case .stopped(let reason, let source) = kind { return stopReason(reason) + (source.map { " (\($0.rawValue))" } ?? "") }
+    /// The timeline text of an event; a stop reason reads as words in `language` instead of its raw value. Every
+    /// other event is the log's own line (data).
+    static func timelineText(_ kind: WalkLogEvent.Kind, _ language: StoryLanguage) -> String {
+        if case .stopped(let reason, let source) = kind {
+            return stopReason(reason, language) + (source.map { " (\($0.rawValue))" } ?? "")
+        }
         return WalkLogText.line(kind)
     }
 }

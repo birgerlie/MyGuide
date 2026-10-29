@@ -22,17 +22,22 @@ struct StoryTimingsView: View {
             nearbyList
             if let entries {
                 if entries.isEmpty {
-                    Text("No photo stories timed yet.")
-                        .foregroundStyle(.secondary)
+                    Section {
+                        Text(SettingsTexts.noTimings(language))
+                            .opacity(0.75)
+                    }
+                    .themedRows()
                 } else {
                     medians(entries)
                     recent(entries)
                 }
             } else {
                 ProgressView()
+                    .themedRows()
             }
         }
-        .navigationTitle("Story timings")
+        .themedList()
+        .themedTitle(SettingsTexts.storyTimings(language))
         .task { entries = await AppServices.photoTimings() }
         .task {
             list = await AppServices.sharedNearby.current(language: language)
@@ -53,21 +58,23 @@ struct StoryTimingsView: View {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let status = NearbyListStatus(list: list, position: location.fix(at: context.date)?.coordinate,
                                                   now: context.date)
-                    VStack(spacing: 8) {
-                        LabeledContent("List", value: "Yes")
-                        LabeledContent("Age", value: status.ageS.map { "\($0) s" } ?? "—")
-                        LabeledContent("Distance from you", value: status.distanceM.map { "\($0) m" } ?? "—")
+                    VStack(spacing: Theme.Spacing.unit) {
+                        LabeledContent(SettingsTexts.list(language), value: SettingsTexts.yes(language))
+                        LabeledContent(SettingsTexts.age(language), value: status.ageS.map { "\($0) s" } ?? "—")
+                        LabeledContent(SettingsTexts.distanceFromYou(language),
+                                       value: status.distanceM.map { "\($0) m" } ?? "—")
                     }
                     .monospacedDigit()
                 }
             } else {
-                LabeledContent("List", value: "None")
+                LabeledContent(SettingsTexts.list(language), value: SettingsTexts.none(language))
             }
         } header: {
-            Text("Nearby list (\(language == .norwegian ? "Norsk" : "English"))")
+            ListSectionHeader(SettingsTexts.nearbyListSection(listLanguage: language, language))
         } footer: {
-            Text("Distance from the list's centre; \u{2014} without a position from the last minute.")
+            ListSectionFooter(SettingsTexts.nearbyListFooter(language))
         }
+        .themedRows()
     }
 
     // MARK: - Medians
@@ -76,23 +83,32 @@ struct StoryTimingsView: View {
         let timings = entries.map(\.timings)
         let fresh = timings.filter(\.listFresh).count
         return Section {
-            row("Start to first step", milliseconds: timings.map(\.feedbackMs), of: timings.count)
-            row("Start to likely place", milliseconds: timings.compactMap(\.guessMs), of: timings.count)
-            row("Place search", milliseconds: timings.compactMap(\.placeSearchMs), of: timings.count)
-            row("Article text", milliseconds: timings.compactMap(\.articleMs), of: timings.count)
-            row("Request to first words", milliseconds: timings.compactMap(\.firstTextMs), of: timings.count)
-            row("Request to complete story", milliseconds: timings.map(\.modelMs), of: timings.count)
-            row("Speech request", milliseconds: timings.compactMap(\.speechMs), of: timings.count)
-            row("List age", value: PhotoTimingsLog.median(timings.compactMap(\.listAgeS)).map { "\($0) s" },
+            row(SettingsTexts.startToFirstStep(language), milliseconds: timings.map(\.feedbackMs), of: timings.count)
+            row(SettingsTexts.startToLikelyPlace(language), milliseconds: timings.compactMap(\.guessMs),
+                of: timings.count)
+            row(SettingsTexts.placeSearch(language), milliseconds: timings.compactMap(\.placeSearchMs),
+                of: timings.count)
+            row(SettingsTexts.articleText(language), milliseconds: timings.compactMap(\.articleMs), of: timings.count)
+            row(SettingsTexts.requestToFirstWords(language), milliseconds: timings.compactMap(\.firstTextMs),
+                of: timings.count)
+            row(SettingsTexts.requestToCompleteStory(language), milliseconds: timings.map(\.modelMs),
+                of: timings.count)
+            row(SettingsTexts.speechRequest(language), milliseconds: timings.compactMap(\.speechMs),
+                of: timings.count)
+            row(SettingsTexts.listAge(language),
+                value: PhotoTimingsLog.median(timings.compactMap(\.listAgeS)).map { "\($0) s" },
                 count: timings.compactMap(\.listAgeS).count, of: timings.count)
-            row("Article characters", value: PhotoTimingsLog.median(timings.map(\.articleChars)).map(String.init),
+            row(SettingsTexts.articleCharacters(language),
+                value: PhotoTimingsLog.median(timings.map(\.articleChars)).map(String.init),
                 count: timings.count, of: timings.count)
-            LabeledContent("Fresh list", value: "\(fresh) of \(timings.count)")
+            LabeledContent(SettingsTexts.freshList(language),
+                           value: SettingsTexts.countOf(fresh, timings.count, language))
         } header: {
-            Text("Median of \(timings.count) \(timings.count == 1 ? "story" : "stories")")
+            ListSectionHeader(SettingsTexts.medianSection(timings.count, language))
         } footer: {
-            Text("Start is when the story begins, once the photo is taken or picked; the camera's own time is not included. Each median is over the stories that have the value; the count is shown when some lack it. \u{201C}Try again with more places\u{201D} runs are not recorded.")
+            ListSectionFooter(SettingsTexts.medianFooter(language))
         }
+        .themedRows()
     }
 
     private func row(_ label: String, milliseconds values: [Int], of total: Int) -> some View {
@@ -113,39 +129,43 @@ struct StoryTimingsView: View {
     // MARK: - Recent
 
     private func recent(_ entries: [PhotoTimingsEntry]) -> some View {
-        Section("Last \(min(Self.recentCount, entries.count))") {
+        Section {
             ForEach(Array(entries.suffix(Self.recentCount).reversed().enumerated()), id: \.offset) { _, entry in
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.unit / 2) {
                     HStack {
                         Text(entry.at, format: .dateTime.day().month(.abbreviated).hour().minute())
                         Spacer()
+                        // The words say fresh or not; the dimming only repeats it.
                         Text(listText(entry.timings))
-                            .foregroundStyle(entry.timings.listFresh ? .primary : .secondary)
+                            .opacity(entry.timings.listFresh ? 1 : 0.75)
                     }
-                    .font(.subheadline)
+                    .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
                     Text(details(entry.timings))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Font.caption.monospacedDigit())
+                        .opacity(0.75)
                 }
             }
+        } header: {
+            ListSectionHeader(SettingsTexts.lastSection(min(Self.recentCount, entries.count), language))
         }
+        .themedRows()
     }
 
     /// "fresh, 120 s old" / "not fresh, no list".
     private func listText(_ t: PhotoStoryTimings) -> String {
-        let age = t.listAgeS.map { "\($0) s old" } ?? "no list"
-        return "\(t.listFresh ? "fresh" : "not fresh"), \(age)"
+        SettingsTexts.listState(fresh: t.listFresh, ageS: t.listAgeS, language)
     }
 
     /// The entry's timings in milliseconds on one line (a missing value is left out), then the article length.
     private func details(_ t: PhotoStoryTimings) -> String {
-        var parts = ["step \(t.feedbackMs)"]
-        if let v = t.guessMs { parts.append("guess \(v)") }
-        if let v = t.placeSearchMs { parts.append("search \(v)") }
-        if let v = t.articleMs { parts.append("article \(v)") }
-        if let v = t.firstTextMs { parts.append("first words \(v)") }
-        parts.append("story \(t.modelMs)")
-        if let v = t.speechMs { parts.append("speech \(v)") }
-        return "ms: " + parts.joined(separator: " · ") + " — article chars \(t.articleChars)"
+        let label = SettingsTexts.timingLabels(language)
+        var parts = ["\(label.step) \(t.feedbackMs)"]
+        if let v = t.guessMs { parts.append("\(label.guess) \(v)") }
+        if let v = t.placeSearchMs { parts.append("\(label.search) \(v)") }
+        if let v = t.articleMs { parts.append("\(label.article) \(v)") }
+        if let v = t.firstTextMs { parts.append("\(label.firstWords) \(v)") }
+        parts.append("\(label.story) \(t.modelMs)")
+        if let v = t.speechMs { parts.append("\(label.speech) \(v)") }
+        return "ms: " + parts.joined(separator: " · ") + " — \(label.articleChars) \(t.articleChars)"
     }
 }

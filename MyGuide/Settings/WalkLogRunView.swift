@@ -17,6 +17,7 @@ struct WalkLogRunView: View {
     @State private var loaded: Loaded?
     @State private var position: MapCameraPosition = .automatic
     @State private var hideFixes = true
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         List {
@@ -26,32 +27,45 @@ struct WalkLogRunView: View {
                         .frame(height: 300)
                         .listRowInsets(EdgeInsets())
                 }
+                .themedRows()
                 if let errorText = loaded.errorText {
-                    Section { Text(errorText).font(.footnote).foregroundStyle(.red) }
+                    Section {
+                        Label(errorText, systemImage: "exclamationmark.triangle")
+                            .font(Theme.Font.caption).foregroundStyle(.red)
+                    }
+                    .themedRows()
                 }
                 if let summary = loaded.summary {
                     summarySection(summary)
                 }
                 Section {
-                    Toggle("Hide fixes", isOn: $hideFixes)
+                    Toggle(SettingsTexts.hideFixes(storyLanguage), isOn: $hideFixes)
+                    // The event lines are the log's own data; a failure gets a warning symbol as well as red.
                     ForEach(timeline(loaded.events)) { item in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.unit) {
                             Text(WalkLogFormat.time(item.event.at, seconds: true))
-                                .font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
-                            Text(WalkLogFormat.timelineText(item.event.kind))
-                                .font(.footnote)
-                                .foregroundStyle(isFailure(item.event.kind) ? Color.red : Color.primary)
+                                .font(Theme.Font.caption.monospacedDigit()).opacity(0.75)
+                            if isFailure(item.event.kind) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(.red)
+                            }
+                            Text(WalkLogFormat.timelineText(item.event.kind, storyLanguage))
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(isFailure(item.event.kind) ? Color.red : Theme.Colour.text)
                         }
                     }
                 } header: {
-                    Text("Timeline")
+                    ListSectionHeader(SettingsTexts.timeline(storyLanguage))
                 }
+                .themedRows()
             } else {
                 ProgressView()
+                    .themedRows()
             }
         }
-        .navigationTitle("Walk")
-        .navigationBarTitleDisplayMode(.inline)
+        .themedList()
+        .themedTitle(SettingsTexts.walk(storyLanguage))
         .toolbar {
             ToolbarItem(placement: .primaryAction) { ShareLink(item: url) }
         }
@@ -87,55 +101,66 @@ struct WalkLogRunView: View {
             ForEach(Array(data.path.enumerated()), id: \.offset) { _, segment in
                 if segment.count >= 2 {
                     MapPolyline(coordinates: segment.map(coordinate))
-                        .stroke(.blue, lineWidth: 4)
+                        .stroke(Theme.Colour.forest, lineWidth: 4)
                 }
             }
             ForEach(data.places, id: \.id) { place in
                 if data.buzzedPlaceIDs.contains(place.id) {
-                    Marker(place.name, coordinate: coordinate(place.coordinate)).tint(.orange)
+                    Marker(place.name, coordinate: coordinate(place.coordinate)).tint(Theme.Colour.coral)
                 } else {
                     Annotation(place.name, coordinate: coordinate(place.coordinate), anchor: .center) {
-                        Circle().fill(.gray).frame(width: 8, height: 8)
+                        Circle().fill(Theme.Colour.forest.opacity(0.6)).frame(width: 8, height: 8)
                     }
                     .annotationTitles(.hidden)
                 }
             }
             ForEach(Array(data.stops.enumerated()), id: \.offset) { _, stop in
-                Marker("Stop", coordinate: coordinate(stop)).tint(.blue)
+                Marker(SettingsTexts.stopMarker(storyLanguage), systemImage: "mappin.and.ellipse",
+                       coordinate: coordinate(stop))
+                    .tint(Theme.Colour.forest)
             }
             ForEach(Array(data.pauses.enumerated()), id: \.offset) { _, pause in
-                Annotation("Paused", coordinate: coordinate(pause)) {
-                    Image(systemName: "pause.circle").font(.title2).foregroundStyle(.indigo)
+                Annotation(SettingsTexts.pausedMarker(storyLanguage), coordinate: coordinate(pause)) {
+                    Image(systemName: "pause.circle.fill").font(.title2)
+                        .foregroundStyle(Theme.Colour.forest, Theme.Colour.ivory)
                 }
             }
         }
     }
 
     private func summarySection(_ s: WalkLogSummary) -> some View {
-        Section("Summary") {
-            LabeledContent("Distance", value: WalkLogFormat.distance(s.distance))
-            LabeledContent("Duration", value: WalkLogFormat.duration(s.duration))
-            LabeledContent("Fetches", value: "\(s.fetches) (\(s.fetchFailures) failed)")
-            LabeledContent("Places", value: "\(s.places)")
-            LabeledContent("Buzzes", value: "\(s.buzzes)")
-            LabeledContent("Notifications", value: "\(s.notifications)")
-            LabeledContent("Failures", value: "\(s.failures)")
-            LabeledContent("Pauses", value: "\(s.pauses)")
+        let language = storyLanguage
+        return Section {
+            LabeledContent(SettingsTexts.distance(language), value: WalkLogFormat.distance(s.distance))
+            LabeledContent(SettingsTexts.duration(language), value: WalkLogFormat.duration(s.duration))
+            LabeledContent(SettingsTexts.fetches(language),
+                           value: SettingsTexts.fetchCount(s.fetches, failed: s.fetchFailures, language))
+            LabeledContent(SettingsTexts.places(language), value: "\(s.places)")
+            LabeledContent(SettingsTexts.buzzes(language), value: "\(s.buzzes)")
+            LabeledContent(SettingsTexts.notifications(language), value: "\(s.notifications)")
+            LabeledContent(SettingsTexts.failuresLabel(language), value: "\(s.failures)")
+            LabeledContent(SettingsTexts.pauses(language), value: "\(s.pauses)")
             if let reason = s.stopReason {
-                Text(WalkLogFormat.stopReason(reason))
+                Text(WalkLogFormat.stopReason(reason, language))
             } else if isCurrent {
-                LabeledContent("Status", value: "In progress")
+                LabeledContent(SettingsTexts.status(language), value: SettingsTexts.inProgress(language))
             } else {
-                Text("Ended without a stop").foregroundStyle(.red)
+                Label(SettingsTexts.endedWithoutStop(language), systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
             }
             if s.unreadable > 0 {
-                Text("\(s.unreadable) unreadable lines").foregroundStyle(.red)
+                Label(SettingsTexts.unreadableLines(s.unreadable, language), systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
             }
+        } header: {
+            ListSectionHeader(SettingsTexts.summary(language))
         }
+        .themedRows()
     }
 
     private func load() async {
         let url = url
+        let language = storyLanguage
         let result = await Task.detached(priority: .userInitiated) { () -> Loaded in
             do {
                 let read = WalkLogReader.read(try Data(contentsOf: url))
@@ -143,7 +168,7 @@ struct WalkLogRunView: View {
                               summary: WalkLogSummary(events: read.events, unreadable: read.unreadable),
                               map: WalkLogMapData(events: read.events))
             } catch {
-                return Loaded(errorText: "Unreadable: \(error)")
+                return Loaded(errorText: SettingsTexts.unreadableError(error, language))
             }
         }.value
         loaded = result

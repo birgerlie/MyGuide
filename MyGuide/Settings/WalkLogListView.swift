@@ -17,14 +17,20 @@ struct WalkLogListView: View {
     @State private var rows: [Row] = []
     @State private var loaded = false
     @State private var errorText: String?
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         List {
             if let errorText {
-                Section { Text(errorText).font(.footnote).foregroundStyle(.red) }
+                Section {
+                    Label(errorText, systemImage: "exclamationmark.triangle")
+                        .font(Theme.Font.caption).foregroundStyle(.red)
+                }
+                .themedRows()
             }
             if loaded && rows.isEmpty && errorText == nil {
-                Section { Text("No walks logged yet").foregroundStyle(.secondary) }
+                Section { Text(SettingsTexts.noWalks(storyLanguage)).opacity(0.75) }
+                    .themedRows()
             }
             ForEach(rows) { row in
                 NavigationLink {
@@ -34,43 +40,57 @@ struct WalkLogListView: View {
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if !row.isCurrent {
-                        Button(role: .destructive) { delete(row) } label: { Label("Delete", systemImage: "trash") }
+                        Button(role: .destructive) { delete(row) } label: {
+                            Label(SettingsTexts.delete(storyLanguage), systemImage: "trash")
+                        }
                     }
                 }
             }
+            .themedRows()
         }
-        .navigationTitle("Walk log")
+        .themedList()
+        .themedTitle(SettingsTexts.walkLog(storyLanguage))
         .onAppear { refresh() }
     }
 
     @ViewBuilder private func rowLabel(_ row: Row) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.unit / 4) {
             if let summary = row.summary {
                 if let start = summary.start {
                     Text(start.formatted(.dateTime.weekday().day().month().year().locale(.current)))
+                        .font(Theme.Font.bodyMedium)
                     Text(timeSpan(summary, start: start))
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(Theme.Font.caption).opacity(0.75)
                 } else {
                     Text(row.url.lastPathComponent)
                 }
-                Text("\(WalkLogFormat.duration(summary.duration)) · \(WalkLogFormat.distance(summary.distance)) · \(summary.buzzes) buzzes")
-                    .font(.footnote).foregroundStyle(.secondary)
+                Text(SettingsTexts.walkLine(duration: WalkLogFormat.duration(summary.duration),
+                                            distance: WalkLogFormat.distance(summary.distance),
+                                            buzzes: summary.buzzes, storyLanguage))
+                    .font(Theme.Font.caption).opacity(0.75)
                 if row.isCurrent {
-                    Text("In progress").font(.footnote).foregroundStyle(.secondary)
+                    Text(SettingsTexts.inProgress(storyLanguage)).font(Theme.Font.caption).opacity(0.75)
                 } else if summary.stopReason == nil {
-                    Text("Ended without a stop").font(.footnote).foregroundStyle(.red)
+                    problem(SettingsTexts.endedWithoutStop(storyLanguage))
                 }
                 if summary.failures > 0 {
-                    Text("\(summary.failures) failures").font(.footnote).foregroundStyle(.red)
+                    problem(SettingsTexts.failures(summary.failures, storyLanguage))
                 }
             } else {
                 Text(row.url.lastPathComponent)
-                Text("Unreadable").font(.footnote).foregroundStyle(.red)
+                problem(SettingsTexts.unreadable(storyLanguage))
                 if row.isCurrent {
-                    Text("In progress").font(.footnote).foregroundStyle(.secondary)
+                    Text(SettingsTexts.inProgress(storyLanguage)).font(Theme.Font.caption).opacity(0.75)
                 }
             }
         }
+    }
+
+    /// A problem in red with a warning symbol, so it never rests on colour alone.
+    private func problem(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.triangle")
+            .font(Theme.Font.caption)
+            .foregroundStyle(.red)
     }
 
     private func timeSpan(_ summary: WalkLogSummary, start: Date) -> String {
@@ -109,7 +129,7 @@ struct WalkLogListView: View {
                     errorText = nil
                 } else {
                     WalkLog.logger.error("walk log list failed: \(String(describing: error), privacy: .public)")
-                    errorText = "Couldn't read the walk logs: \(error)"
+                    errorText = SettingsTexts.walkLogsFailed(error, storyLanguage)
                 }
             }
             loaded = true
@@ -124,7 +144,7 @@ struct WalkLogListView: View {
             errorText = nil
         } catch {
             WalkLog.logger.error("walk log delete failed: \(String(describing: error), privacy: .public)")
-            errorText = "Couldn't delete the walk log: \(error)"
+            errorText = SettingsTexts.walkLogDeleteFailed(error, storyLanguage)
         }
     }
 }
