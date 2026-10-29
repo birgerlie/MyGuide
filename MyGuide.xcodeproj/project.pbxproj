@@ -78,6 +78,7 @@
 		9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
 		A67E85E6A418A00CB3CDAD5E /* NotificationCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6095C1673AF14B495B34401A /* NotificationCard.swift */; };
 		A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */; };
+		A970E7A2D72A564F9913516D /* TourRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4805A2814E968920A68F144 /* TourRouter.swift */; };
 		AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25E304A4B1D4048860FAE2FD /* DayStoryView.swift */; };
 		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
 		B60EE3432B8C8F93E2F979B0 /* AroundMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC89DE0704FE8CCB7457B1D0 /* AroundMap.swift */; };
@@ -234,6 +235,7 @@
 		A1937BD8CD114DE987914DC8 /* WalkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLog.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		B45F5DE6901B1AF2435EA646 /* WatchDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDesign.swift; sourceTree = "<group>"; };
+		B4805A2814E968920A68F144 /* TourRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TourRouter.swift; sourceTree = "<group>"; };
 		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
 		BB4CC90AED36E7BE9B9CF85E /* WalkingCheckTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckTexts.swift; sourceTree = "<group>"; };
 		C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitPointsOfInterest.swift; sourceTree = "<group>"; };
@@ -340,6 +342,7 @@
 				9F2E0ADB1DC00FC77A2ED540 /* SelfCheck */,
 				4F29DA919A204B6D5A248304 /* Settings */,
 				00FA2DDF8C4E1866C2BA625A /* Story */,
+				F7A47276F93B7F82EAC12D80 /* Tours */,
 				D023FD7D155BEF88120B24D0 /* Walking */,
 				16AF014B38938FD6A126E7B0 /* WalkingCheck */,
 				AF3C068C7CF2506235E77B4D /* Watch */,
@@ -561,6 +564,14 @@
 				E5588654A1B24191FA872223 /* MyGuideWidgets.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		F7A47276F93B7F82EAC12D80 /* Tours */ = {
+			isa = PBXGroup;
+			children = (
+				B4805A2814E968920A68F144 /* TourRouter.swift */,
+			);
+			path = Tours;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -836,6 +847,7 @@
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
 				DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */,
+				A970E7A2D72A564F9913516D /* TourRouter.swift in Sources */,
 				34BB99A458D0273BFCE0B045 /* UILanguage.swift in Sources */,
 				581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */,
 				A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */,
