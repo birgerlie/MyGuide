@@ -122,10 +122,10 @@ struct HomeScreen: View {
                 cardModel?.stopSpeech()
             }
         }
-        // Location runs while the camera is on top, or while a story offers "Use where I am now".
+        // Location runs while the map or the camera is on top, or while a story offers "Use where I am now".
         .onChange(of: locationWanted, initial: true) { _, wanted in
             if wanted {
-                // Fixes while the camera (or a story's "Use where I am now") is up keep the nearby list current.
+                // Fixes while the map, the camera (or a story's "Use where I am now") is up keep the nearby list current.
                 let services = services
                 location.onFix = { services.noteForegroundFix($0) }
                 location.start()
@@ -454,9 +454,11 @@ struct HomeScreen: View {
         Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })
     }
 
-    /// Whether location updates should run now (re-evaluated as the scene, the top screen or the story changes).
+    /// Whether location updates should run now (re-evaluated as the scene, the top screen or the story changes): the
+    /// map (home, nothing pushed), the camera, or a story offering "Use where I am now". This screen alone starts and
+    /// stops the shared provider and sets its `onFix`.
     private var locationWanted: Bool {
-        scenePhase != .background && (path.last == .camera || storyOffersCurrentPosition)
+        scenePhase != .background && (path.isEmpty || path.last == .camera || storyOffersCurrentPosition)
     }
 
     /// Whether the camera should run now: its screen is on top (not under a walk story) and the app is visible.

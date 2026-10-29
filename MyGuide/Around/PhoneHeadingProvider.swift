@@ -2,18 +2,22 @@ import CoreMotion
 import Foundation
 import MyGuideCore
 import Observation
+import os
 
 /// The direction the phone faces, for the map (spec 6.4): the azimuth of the horizontal projection of (top edge +
 /// back) from Core Motion device motion in the true-north frame, at 20 Hz, smoothed. Held flat that is the top
 /// edge's direction, held upright the back camera's, with no switch between them. The accuracy is CoreLocation's
 /// heading accuracy from `LocationProvider.compass` (device motion gives none), so that provider must run for the
-/// heading to count as reliable. Without device motion in the true-north frame (or when it fails), the compass
-/// heading itself is used. Runs only between `start()` and `stop()`, i.e. while the map is visible.
+/// heading to count as reliable. Without device motion in the true-north frame the compass heading itself is used;
+/// when device motion reports an error, the compass stands in and device motion is tried again after 5 s. Runs only between `start()` and `stop()`, i.e. while the map is visible.
 @MainActor
 @Observable
 final class PhoneHeadingProvider {
     /// Device motion samples per second.
     nonisolated static let motionRate = 20.0
+    /// After a device motion error, device motion is tried again after this long; the compass stands in meanwhile.
+    nonisolated static let motionRetryDelay: Duration = .seconds(5)
+    nonisolated private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "heading")
 
     /// Smoothed heading in degrees (0..<360, clockwise from true north); nil while stopped, before the first sample,
     /// and while the phone is rolled on its side (the projection is shorter than `PhoneHeading.minimumLength`).
@@ -39,6 +43,8 @@ final class PhoneHeadingProvider {
     @ObservationIgnored private var running = false
     /// The compass polling of the fallback, while it runs.
     @ObservationIgnored private var compassPoll: Task<Void, Never>?
+    /// The device motion retry after an error, while it waits.
+    @ObservationIgnored private var motionRetry: Task<Void, Never>?
 
     init(location: LocationProvider) {
         self.location = location
@@ -53,9 +59,7 @@ final class PhoneHeadingProvider {
         smoother = HeadingSmoother()
         if manager.isDeviceMotionAvailable,
            CMMotionManager.availableAttitudeReferenceFrames().contains(.xTrueNorthZVertical) {
-            manager.deviceMotionUpdateInterval = 1 / Self.motionRate
-            manager.startDeviceMotionUpdates(using: .xTrueNorthZVertical, to: queue,
-                                             withHandler: Self.handler(for: self, generation: generation))
+            startDeviceMotion()
         } else {
             startCompassFallback()
         }
@@ -66,13 +70,20 @@ final class PhoneHeadingProvider {
         running = false
         generation += 1
         manager.stopDeviceMotionUpdates()
-        compassPoll?.cancel()
-        compassPoll = nil
+        motionRetry?.cancel()
+        motionRetry = nil
+        stopCompassFallback()
         heading = nil
         accuracy = nil
     }
 
     // MARK: - Device motion
+
+    private func startDeviceMotion() {
+        manager.deviceMotionUpdateInterval = 1 / Self.motionRate
+        manager.startDeviceMotionUpdates(using: .xTrueNorthZVertical, to: queue,
+                                         withHandler: Self.handler(for: self, generation: generation))
+    }
 
     /// The device motion handler. Built in a nonisolated context and `@Sendable`, so it is never main-actor isolated:
     /// Core Motion calls it on `queue`, and a main-actor closure called there would trap. It reads the numbers it
@@ -82,8 +93,10 @@ final class PhoneHeadingProvider {
         { @Sendable [weak provider] motion, error in
             let at = Date.now
             guard let motion else {
-                if error != nil {
-                    Task { @MainActor in provider?.motionFailed(generation: generation) }
+                if let error {
+                    let ns = error as NSError
+                    let domain = ns.domain, code = ns.code
+                    Task { @MainActor in provider?.motionFailed(domain: domain, code: code, generation: generation) }
                 }
                 return
             }
@@ -92,18 +105,17 @@ final class PhoneHeadingProvider {
         }
     }
 
-    /// The phone heading of an attitude in the `xTrueNorthZVertical` frame (X north, Y west, Z up). Core Motion's
-    /// matrix maps reference vectors to device coordinates (v_device = R · v_ref), so device axis i, expressed in the
-    /// reference frame, is row i of R. Top edge = device +Y = row 2; back = device −Z = −row 3. West is −east.
-    /// Example: the identity attitude (flat, face up, right edge north) gives top = west and back = down, so 270°.
-    nonisolated static func azimuth(of r: CMRotationMatrix) -> Double? {
-        let top = Vector3(north: r.m21, east: -r.m22, up: r.m23)
-        let back = Vector3(north: -r.m31, east: r.m32, up: -r.m33)
-        return PhoneHeading.azimuth(top: top, back: back)
+    /// The phone heading of an attitude in the `xTrueNorthZVertical` frame (`PhoneHeading.azimuth(rotation:)`).
+    nonisolated private static func azimuth(of r: CMRotationMatrix) -> Double? {
+        PhoneHeading.azimuth(rotation: RotationMatrix(m11: r.m11, m12: r.m12, m13: r.m13,
+                                                      m21: r.m21, m22: r.m22, m23: r.m23,
+                                                      m31: r.m31, m32: r.m32, m33: r.m33))
     }
 
     private func receive(azimuth: Double?, at: Date, generation: Int) {
         guard running, generation == self.generation else { return }
+        // Device motion is back after a retry: the compass stops standing in.
+        stopCompassFallback()
         set(accuracy: location.compass?.accuracy)
         // Rolled on its side: no heading. The smoother keeps its last value; after a pause its α is near 1, so the
         // next valid sample takes over almost entirely.
@@ -111,12 +123,23 @@ final class PhoneHeadingProvider {
         onChange?()
     }
 
-    /// Device motion reported an error (true north unavailable, for example): use the compass instead for this run.
-    private func motionFailed(generation: Int) {
-        guard running, generation == self.generation, compassPoll == nil else { return }
+    /// Device motion reported an error (true north unavailable, for example): logs it, lets the compass stand in,
+    /// and tries device motion again after `motionRetryDelay`. The compass keeps running until the first device
+    /// motion sample after the retry, so the heading never stops in between.
+    private func motionFailed(domain: String, code: Int, generation: Int) {
+        guard running, generation == self.generation else { return }
+        Self.log.error("device motion failed: \(domain, privacy: .public) \(code, privacy: .public); compass until retry")
         manager.stopDeviceMotionUpdates()
         self.generation += 1
-        startCompassFallback()
+        if compassPoll == nil { startCompassFallback() }
+        motionRetry?.cancel()
+        let retryGeneration = self.generation
+        motionRetry = Task { [weak self] in
+            try? await Task.sleep(for: Self.motionRetryDelay)
+            guard !Task.isCancelled, let self, self.running, self.generation == retryGeneration else { return }
+            self.motionRetry = nil
+            self.startDeviceMotion()
+        }
     }
 
     // MARK: - Compass fallback
@@ -140,6 +163,11 @@ final class PhoneHeadingProvider {
     /// Assigns only a changed value, so views reading the accuracy are not invalidated 20 times a second.
     private func set(accuracy new: Double?) {
         if accuracy != new { accuracy = new }
+    }
+
+    private func stopCompassFallback() {
+        compassPoll?.cancel()
+        compassPoll = nil
     }
 
     private func sampleCompass(at now: Date) {

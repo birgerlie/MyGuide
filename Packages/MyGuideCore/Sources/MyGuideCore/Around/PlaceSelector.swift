@@ -15,6 +15,15 @@ public struct PlaceSelectionConfig: Sendable, Equatable {
     public var clusterSpacing = 15.0       // two nearest within this of each other …
     public var clusterReach = 40.0         // … and both within this of the owner → suggest a photo
     public init() {}
+
+    /// Spec 6.4: a heading is reliable when it is finite, its accuracy is known, at most `maxHeadingAccuracy`, and the
+    /// position's accuracy is known and at most `maxPositionAccuracy`.
+    public func headingIsReliable(heading: Double?, headingAccuracy: Double?, positionAccuracy: Double?) -> Bool {
+        guard let heading, heading.isFinite,
+              let headingAccuracy, headingAccuracy >= 0, headingAccuracy <= maxHeadingAccuracy,
+              let positionAccuracy, positionAccuracy >= 0, positionAccuracy <= maxPositionAccuracy else { return false }
+        return true
+    }
 }
 
 /// A place seen from the owner's position.
@@ -215,11 +224,10 @@ public struct PlaceSelector: Sendable {
 
     // MARK: - Helpers
 
+    /// `update` and `choose` call this only after the position accuracy passed, so this is the heading part of 6.4.
     private static func reliableHeading(_ input: SelectionInput, _ c: PlaceSelectionConfig) -> Bool {
-        guard let h = input.heading, h.isFinite, let a = input.headingAccuracy, a >= 0, a <= c.maxHeadingAccuracy else {
-            return false
-        }
-        return true
+        c.headingIsReliable(heading: input.heading, headingAccuracy: input.headingAccuracy,
+                            positionAccuracy: input.positionAccuracy)
     }
 
     private func isIn(_ v: PlaceVector, half: Double, _ input: SelectionInput, _ reliable: Bool) -> Bool {

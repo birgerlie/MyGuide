@@ -5,9 +5,11 @@ import UIKit
 
 /// What «Rundt deg» shows (spec 5, 6): the notify-worthy places of the shared nearby list, the owner's position and
 /// phone heading, and the place the owner is looking at, from `PlaceSelector`. Runs between `appear()` and
-/// `disappear()`, i.e. while the map screen is visible: location, phone heading and a once-a-second tick that picks up
-/// a changed list (any refresh: this screen's, walking mode's, a background wake's), lets a pending selection change
-/// finish its dwell without new samples, and selects a place just buzzed (spec 12.2).
+/// `disappear()`, i.e. while the map screen is visible: the phone heading and a once-a-second tick that picks up a
+/// changed list (any refresh: the map's fixes via HomeScreen, walking mode's, a background wake's), reads the latest
+/// fix, lets a pending selection change finish its dwell without new samples, and selects a place just buzzed
+/// (spec 12.2). HomeScreen owns the shared `LocationProvider` (start, stop, `onFix` → foreground refreshes); this
+/// model only reads `location.fix(at:)`.
 /// Automatic selection never starts audio; only `listen()` does.
 @MainActor
 @Observable
@@ -44,7 +46,8 @@ final class AroundModel {
     /// The trailing update of a burst of samples that came within `minimumUpdateInterval` of the last update.
     @ObservationIgnored private var pendingUpdate: Task<Void, Never>?
     @ObservationIgnored private var lastUpdateAt = Date.distantPast
-    /// The last buzz already acted on (or present when the screen appeared), so each buzz selects once.
+    /// The last buzz already selected (or present when the screen appeared), so each buzz selects once. A buzz that
+    /// could not select yet (no fix, place not in the list) is retried on the next tick.
     @ObservationIgnored private var seenBuzzAt: Date?
 
     init(services: AppServices, location: LocationProvider) {
@@ -54,17 +57,14 @@ final class AroundModel {
         selector = PlaceSelector(config: config)
     }
 
-    /// The map screen became visible: starts location (feeding foreground refreshes of the nearby list), the phone
-    /// heading and the tick. A buzz delivered before this moment does not select its place.
+    /// The map screen became visible: starts the phone heading and the tick. A buzz delivered before this moment does
+    /// not select its place.
     func appear() {
         guard !active else { return }
         active = true
         seenBuzzAt = services.walking.lastBuzz?.at
-        location.onFix = { [weak self] fix in self?.fixArrived(fix) }
-        location.start()
         phoneHeading.onChange = { [weak self] in self?.scheduleUpdate() }
         phoneHeading.start()
-        if let fix = location.fix() { services.noteForegroundFix(fix) }
         tick = Task { [weak self] in
             while !Task.isCancelled {
                 // Scoped so the model is not held during the sleep.
@@ -77,8 +77,8 @@ final class AroundModel {
         }
     }
 
-    /// The map screen is gone (or the app left the foreground): stops location, heading and the tick. The list and
-    /// the last selection stay for the next appearance, which updates them at once.
+    /// The map screen is gone (or the app left the foreground): stops the heading and the tick. The list and the last
+    /// selection stay for the next appearance, which updates them at once.
     func disappear() {
         guard active else { return }
         active = false
@@ -88,26 +88,23 @@ final class AroundModel {
         pendingUpdate = nil
         phoneHeading.stop()
         phoneHeading.onChange = nil
-        location.onFix = nil
-        location.stop()
         heading = nil
     }
 
     /// The owner tapped a marker (spec 6.3): selects it at once and holds it against automatic changes. Ignored
     /// without a usable position or for a place not in the list.
     func choose(_ placeID: String) {
-        let now = Date.now
-        guard let input = input(now: now) else { return }
-        assign(selection: selector.choose(placeID: placeID, input))
-        lastUpdateAt = now
+        _ = select(placeID, now: .now)
     }
 
     /// «Lytt» on the selected place: its story on this run in the story language when there is one (just buzzed,
     /// preparing or ready) from level 1, else a new story told for the place (spec 12.1). Does nothing without a
-    /// selected place or a position.
+    /// selected place or a position, and while this place's story is already playing or loading (stopping is the
+    /// card's «Stopp»: `stories.stopListening()`).
     func listen() {
         guard case .selected(let selected) = selection, let position else { return }
         let place = selected.vector.place
+        guard services.walking.stories.playingPlaceID != place.candidate.id else { return }
         let language = language
         let stories = services.walking.stories
         if let id = stories.storyID(forPlace: place.candidate.id, language: language) {
@@ -118,12 +115,6 @@ final class AroundModel {
     }
 
     // MARK: - Updates
-
-    private func fixArrived(_ fix: LocationFix) {
-        guard active else { return }
-        services.noteForegroundFix(fix)
-        scheduleUpdate()
-    }
 
     /// A heading or position sample: updates at once when the last update is at least `minimumUpdateInterval` old,
     /// else once that interval has passed (one trailing update for the whole burst, from the latest samples).
@@ -165,23 +156,13 @@ final class AroundModel {
         assign(position: fix?.coordinate)
         let smoothed = phoneHeading.heading
         let headingAccuracy = phoneHeading.accuracy
-        let reliable = Self.isReliable(heading: smoothed, headingAccuracy: headingAccuracy,
-                                       positionAccuracy: fix?.accuracy, config)
+        let reliable = config.headingIsReliable(heading: smoothed, headingAccuracy: headingAccuracy,
+                                                positionAccuracy: fix?.accuracy)
         assign(heading: reliable ? smoothed : nil)
         guard let fix else { return nil }
         return SelectionInput(vectors: PlaceVector.from(position: fix.coordinate, places: places),
                               positionAccuracy: fix.accuracy, heading: smoothed, headingAccuracy: headingAccuracy,
                               playingPlaceID: services.walking.stories.playingPlaceID, now: now)
-    }
-
-    /// Spec 6.4: a heading with accuracy at most `maxHeadingAccuracy`, from a position with accuracy at most
-    /// `maxPositionAccuracy`.
-    nonisolated static func isReliable(heading: Double?, headingAccuracy: Double?, positionAccuracy: Double?,
-                                       _ config: PlaceSelectionConfig) -> Bool {
-        guard let heading, heading.isFinite,
-              let headingAccuracy, headingAccuracy >= 0, headingAccuracy <= config.maxHeadingAccuracy,
-              let positionAccuracy, positionAccuracy <= config.maxPositionAccuracy else { return false }
-        return true
     }
 
     /// One tick: the list in the story language, a new buzz, then the selection.
@@ -204,13 +185,23 @@ final class AroundModel {
     }
 
     /// Spec 12.2: a buzz while the app is active makes the buzzed place the explicit selection, so the map and the
-    /// notification agree. A buzz for a place not in the list is passed over.
+    /// notification agree. Marked seen only once it was selected; until then (no fix, the place not in the list yet,
+    /// the app not active) it is tried again on each tick. A newer buzz replaces it.
     private func selectBuzzedPlace() {
-        guard let buzz = services.walking.lastBuzz, buzz.at != seenBuzzAt else { return }
-        seenBuzzAt = buzz.at
-        guard UIApplication.shared.applicationState == .active,
-              places.contains(where: { $0.candidate.id == buzz.placeID }) else { return }
-        choose(buzz.placeID)
+        guard let buzz = services.walking.lastBuzz, buzz.at != seenBuzzAt,
+              UIApplication.shared.applicationState == .active else { return }
+        if select(buzz.placeID, now: .now) { seenBuzzAt = buzz.at }
+    }
+
+    /// Explicit selection through the selector; true when `placeID` is now the selected place (a usable fix and the
+    /// place in the list). Without a fix the selection is left as it is.
+    private func select(_ placeID: String, now: Date) -> Bool {
+        guard let input = input(now: now) else { return false }
+        let state = selector.choose(placeID: placeID, input)
+        assign(selection: state)
+        lastUpdateAt = now
+        if case .selected(let selected) = state { return selected.vector.place.candidate.id == placeID }
+        return false
     }
 
     // MARK: - Assignments that notify only on change

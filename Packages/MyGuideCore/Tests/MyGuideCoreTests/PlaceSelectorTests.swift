@@ -4,6 +4,24 @@ import Testing
 
 /// Direction-based place selection (spec 6.2–6.4, 12.3).
 @Suite struct PlaceSelectorTests {
+    @Test func headingReliabilityRule() {
+        let c = PlaceSelectionConfig()
+        // Boundaries inclusive: heading accuracy 25 ≤ 25 and position 50 ≤ 50 → reliable.
+        #expect(c.headingIsReliable(heading: 10, headingAccuracy: 25, positionAccuracy: 50))
+        #expect(c.headingIsReliable(heading: 0, headingAccuracy: 0, positionAccuracy: 0))
+        // Just over either limit → unreliable.
+        #expect(!c.headingIsReliable(heading: 10, headingAccuracy: 25.01, positionAccuracy: 5))
+        #expect(!c.headingIsReliable(heading: 10, headingAccuracy: 5, positionAccuracy: 50.01))
+        // Unknown or invalid inputs → unreliable.
+        #expect(!c.headingIsReliable(heading: nil, headingAccuracy: 5, positionAccuracy: 5))
+        #expect(!c.headingIsReliable(heading: .nan, headingAccuracy: 5, positionAccuracy: 5))
+        #expect(!c.headingIsReliable(heading: 10, headingAccuracy: nil, positionAccuracy: 5))
+        #expect(!c.headingIsReliable(heading: 10, headingAccuracy: -1, positionAccuracy: 5))
+        #expect(!c.headingIsReliable(heading: 10, headingAccuracy: 5, positionAccuracy: nil))
+        #expect(!c.headingIsReliable(heading: 10, headingAccuracy: 5, positionAccuracy: -1))
+        #expect(!c.headingIsReliable(heading: 10, headingAccuracy: 5, positionAccuracy: .nan))
+    }
+
     static func v(_ id: String, d: Double, b: Double) -> PlaceVector {
         let c = Candidate(id: id, name: id, coordinate: Coordinate(latitude: 59.9, longitude: 10.7), kind: "x")
         return PlaceVector(place: WalkingPlace(candidate: c, tier: .top), distance: d, bearing: b)

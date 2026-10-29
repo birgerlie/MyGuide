@@ -75,4 +75,37 @@ import Testing
         let v = o.add(180, at: t0.addingTimeInterval(0.5))
         #expect(v.isFinite && v >= 0 && v < 360)
     }
+
+    // Rows are device axes in the reference frame (x north, y west, z up). top = (m21, −m22, m23), back = (−m31, m32, −m33).
+    private static func rows(_ r1: (Double, Double, Double), _ r2: (Double, Double, Double),
+                             _ r3: (Double, Double, Double)) -> RotationMatrix {
+        RotationMatrix(m11: r1.0, m12: r1.1, m13: r1.2, m21: r2.0, m22: r2.1, m23: r2.2, m31: r3.0, m32: r3.1, m33: r3.2)
+    }
+
+    @Test func azimuthFromRotationMatrix() throws {
+        // Flat face up, top edge north: device x (right edge) = east = (0,−1,0), y = north = (1,0,0), z = up = (0,0,1).
+        // top = (1, −0, 0) north; back = (−0, 0, −1) down → horizontal (n 1, e 0) → 0°.
+        let flatNorth = try #require(PhoneHeading.azimuth(rotation: Self.rows((0, -1, 0), (1, 0, 0), (0, 0, 1))))
+        #expect(abs(flatNorth) < 1e-9)
+        // Upright, back camera east: rows (−1,0,0), (0,0,1), (0,1,0). top = (0, −0, 1) up; back = (−0, 1, −0) east
+        // → horizontal (n 0, e 1) → atan2(1, 0) = 90°.
+        let uprightEast = try #require(PhoneHeading.azimuth(rotation: Self.rows((-1, 0, 0), (0, 0, 1), (0, 1, 0))))
+        #expect(abs(uprightEast - 90) < 1e-9)
+        // Upright, back camera north: rows (0,−1,0), (0,0,1), (−1,0,0). top = (0, 0, 1) up; back = (1, 0, −0) north
+        // → (1, 0) → 0°. This is device check 1.
+        let uprightNorth = try #require(PhoneHeading.azimuth(rotation: Self.rows((0, -1, 0), (0, 0, 1), (-1, 0, 0))))
+        #expect(abs(uprightNorth) < 1e-9)
+        // Identity (flat face up, right edge north, top edge west): top = (0, −1, 0) west; back = down → 270°.
+        let identity = try #require(PhoneHeading.azimuth(rotation: Self.rows((1, 0, 0), (0, 1, 0), (0, 0, 1))))
+        #expect(abs(identity - 270) < 1e-9)
+    }
+
+    @Test func azimuthFromRotationMatrixDegenerate() {
+        // Face up with the top edge tipped 45° below the horizon, a = 0.7071: y = (a, 0, −a), z = (a, 0, a),
+        // x = y × z = (0, −2a², 0) = east. top = (a, −0, −a), back = (−a, 0, −a) → horizontal (0, 0), length 0 < 0.25 → nil.
+        let a = 0.5.squareRoot()
+        #expect(PhoneHeading.azimuth(rotation: Self.rows((0, -1, 0), (a, 0, -a), (a, 0, a))) == nil)
+        // Non-finite entry → nil.
+        #expect(PhoneHeading.azimuth(rotation: Self.rows((0, -1, 0), (.nan, 0, 0), (0, 0, 1))) == nil)
+    }
 }
