@@ -21,15 +21,19 @@ public struct NearbyList: Sendable, Equatable, Codable {
     /// True when OpenStreetMap failed for this fetch (both Overpass endpoints); its OSM candidates, if any, were
     /// carried from the previous list (spec 13.6). False in a file written before the field existed.
     public var osmFailed: Bool
+    /// When `osmFailed`: one short line per Overpass endpoint tried, for the walk log; empty otherwise and in a file
+    /// written before the field existed.
+    public var osmErrors: [String]
 
     public init(centre: Coordinate, fetchedAt: Date, language: StoryLanguage, candidates: [Candidate],
-                articleTexts: [String: String], osmFailed: Bool = false) {
+                articleTexts: [String: String], osmFailed: Bool = false, osmErrors: [String] = []) {
         self.centre = centre
         self.fetchedAt = fetchedAt
         self.language = language
         self.candidates = candidates
         self.articleTexts = articleTexts
         self.osmFailed = osmFailed
+        self.osmErrors = osmErrors
     }
 
     public init(from decoder: Decoder) throws {
@@ -40,6 +44,7 @@ public struct NearbyList: Sendable, Equatable, Codable {
         candidates = try c.decode([Candidate].self, forKey: .candidates)
         articleTexts = try c.decode([String: String].self, forKey: .articleTexts)
         osmFailed = try c.decodeIfPresent(Bool.self, forKey: .osmFailed) ?? false
+        osmErrors = try c.decodeIfPresent([String].self, forKey: .osmErrors) ?? []
     }
 
     /// At most `freshAge` old (less than `osmFailedRetryAge` when OpenStreetMap failed) and centred within

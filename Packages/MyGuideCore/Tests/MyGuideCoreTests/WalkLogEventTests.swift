@@ -29,7 +29,10 @@ import Testing
                 WalkLogPlace(id: "wiki:en/2", name: "Rådhuset", tier: .good, coordinate: c),
             ], osmFailed: false),
             .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true),
+            .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true,
+                     osmErrors: ["overpass-api.de: timed out", "overpass.kumi.systems: HTTP 504"]),
             .fetchFailed(error: "timeout \"x\""),
+            .fetchFailed(error: "http(500)", osmErrors: ["overpass-api.de: HTTP 500"]),
             .quiet(.busy, due: [DuePlace(id: "osm:node/1", name: "Akershus festning", tier: .top, distance: 52, excluded: true)]),
             .quiet(.noneDue, due: []),
             .buzz(WalkLogBuzz(id: id, placeID: "osm:node/1", name: "Akershus festning", tier: .top, distance: 53, override: true, detail: "ahead")),
@@ -67,7 +70,7 @@ import Testing
     }
 
     @Test func everyCaseIsCovered() {
-        // 23 cases in Kind; the list above has 32 events (some cases twice). Distinct event names must be all 23.
+        // 23 cases in Kind; the list above has 34 events (some cases two or three times). Distinct event names must be all 23.
         let names = Set(Self.everyKind.map { Self.json(WalkLogEvent(at: Self.t0, kind: $0))["e"] as! String })
         #expect(names.count == 23)
     }
@@ -193,7 +196,7 @@ import Testing
         var places: [WalkingPlace] = []
         for i in 0..<160 { places.append(place(i, i < 10 ? .top : (i < 110 ? .good : .wikiOnly))) }
         let kind = WalkLogEvent.fetched(places.reversed(), around: around, osmFailed: false)
-        guard case .fetched(let count, let top, let good, let wikiOnly, let listed, let osmFailed) = kind else { Issue.record("not fetched"); return }
+        guard case .fetched(let count, let top, let good, let wikiOnly, let listed, let osmFailed, _) = kind else { Issue.record("not fetched"); return }
         #expect(!osmFailed)
         #expect(count == 160)
         #expect(top == 10)
@@ -224,6 +227,39 @@ import Testing
         // A present but unreadable value makes the line unreadable, like every other field.
         let bad = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":"yes"}"#
         #expect(WalkLogCodec.event(from: Data(bad.utf8)) == nil)
+    }
+
+    @Test func osmErrorsAreWrittenOnlyWhenPresentAndOldLinesDecode() throws {
+        let errors = ["overpass-api.de: timed out", "maps.mail.ru: HTTP 504"]
+        let failed = Self.json(WalkLogEvent(at: Self.t0, kind: WalkLogEvent.fetched([], around: Self.c, osmFailed: true,
+                                                                                    osmErrors: errors)))
+        #expect(failed["osmErrors"] as? [String] == errors)
+        let plain = Self.json(WalkLogEvent(at: Self.t0, kind: WalkLogEvent.fetched([], around: Self.c, osmFailed: false)))
+        #expect(plain["osmErrors"] == nil)
+        let failedFetch = Self.json(WalkLogEvent(at: Self.t0, kind: .fetchFailed(error: "x", osmErrors: errors)))
+        #expect(failedFetch["osmErrors"] as? [String] == errors)
+        #expect(Self.json(WalkLogEvent(at: Self.t0, kind: .fetchFailed(error: "x")))["osmErrors"] == nil)
+        // Lines written before osmErrors existed.
+        let oldFailed = #"{"e":"fetchFailed","t":"2026-01-01T10:00:00.000Z","error":"timeout"}"#
+        #expect(WalkLogCodec.event(from: Data(oldFailed.utf8))?.kind == .fetchFailed(error: "timeout", osmErrors: []))
+        let oldFetched = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":true}"#
+        #expect(WalkLogCodec.event(from: Data(oldFetched.utf8))?.kind
+                == .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true, osmErrors: []))
+        // Present but not an array of strings: unreadable, like every other field.
+        for bad in [#"{"e":"fetchFailed","t":"2026-01-01T10:00:00.000Z","error":"x","osmErrors":"timed out"}"#,
+                    #"{"e":"fetchFailed","t":"2026-01-01T10:00:00.000Z","error":"x","osmErrors":[1]}"#,
+                    #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":true,"osmErrors":{}}"#] {
+            #expect(WalkLogCodec.event(from: Data(bad.utf8)) == nil, "\(bad)")
+        }
+    }
+
+    @Test func fetchFailedFromAnError() {
+        // A plain error: its text, no endpoint lines.
+        #expect(WalkLogEvent.fetchFailed(GroundingFetchError.http(502)) == .fetchFailed(error: "http(502)", osmErrors: []))
+        // An OverpassFailure: the first error's text and its endpoint lines.
+        let failure = OverpassFailure(first: GroundingFetchError.http(502), endpointErrors: ["overpass-api.de: HTTP 502"])
+        #expect(WalkLogEvent.fetchFailed(failure) == .fetchFailed(error: "http(502)", osmErrors: ["overpass-api.de: HTTP 502"]))
+        #expect(WalkLogEvent.errorText(failure) == "http(502)")
     }
 
     @Test func unknownEventIsUnreadable() {

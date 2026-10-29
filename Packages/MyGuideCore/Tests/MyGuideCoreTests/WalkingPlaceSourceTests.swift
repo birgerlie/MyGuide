@@ -70,11 +70,35 @@ import Testing
         #expect(places.map(\.candidate.name) == ["Burg"])
     }
 
-    @Test func bothFailingThrowsTheOSMError() async {
+    @Test func bothFailingThrowsTheOSMErrorWithItsEndpoints() async throws {
         let http = Self.stub(osm: { (500, Data()) }, wiki: { (503, Data()) })
-        await #expect(throws: GroundingFetchError.http(500)) {
+        let error = await #expect(throws: OverpassFailure.self) {
             _ = try await source(http).places(around: here, language: .english)
         }
+        let failure = try #require(error)
+        #expect(failure.first as? GroundingFetchError == .http(500))
+        #expect(failure.endpointErrors == ["overpass-api.de: HTTP 500", "overpass.kumi.systems: HTTP 500",
+                                           "maps.mail.ru: HTTP 500"])
+        // The walk log line keeps the first error's text, as before, and adds the endpoint lines.
+        #expect(WalkLogEvent.fetchFailed(failure) == .fetchFailed(error: "http(500)", osmErrors: failure.endpointErrors))
+    }
+
+    @Test func overpassFailureListsEveryEndpointInTheResult() async throws {
+        let http = StubHTTPClient { request in
+            switch request.url?.host {
+            case "overpass-api.de": throw URLError(.timedOut)
+            case "overpass.kumi.systems": return (504, Data())
+            case "maps.mail.ru": return (200, Data("not json".utf8))
+            default: return (200, Data(Self.wikiBody.utf8))
+            }
+        }
+        let result = try await source(http).candidates(around: here, language: .english)
+        #expect(result.osmFailed)
+        #expect(result.osmErrors == ["overpass-api.de: timed out", "overpass.kumi.systems: HTTP 504",
+                                     "maps.mail.ru: malformed answer"])
+        // OSM answering leaves no errors.
+        let ok = try await source(Self.stub()).candidates(around: here, language: .english)
+        #expect(!ok.osmFailed && ok.osmErrors.isEmpty)
     }
 
     @Test func requestParameters() async throws {

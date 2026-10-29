@@ -197,6 +197,28 @@ import Testing
             try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
         }
         #expect(http.requests.map(\.url) == OverpassClient.endpoints)
+        // The reporting variant names each endpoint's failure, in order, and keeps the first error.
+        let error = await #expect(throws: OverpassFailure.self) {
+            try await OverpassClient(http: http).placesReportingEndpoints(around: vienna, radius: 250, language: .english)
+        }
+        #expect(error?.endpointErrors == ["overpass-api.de: HTTP 502", "overpass.kumi.systems: HTTP 504",
+                                          "maps.mail.ru: HTTP 503"])
+        #expect(error?.first as? GroundingFetchError == .http(502))
+        #expect(error?.description == "overpass-api.de: HTTP 502; overpass.kumi.systems: HTTP 504; maps.mail.ru: HTTP 503")
+    }
+    @Test func shortTexts() {
+        #expect(OverpassFailure.shortText(URLError(.timedOut)) == "timed out")
+        #expect(OverpassFailure.shortText(URLError(.notConnectedToInternet)) == "offline")
+        #expect(OverpassFailure.shortText(URLError(.dnsLookupFailed)) == "DNS lookup failed")
+        // URLError.badURL has raw value −1000.
+        #expect(OverpassFailure.shortText(URLError(.badURL)) == "URLError -1000")
+        #expect(OverpassFailure.shortText(GroundingFetchError.http(429)) == "HTTP 429")
+        #expect(OverpassFailure.shortText(GroundingFetchError.malformed) == "malformed answer")
+        #expect(OverpassFailure.shortText(GroundingFetchError.apiError("toobig")) == "API error toobig")
+        // A runtime remark longer than 80 characters is cut to 80.
+        let remark = "runtime error: " + String(repeating: "x", count: 100)
+        #expect(OverpassFailure.shortText(GroundingFetchError.overpassRuntime(remark)) == String(remark.prefix(80)))
+        #expect(OverpassFailure.shortText(CancellationError()) == "CancellationError()")
     }
     @Test func cancellationAtTheSecondEndpointIsNotRetriedAtTheThird() async {
         let http = StubHTTPClient { request in

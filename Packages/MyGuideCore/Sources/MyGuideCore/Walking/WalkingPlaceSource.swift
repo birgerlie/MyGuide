@@ -1,14 +1,17 @@
 import Foundation
 
-/// The merged candidates of one place search, and whether its OpenStreetMap part failed (both Overpass endpoints)
+/// The merged candidates of one place search, and whether its OpenStreetMap part failed (every Overpass endpoint)
 /// while Wikipedia answered, so the walk log can say so (spec 13.6).
 public struct PlaceSearchResult: Sendable, Equatable {
     public var candidates: [Candidate]
     public var osmFailed: Bool
+    /// When `osmFailed`: one short line per Overpass endpoint tried ("overpass-api.de: timed out"); else empty.
+    public var osmErrors: [String]
 
-    public init(candidates: [Candidate], osmFailed: Bool) {
+    public init(candidates: [Candidate], osmFailed: Bool, osmErrors: [String] = []) {
         self.candidates = candidates
         self.osmFailed = osmFailed
+        self.osmErrors = osmErrors
     }
 }
 
@@ -34,9 +37,12 @@ public struct WalkingPlaceSource: Sendable {
 
     /// The merged OpenStreetMap and Wikipedia candidates, untiered ones included.
     /// Both sources concurrently. One failing → the other's candidates, with `osmFailed` set when OpenStreetMap was
-    /// the one; both failing → the OSM error is thrown. CancellationError always propagates.
+    /// the one (and its per-endpoint errors in `osmErrors`); both failing → the OSM error is thrown, an
+    /// `OverpassFailure` when every endpoint answered with an error. CancellationError always propagates.
     public func candidates(around: Coordinate, language: StoryLanguage) async throws -> PlaceSearchResult {
-        async let osm = Self.outcome { try await overpass.places(around: around, radius: Self.radius, language: language) }
+        async let osm = Self.outcome {
+            try await overpass.placesReportingEndpoints(around: around, radius: Self.radius, language: language)
+        }
         async let wiki = Self.outcome {
             try await wikipedia.articles(around: around, radius: Self.radius, language: language, limit: Self.wikiLimit)
         }
@@ -49,11 +55,17 @@ public struct WalkingPlaceSource: Sendable {
             throw error
         case (.success(let osmPlaces), .failure):
             return PlaceSearchResult(candidates: CandidateRanker.merge(osm: osmPlaces, wiki: []), osmFailed: false)
-        case (.failure, .success(let articles)):
-            return PlaceSearchResult(candidates: CandidateRanker.merge(osm: [], wiki: articles), osmFailed: true)
+        case (.failure(let error), .success(let articles)):
+            return PlaceSearchResult(candidates: CandidateRanker.merge(osm: [], wiki: articles), osmFailed: true,
+                                     osmErrors: Self.endpointErrors(error))
         case (.success(let osmPlaces), .success(let articles)):
             return PlaceSearchResult(candidates: CandidateRanker.merge(osm: osmPlaces, wiki: articles), osmFailed: false)
         }
+    }
+
+    /// The per-endpoint lines of an `OverpassFailure`; one short line for any other error.
+    static func endpointErrors(_ error: any Error) -> [String] {
+        (error as? OverpassFailure)?.endpointErrors ?? [OverpassFailure.shortText(error)]
     }
 
     /// The work's result; cancellation (including `URLError.cancelled`, as phase 1 treats it) is thrown instead.

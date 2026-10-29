@@ -54,7 +54,19 @@ public struct OverpassClient: Sendable {
     /// logged with its endpoint and error. Cancellation (also `URLError.cancelled`, or a cancelled task) is thrown at
     /// once and never retried.
     public func places(around: Coordinate, radius: Int, language: StoryLanguage) async throws -> [Candidate] {
+        do {
+            return try await placesReportingEndpoints(around: around, radius: radius, language: language)
+        } catch let failure as OverpassFailure {
+            throw failure.first
+        }
+    }
+
+    /// `places(around:radius:language:)`, but when every endpoint fails it throws an `OverpassFailure` with the first
+    /// error and one short line per endpoint tried, for the walk log. Cancellation is thrown as it is.
+    public func placesReportingEndpoints(around: Coordinate, radius: Int,
+                                         language: StoryLanguage) async throws -> [Candidate] {
         var firstError: Error?
+        var endpointErrors: [String] = []
         for endpoint in Self.endpoints {
             do {
                 return try await places(from: endpoint, around: around, radius: radius, language: language)
@@ -63,11 +75,12 @@ public struct OverpassClient: Sendable {
                 let host = endpoint.host() ?? endpoint.absoluteString
                 Self.log.error("\(host, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if firstError == nil { firstError = error }
+                endpointErrors.append("\(host): \(OverpassFailure.shortText(error))")
                 if Task.isCancelled { break }
             }
         }
         // `endpoints` is never empty, so the loop either returned or recorded an error before it ended.
-        throw firstError ?? GroundingFetchError.malformed
+        throw OverpassFailure(first: firstError ?? GroundingFetchError.malformed, endpointErrors: endpointErrors)
     }
 
     private static func isCancellation(_ error: Error) -> Bool {
@@ -162,5 +175,48 @@ public struct OverpassClient: Sendable {
     private struct Center: Decodable {
         var lat: Double
         var lon: Double
+    }
+}
+
+/// Every Overpass endpoint failed. `first` is the first endpoint's error (what `OverpassClient.places` throws);
+/// `endpointErrors` has one short line per endpoint tried, in order, e.g. "overpass-api.de: timed out".
+public struct OverpassFailure: Error, CustomStringConvertible {
+    public var first: any Error
+    public var endpointErrors: [String]
+
+    public init(first: any Error, endpointErrors: [String]) {
+        self.first = first
+        self.endpointErrors = endpointErrors
+    }
+
+    public var description: String { endpointErrors.joined(separator: "; ") }
+
+    /// Longest `shortText` taken from an unknown error's description.
+    static let maxShortTextLength = 80
+
+    /// A few words for a walk log line: "timed out", "HTTP 504", "malformed answer", a runtime remark cut to
+    /// `maxShortTextLength`, "URLError -1009"; else the error's description cut to `maxShortTextLength`.
+    public static func shortText(_ error: any Error) -> String {
+        if let e = error as? GroundingFetchError {
+            switch e {
+            case .http(let status): return "HTTP \(status)"
+            case .malformed: return "malformed answer"
+            case .overpassRuntime(let remark): return String(remark.prefix(maxShortTextLength))
+            case .apiError(let code): return "API error \(code)"
+            }
+        }
+        if let e = error as? URLError {
+            switch e.code {
+            case .timedOut: return "timed out"
+            case .notConnectedToInternet: return "offline"
+            case .networkConnectionLost: return "connection lost"
+            case .cannotFindHost: return "host not found"
+            case .cannotConnectToHost: return "cannot connect"
+            case .dnsLookupFailed: return "DNS lookup failed"
+            case .secureConnectionFailed: return "TLS failed"
+            default: return "URLError \(e.code.rawValue)"
+            }
+        }
+        return String(String(describing: error).prefix(maxShortTextLength))
     }
 }

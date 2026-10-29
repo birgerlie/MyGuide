@@ -8,6 +8,16 @@ import Testing
         #expect(WalkLogText.line(kind) == "Fetched 34 places (3 top, 12 good)")
         let failed = WalkLogEvent.Kind.fetched(count: 15, top: 0, good: 0, wikiOnly: 15, places: [], osmFailed: true)
         #expect(WalkLogText.line(failed) == "Fetched 15 places (0 top, 0 good) · OpenStreetMap failed")
+        let withErrors = WalkLogEvent.Kind.fetched(count: 15, top: 0, good: 0, wikiOnly: 15, places: [], osmFailed: true,
+                                                   osmErrors: ["overpass-api.de: timed out", "maps.mail.ru: HTTP 504"])
+        #expect(WalkLogText.line(withErrors)
+                == "Fetched 15 places (0 top, 0 good) · OpenStreetMap failed (overpass-api.de: timed out; maps.mail.ru: HTTP 504)")
+    }
+
+    @Test func fetchFailedLine() {
+        #expect(WalkLogText.line(.fetchFailed(error: "http(500)")) == "Fetch failed: http(500)")
+        #expect(WalkLogText.line(.fetchFailed(error: "http(500)", osmErrors: ["overpass-api.de: HTTP 500"]))
+                == "Fetch failed: http(500) (overpass-api.de: HTTP 500)")
     }
 
     @Test func quietLines() {

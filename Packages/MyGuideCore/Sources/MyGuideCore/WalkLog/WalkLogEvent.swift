@@ -140,10 +140,13 @@ public struct WalkLogEvent: Sendable, Equatable {
         case fix(WalkLogFix)
         case gps(found: Bool)
         case fetchStarted(Coordinate)
-        /// `osmFailed`: OpenStreetMap failed (both endpoints) and only Wikipedia and carried places are listed
-        /// (spec 13.6); false in a line written before the field existed.
-        case fetched(count: Int, top: Int, good: Int, wikiOnly: Int, places: [WalkLogPlace], osmFailed: Bool)
-        case fetchFailed(error: String)
+        /// `osmFailed`: OpenStreetMap failed (every endpoint) and only Wikipedia and carried places are listed
+        /// (spec 13.6); false in a line written before the field existed. `osmErrors`: one short line per Overpass
+        /// endpoint tried when it failed ("overpass-api.de: timed out"); empty otherwise and in older lines.
+        case fetched(count: Int, top: Int, good: Int, wikiOnly: Int, places: [WalkLogPlace], osmFailed: Bool,
+                     osmErrors: [String] = [])
+        /// `osmErrors` as in `fetched`, when the failure was every Overpass endpoint's.
+        case fetchFailed(error: String, osmErrors: [String] = [])
         case quiet(QuietReason, due: [DuePlace])
         case buzz(WalkLogBuzz)
         case notified(id: UUID?, kind: WalkNotificationKind, settings: NotificationSettingsSnapshot)
@@ -164,13 +167,21 @@ public struct WalkLogEvent: Sendable, Equatable {
     public static let maxErrorLength = 300
     public static let maxFetchedPlaces = 150
 
-    /// `String(describing:)`, cut to 300 characters.
+    /// `String(describing:)`, cut to 300 characters. An `OverpassFailure` is described by its first error, as before
+    /// it existed; its endpoint lines go to `osmErrors`.
     public static func errorText(_ error: Error) -> String {
-        String(String(describing: error).prefix(maxErrorLength))
+        let shown = (error as? OverpassFailure)?.first ?? error
+        return String(String(describing: shown).prefix(maxErrorLength))
+    }
+
+    /// `fetchFailed` for `error`, with the Overpass endpoint lines when every endpoint failed.
+    public static func fetchFailed(_ error: Error) -> Kind {
+        .fetchFailed(error: errorText(error), osmErrors: (error as? OverpassFailure)?.endpointErrors ?? [])
     }
 
     /// Counts over every place; the listed places are capped at 150 by tier, then distance from `around`.
-    public static func fetched(_ places: [WalkingPlace], around: Coordinate, osmFailed: Bool) -> Kind {
+    public static func fetched(_ places: [WalkingPlace], around: Coordinate, osmFailed: Bool,
+                               osmErrors: [String] = []) -> Kind {
         let ranked = places
             .map { ($0, GeoMath.distance(around, $0.candidate.coordinate)) }
             .sorted { a, b in
@@ -186,6 +197,7 @@ public struct WalkLogEvent: Sendable, Equatable {
             good: places.filter { $0.tier == .good }.count,
             wikiOnly: places.filter { $0.tier == .wikiOnly }.count,
             places: Array(ranked),
-            osmFailed: osmFailed)
+            osmFailed: osmFailed,
+            osmErrors: osmErrors)
     }
 }

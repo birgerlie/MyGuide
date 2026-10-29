@@ -11,6 +11,7 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     private var waiters: [CheckedContinuation<[Candidate], Error>] = []
     private var result: Result<[Candidate], Error>
     private var osmFailed = false
+    private var osmErrors: [String] = []
     private let suspends: Bool
     private var released = false
 
@@ -22,10 +23,11 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     var count: Int { lock.withLock { calls } }
     var isWaiting: Bool { lock.withLock { !waiters.isEmpty } }
 
-    func set(_ result: Result<[Candidate], Error>, osmFailed: Bool = false) {
+    func set(_ result: Result<[Candidate], Error>, osmFailed: Bool = false, osmErrors: [String] = []) {
         lock.withLock {
             self.result = result
             self.osmFailed = osmFailed
+            self.osmErrors = osmErrors
         }
     }
 
@@ -41,15 +43,18 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     }
 
     func candidates(around: Coordinate, language: StoryLanguage) async throws -> PlaceSearchResult {
-        let (result, released, osmFailed) = lock.withLock { () -> (Result<[Candidate], Error>, Bool, Bool) in
+        let (result, released, osmFailed, osmErrors) = lock.withLock {
+            () -> (Result<[Candidate], Error>, Bool, Bool, [String]) in
             calls += 1
-            return (self.result, self.released, self.osmFailed)
+            return (self.result, self.released, self.osmFailed, self.osmErrors)
         }
-        guard suspends, !released else { return PlaceSearchResult(candidates: try result.get(), osmFailed: osmFailed) }
+        guard suspends, !released else {
+            return PlaceSearchResult(candidates: try result.get(), osmFailed: osmFailed, osmErrors: osmErrors)
+        }
         let candidates = try await withCheckedThrowingContinuation { continuation in
             lock.withLock { waiters.append(continuation) }
         }
-        return PlaceSearchResult(candidates: candidates, osmFailed: osmFailed)
+        return PlaceSearchResult(candidates: candidates, osmFailed: osmFailed, osmErrors: osmErrors)
     }
 }
 
@@ -793,6 +798,21 @@ private struct Boom: Error {}
         let list = try await nearby.refresh(at: .at(north: 100), language: .english)
         #expect(list.candidates.map(\Candidate.id) == ["osm:node/Burg"])
         #expect(list.candidates.first?.summary == "The castle.")
+    }
+    @Test func listKeepsTheOverpassEndpointErrors() async throws {
+        let fetcher = StubFetcher(.success([Self.article("A", north: 0)]))
+        fetcher.set(.success([Self.article("A", north: 0)]), osmFailed: true,
+                    osmErrors: ["overpass-api.de: timed out", "overpass.kumi.systems: HTTP 504"])
+        let nearby = Self.places(fetcher, clock: LockedBox(Self.t0))
+        let list = try await nearby.refresh(at: .at(), language: .english)
+        #expect(list.osmFailed && list.osmErrors == ["overpass-api.de: timed out", "overpass.kumi.systems: HTTP 504"])
+        // A stored list written before the field existed reads with no errors; a new one round-trips them.
+        let back = try JSONDecoder().decode(NearbyList.self, from: JSONEncoder().encode(list))
+        #expect(back == list)
+        var old = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(list)) as? [String: Any])
+        old["osmErrors"] = nil
+        let decodedOld = try JSONDecoder().decode(NearbyList.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(decodedOld.osmErrors.isEmpty && decodedOld.osmFailed)
     }
     @Test func nothingCarriedWhenOSMAnswers() async throws {
         let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30)]))

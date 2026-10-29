@@ -922,7 +922,8 @@ final class WalkingController {
                     let places = list.walkingPlaces
                     self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
                                              fetchedAt: list.fetchedAt)
-                    self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed))
+                    self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
+                                                          osmErrors: list.osmErrors))
                 } else if self.runToken == run {
                     self.feed.fetchCancelled()
                 }
@@ -944,11 +945,12 @@ final class WalkingController {
                 let places = list.walkingPlaces
                 self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
                                          fetchedAt: list.fetchedAt)
-                self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed))
+                self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
+                                                      osmErrors: list.osmErrors))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
                 // A real failure waits 60 s before the next try.
                 self.feed.fetchFailed(now: .now)
-                self.walkLog.log(.fetchFailed(error: WalkLogEvent.errorText(error)))
+                self.walkLog.log(WalkLogEvent.fetchFailed(error))
             default:
                 // The app's own cancellation is silent and sets no retry delay.
                 self.feed.fetchCancelled()

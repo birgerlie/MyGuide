@@ -92,14 +92,20 @@ public enum WalkLogCodec {
             return ["state": found ? "found" : "lost"]
         case .fetchStarted(let c):
             return ["lat": coordinate(c.latitude), "lon": coordinate(c.longitude)]
-        case .fetched(let count, let top, let good, let wikiOnly, let places, let osmFailed):
+        case .fetched(let count, let top, let good, let wikiOnly, let places, let osmFailed, let osmErrors):
             let list: [[String: Any]] = places.map {
                 ["id": $0.id, "name": $0.name, "tier": $0.tier.rawValue,
                  "lat": coordinate($0.coordinate.latitude), "lon": coordinate($0.coordinate.longitude)]
             }
-            return ["count": count, "top": top, "good": good, "wikiOnly": wikiOnly, "places": list, "osmFailed": osmFailed]
-        case .fetchFailed(let error):
-            return ["error": error]
+            var o: [String: Any] = ["count": count, "top": top, "good": good, "wikiOnly": wikiOnly, "places": list,
+                                    "osmFailed": osmFailed]
+            // Written only when there is something to say, so a line without a failure looks as before.
+            if !osmErrors.isEmpty { o["osmErrors"] = osmErrors }
+            return o
+        case .fetchFailed(let error, let osmErrors):
+            var o: [String: Any] = ["error": error]
+            if !osmErrors.isEmpty { o["osmErrors"] = osmErrors }
+            return o
         case .quiet(let reason, let due):
             let list: [[String: Any]] = due.map {
                 ["id": $0.id, "name": $0.name, "tier": $0.tier.rawValue, "distance": metres($0.distance), "excluded": $0.excluded]
@@ -182,6 +188,11 @@ public enum WalkLogCodec {
         return .some(s)
     }
     private static func objects(_ o: [String: Any], _ k: String) -> [[String: Any]]? { o[k] as? [[String: Any]] }
+    /// "osmErrors": absent (older lines, or nothing failed) → []; present, it must be an array of strings, else nil.
+    private static func osmErrors(_ o: [String: Any]) -> [String]? {
+        guard let value = o["osmErrors"] else { return [] }
+        return value as? [String]
+    }
 
     private static func kind(named name: String, from o: [String: Any]) -> WalkLogEvent.Kind? {
         switch name {
@@ -234,9 +245,12 @@ public enum WalkLogCodec {
                 guard let flag = bool(o, "osmFailed") else { return nil }
                 osmFailed = flag
             }
-            return .fetched(count: count, top: top, good: good, wikiOnly: wikiOnly, places: places, osmFailed: osmFailed)
+            guard let osmErrors = osmErrors(o) else { return nil }
+            return .fetched(count: count, top: top, good: good, wikiOnly: wikiOnly, places: places, osmFailed: osmFailed,
+                            osmErrors: osmErrors)
         case "fetchFailed":
-            return string(o, "error").map { .fetchFailed(error: $0) }
+            guard let error = string(o, "error"), let osmErrors = osmErrors(o) else { return nil }
+            return .fetchFailed(error: error, osmErrors: osmErrors)
         case "quiet":
             guard let reason = raw(o, "reason", QuietReason.self), let list = objects(o, "due") else { return nil }
             var due: [DuePlace] = []

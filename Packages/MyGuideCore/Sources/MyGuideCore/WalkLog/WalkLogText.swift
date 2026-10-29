@@ -14,9 +14,10 @@ public enum WalkLogText {
             return "Fix ±\(whole(f.accuracy)) m\(suffix)"
         case .gps(let found): return found ? "GPS found" : "GPS lost"
         case .fetchStarted: return "Fetching places"
-        case .fetched(let count, let top, let good, _, _, let osmFailed):
+        case .fetched(let count, let top, let good, _, _, let osmFailed, let osmErrors):
             return "Fetched \(count) places (\(top) top, \(good) good)" + (osmFailed ? " · OpenStreetMap failed" : "")
-        case .fetchFailed(let error): return "Fetch failed: \(error)"
+                + endpoints(osmErrors)
+        case .fetchFailed(let error, let osmErrors): return "Fetch failed: \(error)" + endpoints(osmErrors)
         case .quiet(let reason, let due):
             guard !due.isEmpty else { return "Quiet: \(reason.rawValue)" }
             return "Quiet: \(reason.rawValue) · " + due.map { "\($0.name) \(whole($0.distance)) m" }.joined(separator: ", ")
@@ -53,5 +54,10 @@ public enum WalkLogText {
         let rounded = value.rounded()
         if let exact = Int(exactly: rounded) { return String(exact) }
         return String(rounded < 0 ? Int.min : Int.max)
+    }
+
+    /// " (overpass-api.de: timed out; …)" for the endpoint lines; "" for none.
+    private static func endpoints(_ errors: [String]) -> String {
+        errors.isEmpty ? "" : " (\(errors.joined(separator: "; ")))"
     }
 }
