@@ -133,37 +133,55 @@ extension WikipediaClient {
 
     /// Whole-article plain-text request (no `exintro`); the text is cut locally. `title` may hold spaces and non-ASCII.
     static func articleTextURL(code: String, title: String) -> URL {
-        // Only unreserved characters stay literal, so "&", "+", "=" and "#" in a title cannot leak into the query.
-        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        let encoded = title.addingPercentEncoding(withAllowedCharacters: unreserved) ?? title
+        apiURL(code: code, query: [
+            "action=query", "format=json", "formatversion=2", "prop=extracts", "explaintext=1",
+            "exsectionformat=plain", "redirects=1", "titles=\(encoded(title))",
+        ])
+    }
+
+    /// Only unreserved characters stay literal, so "&", "+", "=" and "#" in a title cannot leak into the query.
+    static func encoded(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
+    }
+
+    static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+    static func apiURL(code: String, query: [String]) -> URL {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "\(code).wikipedia.org"
         components.path = "/w/api.php"
-        components.percentEncodedQuery = [
-            "action=query", "format=json", "formatversion=2", "prop=extracts", "explaintext=1",
-            "exsectionformat=plain", "redirects=1", "titles=\(encoded)",
-        ].joined(separator: "&")
+        components.percentEncodedQuery = query.joined(separator: "&")
         return components.url!
+    }
+
+    /// Splits "code:Title" at the first colon. Throws GroundingFetchError.malformed for a missing prefix or title,
+    /// and for a code that is not letters and hyphens only (it becomes a host name, e.g. "no", "zh-min-nan").
+    static func split(wikipediaTitle: String) throws -> (code: String, title: String) {
+        guard let colon = wikipediaTitle.firstIndex(of: ":") else { throw GroundingFetchError.malformed }
+        let code = String(wikipediaTitle[..<colon])
+        let title = String(wikipediaTitle[wikipediaTitle.index(after: colon)...])
+        guard !code.isEmpty, !title.isEmpty,
+              code.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "-") }) else { throw GroundingFetchError.malformed }
+        return (code, title)
+    }
+
+    /// A GET with the shared User-Agent and a 10 s timeout; throws GroundingFetchError.http for a non-2xx status.
+    func get(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.setValue(OverpassClient.userAgent, forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await http.send(request)
+        guard (200..<300).contains(response.statusCode) else { throw GroundingFetchError.http(response.statusCode) }
+        return data
     }
 
     /// Plain text of the article (intro plus following sections), cut to `articleTextLimit` with TextTrim.truncate.
     /// `wikipediaTitle` is "code:Title" (Candidate.wikipediaTitle). Throws on HTTP/API/malformed errors and on a
     /// missing page; throws GroundingFetchError.malformed for a title without a "code:" prefix.
     public func articleText(wikipediaTitle: String) async throws -> String {
-        guard let colon = wikipediaTitle.firstIndex(of: ":") else { throw GroundingFetchError.malformed }
-        let code = String(wikipediaTitle[..<colon])
-        let title = String(wikipediaTitle[wikipediaTitle.index(after: colon)...])
-        // The code becomes a host name: letters and hyphens only (e.g. "no", "zh-min-nan").
-        guard !code.isEmpty, !title.isEmpty,
-              code.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "-") }) else { throw GroundingFetchError.malformed }
-
-        var request = URLRequest(url: Self.articleTextURL(code: code, title: title))
-        request.timeoutInterval = 10
-        request.setValue(OverpassClient.userAgent, forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await http.send(request)
-        guard (200..<300).contains(response.statusCode) else { throw GroundingFetchError.http(response.statusCode) }
+        let (code, title) = try Self.split(wikipediaTitle: wikipediaTitle)
+        let data = try await get(Self.articleTextURL(code: code, title: title))
         guard let decoded = try? JSONDecoder().decode(ArticleResponse.self, from: data) else { throw GroundingFetchError.malformed }
         if let error = decoded.error { throw GroundingFetchError.apiError(error.code ?? "unknown") }
         guard let page = decoded.query?.pages?.first, page.missing != true,
@@ -196,5 +214,161 @@ public enum TextTrim {
             if !head.isEmpty { return head + "…" }
         }
         return String(s.prefix(maxCharacters)) + "…"
+    }
+}
+
+extension WikipediaClient {
+    static func pageImagesURL(code: String, title: String) -> URL {
+        apiURL(code: code, query: [
+            "action=query", "format=json", "formatversion=2", "prop=pageimages",
+            "piprop=thumbnail%7Cname", "pithumbsize=600", "redirects=1", "titles=\(encoded(title))",
+        ])
+    }
+
+    static func imageInfoURL(code: String, fileName: String) -> URL {
+        apiURL(code: code, query: [
+            "action=query", "format=json", "formatversion=2", "prop=imageinfo",
+            "iiprop=extmetadata", "iiextmetadatafilter=Artist%7CLicenseShortName", "titles=\(encoded("File:" + fileName))",
+        ])
+    }
+
+    /// Two requests on the article's own wiki: pageimages (piprop=thumbnail|name, pithumbsize=600, redirects=1),
+    /// then imageinfo (iiprop=extmetadata, iiextmetadatafilter=Artist|LicenseShortName) for "File:<name>".
+    /// nil when the article has no page image. Artist HTML is reduced to plain text (tags stripped, entities decoded).
+    /// A missing article also gives nil. Throws on HTTP/API/malformed errors of either request (so a picture is never
+    /// returned without the credit lookup having succeeded), for a non-https thumbnail, and for a malformed title.
+    public func pageImage(wikipediaTitle: String) async throws -> PlaceImageInfo? {
+        let (code, title) = try Self.split(wikipediaTitle: wikipediaTitle)
+
+        let pageData = try await get(Self.pageImagesURL(code: code, title: title))
+        guard let pages = try? JSONDecoder().decode(PageImagesResponse.self, from: pageData) else { throw GroundingFetchError.malformed }
+        if let error = pages.error { throw GroundingFetchError.apiError(error.code ?? "unknown") }
+        guard let page = pages.query?.pages?.first, page.missing != true,
+              let source = page.thumbnail?.source, let fileName = page.pageimage, !fileName.isEmpty else { return nil }
+        guard let thumbnailURL = URL(string: source), thumbnailURL.scheme == "https" else { throw GroundingFetchError.malformed }
+
+        let infoData = try await get(Self.imageInfoURL(code: code, fileName: fileName))
+        guard let info = try? JSONDecoder().decode(ImageInfoResponse.self, from: infoData) else { throw GroundingFetchError.malformed }
+        if let error = info.error { throw GroundingFetchError.apiError(error.code ?? "unknown") }
+        // A Commons file is reported "missing" (but "known") on the article's wiki; only the metadata matters here.
+        let file = info.query?.pages?.first
+        let metadata = file?.imageinfo?.first?.extmetadata
+        return PlaceImageInfo(
+            thumbnailURL: thumbnailURL,
+            author: metadata?.Artist?.value.flatMap(Self.plainText(fromHTML:)),
+            licence: metadata?.LicenseShortName?.value.flatMap(Self.plainText(fromHTML:)),
+            filePage: Self.filePage(code: code, fileName: fileName, repository: file?.imagerepository))
+    }
+
+    /// The thumbnail's bytes. Throws GroundingFetchError.http for a non-2xx status and .malformed for an empty body.
+    public func imageData(_ url: URL) async throws -> Data {
+        let data = try await get(url)
+        guard !data.isEmpty else { throw GroundingFetchError.malformed }
+        return data
+    }
+
+    /// "shared" files live on Commons, "local" ones on the article's wiki; anything else has no known page.
+    static func filePage(code: String, fileName: String, repository: String?) -> URL? {
+        let host: String
+        switch repository {
+        case "shared": host = "commons.wikimedia.org"
+        case "local": host = "\(code).wikipedia.org"
+        default: return nil
+        }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = host
+        components.percentEncodedPath = "/wiki/File:" + encoded(fileName.replacingOccurrences(of: " ", with: "_"))
+        return components.url
+    }
+
+    /// Plain text of an HTML fragment: tags removed (line breaks and block tags become spaces), then the common
+    /// named entities and numeric references decoded, whitespace collapsed. nil when nothing is left.
+    static func plainText(fromHTML html: String) -> String? {
+        let spaced = html.replacingOccurrences(of: #"<\s*/?\s*(br|p|div|li|tr|td|th)\b[^>]*>"#, with: " ",
+                                               options: [.regularExpression, .caseInsensitive])
+        let stripped = spaced.replacingOccurrences(of: "<[^>]*>", with: "", options: .regularExpression)
+        let decoded = decodingEntities(stripped)
+        let text = decoded.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return text.isEmpty ? nil : text
+    }
+
+    private static let namedEntities: [String: String] = [
+        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
+    ]
+
+    /// Single pass, so a decoded "&" can never start a second entity ("&amp;lt;" gives "&lt;").
+    private static func decodingEntities(_ s: String) -> String {
+        var result = ""
+        var rest = Substring(s)
+        while let amp = rest.firstIndex(of: "&") {
+            result += rest[..<amp]
+            let tail = rest[rest.index(after: amp)...]
+            // Entity names and references are short; a ";" further away is not part of this one.
+            if let semi = tail.prefix(10).firstIndex(of: ";"), let char = entity(String(tail[..<semi])) {
+                result.append(char)
+                rest = tail[tail.index(after: semi)...]
+            } else {
+                result.append("&")
+                rest = tail
+            }
+        }
+        return result + rest
+    }
+
+    private static func entity(_ name: String) -> String? {
+        if let named = namedEntities[name] { return named }
+        guard name.hasPrefix("#") else { return nil }
+        let digits = name.dropFirst()
+        let value: UInt32?
+        if let first = digits.first, first == "x" || first == "X" {
+            value = UInt32(digits.dropFirst(), radix: 16)
+        } else {
+            value = UInt32(digits, radix: 10)
+        }
+        // Reject a sign ("&#+65;" parses with UInt32) and code points that are not scalars (surrogates, > 10FFFF).
+        guard let value, digits.allSatisfy({ $0.isHexDigit || $0 == "x" || $0 == "X" }),
+              let scalar = Unicode.Scalar(value) else { return nil }
+        // A non-breaking space is reduced like any other space.
+        return scalar == "\u{A0}" ? " " : String(Character(scalar))
+    }
+}
+
+private struct PageImagesResponse: Decodable {
+    var query: Query?
+    var error: APIError?
+
+    struct APIError: Decodable { var code: String? }
+    struct Query: Decodable { var pages: [Page]? }
+    struct Page: Decodable {
+        var missing: Bool?
+        var thumbnail: Thumbnail?
+        var pageimage: String?
+    }
+    struct Thumbnail: Decodable { var source: String? }
+}
+
+private struct ImageInfoResponse: Decodable {
+    var query: Query?
+    var error: APIError?
+
+    struct APIError: Decodable { var code: String? }
+    struct Query: Decodable { var pages: [Page]? }
+    struct Page: Decodable {
+        var imagerepository: String?
+        var imageinfo: [Info]?
+    }
+    struct Info: Decodable { var extmetadata: Metadata? }
+    struct Metadata: Decodable {
+        var Artist: Field?
+        var LicenseShortName: Field?
+    }
+    /// Lossy: a value that is not a string (extmetadata is loosely typed) counts as absent instead of failing the reply.
+    struct Field: Decodable {
+        var value: String?
+        enum CodingKeys: String, CodingKey { case value }
+        init(from decoder: Decoder) throws {
+            value = try? decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(String.self, forKey: .value)
+        }
     }
 }
