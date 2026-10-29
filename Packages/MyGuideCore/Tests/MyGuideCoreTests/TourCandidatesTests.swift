@@ -112,7 +112,7 @@ import Testing
         let overpass = try #require(http.requests.first { $0.url?.host == "overpass-api.de" })
         let body = String(decoding: overpass.httpBody ?? Data(), as: UTF8.self).removingPercentEncoding ?? ""
         // Box ±936 m: 936 / 111 194.93 = 0.008418°.
-        #expect(body.contains("nwr(-0.008418,-0.008418,0.008418,0.008418)[\"historic\"][\"name\"];"))
+        #expect(body.contains("nwr(-0.008418,-0.008418,0.008418,0.008418)[\"historic\"][\"name\"]"))
         let wiki = Self.wikiRequests(http)
         #expect(wiki.count == 1)
         let url = wiki.first?.url?.absoluteString ?? ""
@@ -197,7 +197,27 @@ import Testing
         let result = try await Self.source(Self.stub()).search(in: area, language: .english)
         #expect(result.places.map(\.candidate.name) == ["Burg", "Dom"])
         #expect(!result.osmFailed && result.osmErrors.isEmpty && result.failedTiles == 0 && result.tileCount == 1)
+        #expect(!result.osmCapped)
         #expect(!result.isPartial)
+    }
+
+    @Test func searchMarksACappedOverpassAnswerPartial() async throws {
+        // 1200 nodes = the node cap: OpenStreetMap answered, but may have cut places.
+        let capped = TourAreaTests.overpassBody(areas: 0, nodes: OverpassClient.tourNodeCap)
+        let result = try await Self.source(Self.stub(osm: { (200, capped) })).search(in: area, language: .english)
+        #expect(result.osmCapped && result.isPartial)
+        #expect(!result.osmFailed && result.failedTiles == 0)
+        // Also when Wikipedia failed (OSM alone answered, capped).
+        let alone = try await Self.source(Self.stub(osm: { (200, capped) }, wiki: { _ in (500, Data()) }))
+            .search(in: area, language: .english)
+        #expect(alone.osmCapped && alone.failedTiles == 1)
+        // A failed OSM is never capped.
+        let failed = try await Self.source(Self.stub(osm: { (502, Data()) })).search(in: area, language: .english)
+        #expect(!failed.osmCapped)
+        // The default and each flag alone.
+        #expect(!TourPlaceSearch(places: [], osmFailed: false, osmErrors: [], failedTiles: 0, tileCount: 1).isPartial)
+        #expect(TourPlaceSearch(places: [], osmFailed: false, osmErrors: [], failedTiles: 0, tileCount: 1,
+                                osmCapped: true).isPartial)
     }
 
     @Test func searchReportsOverpassFailureWithItsEndpoints() async throws {

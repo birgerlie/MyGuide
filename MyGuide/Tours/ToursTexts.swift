@@ -174,8 +174,9 @@ enum ToursTexts {
     }
 
     static func partialSources(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Noen kilder svarte ikke, så turen kan mangle steder."
-            : "Some sources didn't answer, so the tour may miss places."
+        // Covers both a source that did not answer and an answer cut at its cap (`TourPlaceSearch.isPartial`).
+        language == .norwegian ? "Ikke alle steder kunne hentes, så turen kan mangle noen."
+            : "Not every place could be fetched, so the tour may miss some."
     }
 
     /// Spec 5's honest text, with durations written as everywhere on the tab: «Ingen severdigheter passer inn i

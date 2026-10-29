@@ -94,6 +94,27 @@ import Testing
         #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial", "memorial": "plaque"], summary: "Text")) == .wikiOnly)
         #expect(PlaceTiers.tier(for: Self.c(nil, kind: "wikipedia")) == nil)
     }
+    @Test func minorMemorialsAreNeverGoodOrTop() {
+        for kind in ["plaque", "stolperstein", "stolperschwelle"] {
+            let tags = ["historic": "memorial", "memorial": kind]
+            #expect(PlaceTiers.tier(for: Self.c(tags)) == nil, "\(kind)")
+            // An article makes it wikiOnly at most, never lifted to top.
+            #expect(PlaceTiers.tier(for: Self.c(tags, wiki: "de:X")) == .wikiOnly, "\(kind)")
+            #expect(PlaceTiers.tier(for: Self.c(tags, summary: "Text")) == .wikiOnly, "\(kind)")
+            // Whatever else is tagged: a good tag (tourism=attraction) or a top one does not lift it.
+            #expect(PlaceTiers.tier(for: Self.c(tags.merging(["tourism": "attraction"]) { a, _ in a })) == nil, "\(kind)")
+            #expect(PlaceTiers.tier(for: Self.c(tags.merging(["building": "cathedral"]) { a, _ in a }, wiki: "de:X"))
+                    == .wikiOnly, "\(kind)")
+            // The never-list still comes first.
+            #expect(PlaceTiers.tier(for: Self.c(tags.merging(["shop": "gift"]) { a, _ in a }, wiki: "de:X")) == nil)
+        }
+        // Other memorials stay good (lifted to top by an article); the memorial value alone, without
+        // historic=memorial, is not a minor memorial.
+        #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial", "memorial": "statue"])) == .good)
+        #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial", "memorial": "war_memorial"], wiki: "en:X")) == .top)
+        #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial", "memorial": "Plaque"])) == .good)
+        #expect(PlaceTiers.tier(for: Self.c(["tourism": "attraction", "memorial": "plaque"])) == .good)
+    }
     @Test func articleDetection() {
         #expect(PlaceTiers.hasArticle(Self.c([:], wiki: "en:X")))
         #expect(PlaceTiers.hasArticle(Self.c([:], summary: "s")))

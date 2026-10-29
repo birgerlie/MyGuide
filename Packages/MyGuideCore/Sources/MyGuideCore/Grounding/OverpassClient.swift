@@ -53,21 +53,35 @@ public struct OverpassClient: Sendable {
     static let walkingTimeout: TimeInterval = 12
     static let tourTimeout: TimeInterval = 30
 
+    /// The tour query's caps: ways and relations (the buildings: churches, castles, museums) are printed first, up
+    /// to `tourAreaCap`, then nodes up to `tourNodeCap`. A dense centre's many small nodes (statues, memorials) can
+    /// then never crowd the buildings out of the result, and the two caps together keep the old single cap of 2000.
+    public static let tourAreaCap = 800
+    public static let tourNodeCap = 1200
+
+    /// Memorial kinds too small for a tour stop; the tour query leaves them out on the server (`PlaceTiers` never
+    /// makes them top or good either). Stolpersteine alone run to hundreds in a city centre.
+    static let minorMemorials = "plaque|stolperstein|stolperschwelle"
+
     /// The tour query: a box (Overpass order: south, west, north, east) is far bigger than walking mode's 500 m, so
-    /// only the kinds of places that can become tour stops are asked for, with a longer server timeout and a larger
-    /// result cap.
+    /// only the kinds of places that can become tour stops are asked for, without minor memorials, with a longer
+    /// server timeout. The set is printed in two parts, ways and relations first (`tourAreaCap`), then nodes
+    /// (`tourNodeCap`); `out center tags` gives a node its own position and a way or relation its centre.
     static func tourQuery(boundingBox box: (south: Double, west: Double, north: Double, east: Double)) -> String {
         // String(format:) with %f uses the POSIX decimal point regardless of the user's locale.
         let b = [box.south, box.west, box.north, box.east].map { String(format: "%.6f", $0) }.joined(separator: ",")
         return """
         [out:json][timeout:25];
         (
-          nwr(\(b))["historic"]["name"];
+          nwr(\(b))["historic"]["name"]["memorial"!~"^(\(minorMemorials))$"];
           nwr(\(b))["tourism"~"^(museum|attraction|gallery)$"]["name"];
           nwr(\(b))["amenity"="place_of_worship"]["name"];
           nwr(\(b))["building"~"^(cathedral|palace|castle)$"]["name"];
-        );
-        out center tags 2000;
+        )->.a;
+        (way.a; rel.a;);
+        out center tags \(tourAreaCap);
+        node.a;
+        out center tags \(tourNodeCap);
         """
     }
 
@@ -88,19 +102,35 @@ public struct OverpassClient: Sendable {
     public func placesReportingEndpoints(around: Coordinate, radius: Int,
                                          language: StoryLanguage) async throws -> [Candidate] {
         try await placesReportingEndpoints(query: Self.query(around: around, radius: radius), timeout: Self.walkingTimeout,
-                                           language: language)
+                                           language: language).candidates
     }
 
     /// The tour places inside a box (`tourQuery`, 30 s request timeout), with the same endpoint fallback, logging and
-    /// errors as `placesReportingEndpoints(around:radius:language:)`.
+    /// errors as `placesReportingEndpoints(around:radius:language:)`. `capped` is true when the answer holds as many
+    /// ways and relations as `tourAreaCap`, or as many nodes as `tourNodeCap`: the server may have left places out.
+    /// It is logged.
     public func tourPlacesReportingEndpoints(in box: (south: Double, west: Double, north: Double, east: Double),
-                                             language: StoryLanguage) async throws -> [Candidate] {
-        try await placesReportingEndpoints(query: Self.tourQuery(boundingBox: box), timeout: Self.tourTimeout,
-                                           language: language)
+                                             language: StoryLanguage) async throws -> TourOverpassPlaces {
+        let answer = try await placesReportingEndpoints(query: Self.tourQuery(boundingBox: box), timeout: Self.tourTimeout,
+                                                        language: language)
+        let capped = answer.areaCount >= Self.tourAreaCap || answer.nodeCount >= Self.tourNodeCap
+        if capped {
+            Self.log.notice("tour query hit a cap: \(answer.areaCount, privacy: .public) ways and relations of \(Self.tourAreaCap, privacy: .public), \(answer.nodeCount, privacy: .public) nodes of \(Self.tourNodeCap, privacy: .public)")
+        }
+        return TourOverpassPlaces(candidates: answer.candidates, capped: capped)
+    }
+
+    /// One answer: its candidates, in the server's order, and how many elements of each kind it held (before any
+    /// was filtered out), so a cap hit can be told.
+    struct Answer {
+        var candidates: [Candidate]
+        /// Ways and relations.
+        var areaCount: Int
+        var nodeCount: Int
     }
 
     private func placesReportingEndpoints(query: String, timeout: TimeInterval,
-                                          language: StoryLanguage) async throws -> [Candidate] {
+                                          language: StoryLanguage) async throws -> Answer {
         var firstError: Error?
         var endpointErrors: [String] = []
         for endpoint in Self.endpoints {
@@ -126,7 +156,7 @@ public struct OverpassClient: Sendable {
     }
 
     private func places(from endpoint: URL, query: String, timeout: TimeInterval,
-                        language: StoryLanguage) async throws -> [Candidate] {
+                        language: StoryLanguage) async throws -> Answer {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
@@ -142,7 +172,11 @@ public struct OverpassClient: Sendable {
         guard let decoded = try? JSONDecoder().decode(Response.self, from: data) else { throw GroundingFetchError.malformed }
         // Overpass reports timeouts and out-of-memory as HTTP 200 with a remark, possibly with partial elements.
         if let remark = decoded.remark, remark.hasPrefix("runtime error") { throw GroundingFetchError.overpassRuntime(remark) }
-        return decoded.elements.compactMap { $0.value.flatMap { Self.candidate(from: $0, language: language) } }
+        let elements = decoded.elements.compactMap(\.value)
+        // Elements that did not decode (no type or id) are not counted; Overpass always sends both.
+        let nodeCount = elements.filter { $0.type == "node" }.count
+        return Answer(candidates: elements.compactMap { Self.candidate(from: $0, language: language) },
+                      areaCount: elements.count - nodeCount, nodeCount: nodeCount)
     }
 
     private static func candidate(from element: Element, language: StoryLanguage) -> Candidate? {
@@ -211,6 +245,18 @@ public struct OverpassClient: Sendable {
     private struct Center: Decodable {
         var lat: Double
         var lon: Double
+    }
+}
+
+/// The tour query's places (`OverpassClient.tourPlacesReportingEndpoints`), and whether the answer reached one of
+/// its caps, so places may be missing.
+public struct TourOverpassPlaces: Sendable, Equatable {
+    public var candidates: [Candidate]
+    public var capped: Bool
+
+    public init(candidates: [Candidate], capped: Bool) {
+        self.candidates = candidates
+        self.capped = capped
     }
 }
 

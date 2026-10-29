@@ -49,8 +49,8 @@ public enum TourCandidates {
     }
 }
 
-/// The tiered places of a tour area, and what failed while fetching them, so the app can mark the result as
-/// approximate and the walk log can say why.
+/// The tiered places of a tour area, and what failed or was cut while fetching them, so the app can mark the result
+/// as possibly incomplete and the log can say why.
 public struct TourPlaceSearch: Sendable, Equatable {
     public var places: [WalkingPlace]
     /// OpenStreetMap failed (every Overpass endpoint) while Wikipedia answered.
@@ -60,17 +60,22 @@ public struct TourPlaceSearch: Sendable, Equatable {
     /// Wikipedia geosearch tiles that failed, of `tileCount`; all of them when OpenStreetMap alone answered.
     public var failedTiles: Int
     public var tileCount: Int
+    /// OpenStreetMap answered with as many elements as one of the tour query's caps (`OverpassClient.tourAreaCap`,
+    /// `.tourNodeCap`): places may be missing.
+    public var osmCapped: Bool
 
-    public init(places: [WalkingPlace], osmFailed: Bool, osmErrors: [String], failedTiles: Int, tileCount: Int) {
+    public init(places: [WalkingPlace], osmFailed: Bool, osmErrors: [String], failedTiles: Int, tileCount: Int,
+                osmCapped: Bool = false) {
         self.places = places
         self.osmFailed = osmFailed
         self.osmErrors = osmErrors
         self.failedTiles = failedTiles
         self.tileCount = tileCount
+        self.osmCapped = osmCapped
     }
 
-    /// True when a source, or part of one, did not answer.
-    public var isPartial: Bool { osmFailed || failedTiles > 0 }
+    /// True when a source, or part of one, did not answer, or OpenStreetMap's answer was cut at a cap.
+    public var isPartial: Bool { osmFailed || failedTiles > 0 || osmCapped }
 }
 
 /// Fetches the tiered places of a tour area: one Overpass box query (`OverpassClient.tourQuery`) and one Wikipedia
@@ -112,17 +117,19 @@ public struct TourPlaceSource: Sendable {
         switch (osmResult, wikiResult) {
         case (.failure(let error), .failure):
             throw error
-        case (.success(let osmPlaces), .failure):
+        case (.success(let osm), .failure):
             result.failedTiles = tiles.count
-            candidates = CandidateRanker.merge(osm: osmPlaces, wiki: [])
+            result.osmCapped = osm.capped
+            candidates = CandidateRanker.merge(osm: osm.candidates, wiki: [])
         case (.failure(let error), .success(let found)):
             result.osmFailed = true
             result.osmErrors = WalkingPlaceSource.endpointErrors(error)
             result.failedTiles = found.failedTiles
             candidates = CandidateRanker.merge(osm: [], wiki: found.articles)
-        case (.success(let osmPlaces), .success(let found)):
+        case (.success(let osm), .success(let found)):
             result.failedTiles = found.failedTiles
-            candidates = CandidateRanker.merge(osm: osmPlaces, wiki: found.articles)
+            result.osmCapped = osm.capped
+            candidates = CandidateRanker.merge(osm: osm.candidates, wiki: found.articles)
         }
         result.places = candidates.compactMap { candidate in
             PlaceTiers.tier(for: candidate).map { WalkingPlace(candidate: candidate, tier: $0) }

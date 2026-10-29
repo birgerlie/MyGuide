@@ -176,13 +176,81 @@ import Testing
         #expect(OverpassClient.tourQuery(boundingBox: box) == """
         [out:json][timeout:25];
         (
-          nwr(\(b))["historic"]["name"];
+          nwr(\(b))["historic"]["name"]["memorial"!~"^(plaque|stolperstein|stolperschwelle)$"];
           nwr(\(b))["tourism"~"^(museum|attraction|gallery)$"]["name"];
           nwr(\(b))["amenity"="place_of_worship"]["name"];
           nwr(\(b))["building"~"^(cathedral|palace|castle)$"]["name"];
-        );
-        out center tags 2000;
+        )->.a;
+        (way.a; rel.a;);
+        out center tags 800;
+        node.a;
+        out center tags 1200;
         """)
+        // The two caps keep the single cap the query had before: 800 + 1200 = 2000.
+        #expect(OverpassClient.tourAreaCap + OverpassClient.tourNodeCap == 2000)
+    }
+
+    @Test func overpassTourAnswerKeepsWaysAndRelationsBeforeNodes() async throws {
+        // As the two outputs arrive: a way and a relation (centres), then two nodes (own positions).
+        let body = #"""
+        {"elements":[
+         {"type":"way","id":10,"center":{"lat":41.895,"lon":12.475},"tags":{"name":"Chiesa","amenity":"place_of_worship"}},
+         {"type":"relation","id":11,"center":{"lat":41.896,"lon":12.476},"tags":{"name":"Castello","historic":"castle"}},
+         {"type":"node","id":12,"lat":41.897,"lon":12.477,"tags":{"name":"Statua","historic":"memorial"}},
+         {"type":"node","id":13,"lat":41.898,"lon":12.478,"tags":{"name":"Museo","tourism":"museum"}}
+        ]}
+        """#
+        let box = (south: 41.89, west: 12.47, north: 41.9, east: 12.48)
+        let result = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) })
+            .tourPlacesReportingEndpoints(in: box, language: .english)
+        #expect(result.candidates.map(\.id) == ["osm:way/10", "osm:relation/11", "osm:node/12", "osm:node/13"])
+        #expect(result.candidates[0].coordinate == Coordinate(latitude: 41.895, longitude: 12.475))
+        #expect(result.candidates[3].coordinate == Coordinate(latitude: 41.898, longitude: 12.478))
+        // 2 ways/relations < 800 and 2 nodes < 1200: not capped.
+        #expect(!result.capped)
+    }
+
+    /// An Overpass answer with `areas` ways (relations count with them) and `nodes` nodes; every element is valid.
+    static func overpassBody(areas: Int, nodes: Int) -> Data {
+        let ways = (0..<areas).map {
+            #"{"type":"\#($0 % 2 == 0 ? "way" : "relation")","id":\#($0),"center":{"lat":41.895,"lon":12.475},"tags":{"name":"W\#($0)","historic":"castle"}}"#
+        }
+        let points = (0..<nodes).map {
+            #"{"type":"node","id":\#(100_000 + $0),"lat":41.895,"lon":12.475,"tags":{"name":"N\#($0)","historic":"ruins"}}"#
+        }
+        return Data(#"{"elements":[\#((ways + points).joined(separator: ","))]}"#.utf8)
+    }
+
+    @Test func overpassTourAnswerAtACapIsMarkedCapped() async throws {
+        let box = (south: 41.89, west: 12.47, north: 41.9, east: 12.48)
+        func capped(areas: Int, nodes: Int) async throws -> Bool {
+            let body = Self.overpassBody(areas: areas, nodes: nodes)
+            let result = try await OverpassClient(http: StubHTTPClient { _ in (200, body) })
+                .tourPlacesReportingEndpoints(in: box, language: .english)
+            #expect(result.candidates.count == areas + nodes)
+            return result.capped
+        }
+        // Ways and relations: 799 < 800 → not capped; 800 = the cap → capped (the server may have cut the rest).
+        #expect(try await capped(areas: 799, nodes: 0) == false)
+        #expect(try await capped(areas: 800, nodes: 0) == true)
+        // Nodes: 1199 < 1200 → not capped; 1200 → capped, though the ways are few.
+        #expect(try await capped(areas: 3, nodes: 1199) == false)
+        #expect(try await capped(areas: 3, nodes: 1200) == true)
+        // Just under both caps at once (799 + 1199 = 1998 elements): not capped; the caps are counted apart.
+        #expect(try await capped(areas: 799, nodes: 1199) == false)
+    }
+
+    @Test func overpassCapCountsFilteredElementsToo() async throws {
+        // 800 ways that are all cafés (left out as candidates) still fill the server's cap.
+        let ways = (0..<800).map {
+            #"{"type":"way","id":\#($0),"center":{"lat":41.895,"lon":12.475},"tags":{"name":"Cafe \#($0)","amenity":"cafe","historic":"yes"}}"#
+        }
+        let body = Data(#"{"elements":[\#(ways.joined(separator: ","))]}"#.utf8)
+        let box = (south: 41.89, west: 12.47, north: 41.9, east: 12.48)
+        let result = try await OverpassClient(http: StubHTTPClient { _ in (200, body) })
+            .tourPlacesReportingEndpoints(in: box, language: .english)
+        #expect(result.candidates.isEmpty)
+        #expect(result.capped)
     }
 
     @Test func overpassTourRequestHas30SecondsAndUsesTheEndpointsInOrder() async throws {

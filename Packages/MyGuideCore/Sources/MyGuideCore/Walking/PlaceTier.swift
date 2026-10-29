@@ -34,15 +34,19 @@ public enum PlaceTiers {
     private static let topBuildings: Set<String> = ["cathedral", "palace", "castle"]
     private static let goodTourism: Set<String> = ["museum", "attraction", "gallery"]
     private static let goodHistoric: Set<String> = ["manor", "church", "monastery", "archaeological"]
+    /// `memorial` values of a `historic=memorial` too small to be worth a buzz or a tour stop on their own.
+    private static let minorMemorials: Set<String> = ["plaque", "stolperstein", "stolperschwelle"]
 
     /// The tier of a place, or nil when it must never buzz (no name, or an excluded kind of place).
-    /// Rule order is fixed: name, never-list, Top, Good (lifted to Top by an article), Wiki-only (needs an article).
+    /// Rule order is fixed: name, never-list, minor memorial (Wiki-only at best, whatever its other tags), Top, Good
+    /// (lifted to Top by an article), Wiki-only (needs an article).
     public static func tier(for candidate: Candidate) -> PlaceTier? {
         guard !candidate.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let tags = candidate.tags ?? [:]
         if isNever(tags) { return nil }
         let article = hasArticle(candidate)
 
+        if isMinorMemorial(tags) { return article ? .wikiOnly : nil }
         if isTop(tags) { return .top }
         if isGood(tags) { return article ? .top : .good }
         return article ? .wikiOnly : nil
@@ -62,6 +66,12 @@ public enum PlaceTiers {
         return tags["highway"] == "bus_stop"
     }
 
+    /// A plaque, stolperstein or stolperschwelle (`historic=memorial` with that `memorial` value).
+    private static func isMinorMemorial(_ tags: [String: String]) -> Bool {
+        guard tags["historic"] == "memorial", let v = tags["memorial"] else { return false }
+        return minorMemorials.contains(v)
+    }
+
     private static func isTop(_ tags: [String: String]) -> Bool {
         if let v = tags["historic"], topHistoric.contains(v) { return true }
         if let v = tags["building"], topBuildings.contains(v) { return true }
@@ -73,7 +83,8 @@ public enum PlaceTiers {
         if let v = tags["tourism"], goodTourism.contains(v) { return true }
         if let v = tags["historic"] {
             if goodHistoric.contains(v) { return true }
-            if v == "memorial" && tags["memorial"] != "plaque" { return true }
+            // Minor memorials returned before this rule.
+            if v == "memorial" { return true }
             if v == "building" && tags["heritage"] != nil { return true }
         }
         return tags["place"] == "square" && tags["historic"] != nil

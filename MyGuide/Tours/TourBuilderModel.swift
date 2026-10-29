@@ -261,7 +261,7 @@ final class TourBuilderModel {
         }
         guard isCurrent(token) else { return }
         if search.isPartial {
-            Self.log.notice("tour places partial: osm failed \(search.osmFailed, privacy: .public), wiki tiles failed \(search.failedTiles, privacy: .public) of \(search.tileCount, privacy: .public)")
+            Self.log.notice("tour places partial: osm failed \(search.osmFailed, privacy: .public), wiki tiles failed \(search.failedTiles, privacy: .public) of \(search.tileCount, privacy: .public), osm capped \(search.osmCapped, privacy: .public)")
         }
 
         let heard: Set<String>
