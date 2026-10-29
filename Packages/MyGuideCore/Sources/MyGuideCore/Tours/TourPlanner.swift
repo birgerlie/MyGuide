@@ -60,6 +60,8 @@ public enum TourPlanner {
     public static let minimumDirectMetres = 200.0
     /// An A→B may walk this multiple of the direct estimate (the dwell comes on top).
     public static let aToBBudgetFactor = 1.25
+    /// A tour has at most this many stops (controller ruling), in both modes.
+    public static let maxStops = 12
 
     /// Floating-point noise below this many seconds does not push a stop over the budget, so a stop whose cost works
     /// out to exactly the budget by hand fits.
@@ -72,17 +74,25 @@ public enum TourPlanner {
         GeoMath.distance(a, b) * detourFactor / walkingSpeed
     }
 
-    /// A loop from `start` back to it within `minutes` (a negative duration counts as 0).
+    /// A loop from `start` back to it within `minutes` (a negative duration counts as 0). A start that is not finite
+    /// gives no stops and an estimate of 0.
     public static func loop(from start: Coordinate, minutes: Int, candidates: [TourCandidate]) -> TourPlan {
         let budget = Double(max(0, minutes)) * 60
+        guard isFinite(start) else {
+            return TourPlan(kind: .loop, start: start, end: start, stops: [], estimatedSeconds: 0, budgetSeconds: budget)
+        }
         let stops = plan(start: start, end: start, candidates: candidates) { _ in budget }
         return TourPlan(kind: .loop, start: start, end: start, stops: stops,
                         estimatedSeconds: estimatedSeconds(start: start, stops: stops, end: start), budgetSeconds: budget)
     }
 
     /// An A→B from `start` to `destination`. Budget: 1.25 × the direct estimate + 240 s per stop, so the stops may add
-    /// at most a quarter to the walking. Ends fewer than 200 straight metres apart get no stops.
+    /// at most a quarter to the walking. Ends fewer than 200 straight metres apart get no stops. An end that is not
+    /// finite gives no stops, an estimate of 0 and a budget of 0.
     public static func aToB(from start: Coordinate, to destination: Coordinate, candidates: [TourCandidate]) -> TourPlan {
+        guard isFinite(start), isFinite(destination) else {
+            return TourPlan(kind: .aToB, start: start, end: destination, stops: [], estimatedSeconds: 0, budgetSeconds: 0)
+        }
         let walkingBudget = aToBWalkingBudget(start: start, end: destination)
         let stops = GeoMath.distance(start, destination) < minimumDirectMetres
             ? []
@@ -95,13 +105,15 @@ public enum TourPlanner {
     /// Drops the stop with the worst score ÷ saved seconds; the caller re-routes the two affected legs.
     ///
     /// `legSeconds` are the routed legs in order (start → first stop, …, last stop → end). Removing stop k saves its two
-    /// legs and its dwell, minus the estimate of the new leg that joins its neighbours. When the count is not
-    /// `stops.count + 1`, every leg is its estimate; a single leg that is not finite or negative is its estimate.
+    /// legs and its dwell, minus the estimate of the new leg that joins its neighbours. The count must be
+    /// `stops.count + 1` (asserted in debug builds; a release build then takes every leg as its estimate). A single leg
+    /// that is NaN, infinite or negative (a router that returned nonsense) is replaced by its straight-line estimate.
     /// A stop whose removal saves no time is dropped only when no stop saves time. Ties drop the larger id (insertion
     /// prefers the smaller). The order of the other stops is kept; the estimate and an A→B budget are recomputed.
     /// A plan without stops comes back unchanged.
     public static func dropWorst(_ plan: TourPlan, legSeconds: [Double]) -> TourPlan {
         guard !plan.stops.isEmpty else { return plan }
+        assert(legSeconds.count == plan.stops.count + 1, "dropWorst needs one routed leg per gap")
         let points = [plan.start] + plan.stops.map(\.coordinate) + [plan.end]
         let countMatches = legSeconds.count == plan.stops.count + 1
         func leg(_ index: Int) -> Double {
@@ -148,13 +160,23 @@ public enum TourPlanner {
         return walking + dwellSeconds * Double(stops.count)
     }
 
+    private static func isFinite(_ c: Coordinate) -> Bool { c.latitude.isFinite && c.longitude.isFinite }
+
     private static func aToBWalkingBudget(start: Coordinate, end: Coordinate) -> Double {
         aToBBudgetFactor * estimatedLegSeconds(from: start, to: end)
     }
 
-    /// Greedy insertion, then 2-opt. `budget(n)` is the most a route with n stops may take. Candidates with a score
-    /// that is not finite and positive, or a coordinate that gives no finite cost, are never visited; a repeated id
-    /// counts once (the first).
+    /// Greedy insertion of at most `maxStops`, then 2-opt. `budget(n)` is the most a route with n stops may take; it must
+    /// grow by at most `dwellSeconds` per stop (a loop's is constant, an A→B's grows by exactly that). Candidates with a
+    /// score that is not finite and positive, or a coordinate that gives no finite cost, are never visited; a repeated
+    /// id counts once (the first).
+    ///
+    /// A candidate that does not fit is dropped for good: it can never fit later. Take the route after later rounds
+    /// with the candidate inserted; removing the stops added since (shortcutting past them) never lengthens the walk,
+    /// by the triangle inequality of great-circle distance, and leaves the candidate in some gap of today's route. So
+    /// its later walking is at least today's cheapest, and each stop added since costs another 240 s of dwell, at
+    /// least what it adds to the budget. (Floating-point rounding could matter only for a candidate within a few ulps
+    /// of the limit, where either answer is acceptable.)
     private static func plan(start: Coordinate, end: Coordinate, candidates: [TourCandidate],
                              budget: (Int) -> Double) -> [TourStop] {
         var seen = Set<String>()
@@ -167,11 +189,12 @@ public enum TourPlanner {
         var stops: [TourStop] = []
         var estimate = estimatedSeconds(start: start, stops: [], end: end)
 
-        while !remaining.isEmpty {
+        while !remaining.isEmpty && stops.count < maxStops {
             let points = [start] + stops.map(\.coordinate) + [end]
             let limit = budget(stops.count + 1) + budgetTolerance
-            var best: (candidate: Int, position: Int, added: Double, ratio: Double)?
-            for (c, stop) in remaining.enumerated() {
+            var best: (stop: TourStop, position: Int, added: Double, ratio: Double)?
+            var fitting: [TourStop] = []
+            for stop in remaining {
                 // The cheapest gap for this stop; the first of equal gaps.
                 var cheapest: (position: Int, added: Double)?
                 for i in 0..<(points.count - 1) {
@@ -183,16 +206,18 @@ public enum TourPlanner {
                 }
                 // Added is at least the dwell (the triangle inequality), so the ratio is finite.
                 guard let cheapest, estimate + cheapest.added <= limit else { continue }
+                fitting.append(stop)
                 let ratio = stop.score / cheapest.added
                 if let current = best {
-                    let currentID = remaining[current.candidate].id
-                    guard ratio > current.ratio || (ratio == current.ratio && stop.id < currentID) else { continue }
+                    guard ratio > current.ratio || (ratio == current.ratio && stop.id < current.stop.id) else { continue }
                 }
-                best = (c, cheapest.position, cheapest.added, ratio)
+                best = (stop, cheapest.position, cheapest.added, ratio)
             }
             guard let best else { break }
-            stops.insert(remaining.remove(at: best.candidate), at: best.position)
+            stops.insert(best.stop, at: best.position)
             estimate += best.added
+            // Ids are unique here, so this keeps every fitting candidate but the inserted one, in input order.
+            remaining = fitting.filter { $0.id != best.stop.id }
         }
         return twoOpt(stops, start: start, end: end)
     }

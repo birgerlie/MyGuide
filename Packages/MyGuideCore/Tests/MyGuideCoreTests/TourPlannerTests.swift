@@ -10,6 +10,9 @@ import Testing
     /// Leg seconds equal metres up to floating point (× 1.3 / 1.3); diagonal legs are haversine, not Euclidean, but
     /// within a few hundred metres of the equator the two agree to far below a millisecond.
     static let tolerance = 1e-3
+    /// For expected values written as exact expressions: haversine and the plane differ by under 1e-6 m within a few
+    /// hundred metres of the equator.
+    static let tight = 1e-6
 
     static func candidate(_ id: String, north: Double = 0, east: Double = 0, score: Double = 2,
                           tier: PlaceTier = .good) -> TourCandidate {
@@ -33,6 +36,7 @@ import Testing
         #expect(TourPlanner.overrunAllowance == 0.10)
         #expect(TourPlanner.minimumDirectMetres == 200)
         #expect(TourPlanner.aToBBudgetFactor == 1.25)
+        #expect(TourPlanner.maxStops == 12)
     }
 
     @Test func legEstimateIsStraightTimesDetourOverSpeed() {
@@ -184,13 +188,72 @@ import Testing
         #expect(abs(plan.estimatedSeconds - 440) < Self.tolerance)
     }
 
+    @Test func twoIdsAtOneCoordinateAreBothVisited() {
+        // 30 min = 1800 s; c1 and c2 both 100 m north, score 2. Round 1: each 100 + 100 + 240 = 440 s, a tie → c1.
+        // Round 2: c2 in gap O–c1 adds 100 + 0 − 100 = 0 walking, in gap c1–O 0 + 100 − 100 = 0: the first gap wins,
+        // so c2 goes before c1. Estimate 440 + 240 = 680 s. 2-opt finds nothing (reversing the pair changes nothing).
+        let plan = TourPlanner.loop(from: Self.origin, minutes: 30, candidates: [
+            Self.candidate("c1", north: 100), Self.candidate("c2", north: 100),
+        ])
+        #expect(plan.stops.map(\.id) == ["c2", "c1"])
+        #expect(abs(plan.estimatedSeconds - 680) < Self.tight)
+    }
+
+    @Test func aCandidateAtTheLoopStartIsVisited() {
+        // Today's behaviour: a place exactly at the start adds 0 walking + 240 dwell = 240 s ≤ 1800, so it becomes a
+        // stop (the walker is already there). Estimate 240 s.
+        let plan = TourPlanner.loop(from: Self.origin, minutes: 30, candidates: [Self.candidate("here")])
+        #expect(plan.stops.map(\.id) == ["here"])
+        #expect(plan.estimatedSeconds == 240)
+    }
+
+    // MARK: - Stop cap
+
+    @Test func aDenseFieldGivesAtMostTwelveStops() {
+        // 180 min = 10 800 s. A 7 × 7 grid every 100 m (48 places, all within 424 m): 12 stops cost 12 × 240 = 2880 s
+        // dwell, which leaves 7920 s for walking between points 100–849 m apart, so the budget alone
+        // would take more (30 stops with the cap removed, checked); the cap stops at exactly 12.
+        var candidates: [TourCandidate] = []
+        for row in -3...3 {
+            for column in -3...3 where row != 0 || column != 0 {
+                candidates.append(Self.candidate("g\(row)_\(column)", north: Double(row) * 100, east: Double(column) * 100))
+            }
+        }
+        let loop = TourPlanner.loop(from: Self.origin, minutes: 180, candidates: candidates)
+        #expect(loop.stops.count == 12)
+        #expect(loop.estimatedSeconds <= loop.budgetSeconds)
+        // A→B: 19 places on the line every 100 m from 100 to 1900 m north of a 2000 m route add no walking, so all
+        // would fit (2000 ≤ 1.25 × 2000 = 2500); the cap keeps 12. Budget 2500 + 12 × 240 = 5380 s.
+        let line = (1...19).map { Self.candidate(String(format: "l%02d", $0), north: Double($0) * 100) }
+        let aToB = TourPlanner.aToB(from: Self.origin, to: .at(north: 2000), candidates: line)
+        #expect(aToB.stops.count == 12)
+        #expect(abs(aToB.budgetSeconds - 5380) < Self.tight)
+    }
+
+    // MARK: - Coordinates that are not finite
+
+    @Test func aStartOrEndThatIsNotFiniteGivesAnEmptyPlan() {
+        let nan = Coordinate(latitude: .nan, longitude: 0), inf = Coordinate(latitude: 0, longitude: .infinity)
+        let near = [Self.candidate("near", north: 100)]
+        let loop = TourPlanner.loop(from: nan, minutes: 30, candidates: near)
+        #expect(loop.stops.isEmpty)
+        #expect(loop.estimatedSeconds == 0)
+        #expect(loop.budgetSeconds == 1800)
+        for (from, to) in [(nan, Coordinate.at(north: 1000)), (Self.origin, inf)] {
+            let plan = TourPlanner.aToB(from: from, to: to, candidates: near)
+            #expect(plan.stops.isEmpty)
+            #expect(plan.estimatedSeconds == 0)
+            #expect(plan.budgetSeconds == 0)
+        }
+    }
+
     // MARK: - Ties
 
     @Test func equalRatiosAreBrokenByTheSmallerId() {
-        // 10 min = 600 s. "a" 100 m west and "b" 100 m east, both score 2: each costs 100 + 100 + 240 = 440 s
-        // (2 / 440 each). After one, the other costs 100 + 200 − 100 = 200 + 240 = 440 s → 880 > 600, so only one
-        // fits: "a", whatever order the candidates come in.
-        let a = Self.candidate("a", east: -100), b = Self.candidate("b", east: 100)
+        // 10 min = 600 s. "a" and "b" share one point 100 m east and score 2, so their costs are equal by construction:
+        // 100 + 100 + 240 = 440 s each (2 / 440). After one, the other adds 100 + 0 − 100 = 0 walking + 240 dwell →
+        // 440 + 240 = 680 > 600, so only one fits: "a", whatever order the candidates come in.
+        let a = Self.candidate("a", east: 100), b = Self.candidate("b", east: 100)
         #expect(TourPlanner.loop(from: Self.origin, minutes: 10, candidates: [a, b]).stops.map(\.id) == ["a"])
         #expect(TourPlanner.loop(from: Self.origin, minutes: 10, candidates: [b, a]).stops.map(\.id) == ["a"])
     }
@@ -223,19 +286,31 @@ import Testing
     }
 
     @Test func theLoopComesOutShortenedByTwoOpt() {
-        // 60 min loop (3600 s) from the origin; (east, north) in metres: p0 (−100, 100) score 1, p1 (−300, −200) score 2,
-        // p2 (−300, 200) score 2, p3 (−200, 100) score 3. All four fit. Insertion alone orders them p0, p2, p3, p1
-        // (seen with the 2-opt call removed):
-        //   origin–p0 √(100² + 100²) = 141.421, p0–p2 √(200² + 100²) = 223.607, p2–p3 √(100² + 100²) = 141.421,
-        //   p3–p1 √(100² + 300²) = 316.228, p1–origin √(300² + 200²) = 360.555 → 1183.232 m.
-        // Reversing [p2, p3] gives origin–p0 141.421, p0–p3 100, p3–p2 141.421, p2–p1 400, p1–origin 360.555
-        //   → 1143.397 m, 39.835 shorter. Estimate 1143.397 + 4 × 240 = 2103.397 s.
+        // 60 min loop (3600 s) from the origin O; (east, north) in metres: p0 (−100, 100) score 1, p1 (−300, −200)
+        // score 2, p2 (−300, 200) score 2, p3 (−200, 100) score 3.
+        // Distances: O–p0 √20 000 = 141.421, O–p1 = O–p2 √130 000 = 360.555, O–p3 √50 000 = 223.607, p0–p3 100,
+        // p0–p1 √130 000 = 360.555, p0–p2 √50 000 = 223.607, p1–p2 400, p1–p3 √100 000 = 316.228, p2–p3 √20 000 = 141.421.
+        // Insertion (added = Δwalking + 240):
+        //   1. [O, O]: p0 2 × 141.421 + 240 = 522.843 → 1 / 522.843 = 0.001913; p1, p2 2 × 360.555 + 240 = 961.110 →
+        //      0.002081; p3 2 × 223.607 + 240 = 687.214 → 3 / 687.214 = 0.004366 → p3. Estimate 687.214.
+        //   2. [O, p3, O] (both gaps cost the same; the first wins): p0 141.421 + 100 − 223.607 + 240 = 257.814 →
+        //      0.003879; p1 360.555 + 316.228 − 223.607 + 240 = 693.176 → 0.002885; p2 360.555 + 141.421 − 223.607 + 240 =
+        //      518.369 → 0.003858 → p0 before p3. Estimate 945.028.
+        //   3. [O, p0, p3, O]: p1's cheapest gap is p3–O, 316.228 + 360.555 − 223.607 + 240 = 693.176 → 0.002885 (O–p0
+        //      579.689, p0–p3 576.783 walking); p2's is p0–p3, 223.607 + 141.421 − 100 + 240 = 505.028 → 0.003960 (O–p0
+        //      442.741, p3–O 278.369) → p2 between p0 and p3. Estimate 1450.056.
+        //   4. [O, p0, p2, p3, O]: p1's gaps O–p0 579.689, p0–p2 360.555 + 400 − 223.607 = 536.948, p2–p3 400 + 316.228
+        //      − 141.421 = 574.807, p3–O 453.176 → p3–O, + 240 = 693.176. Estimate 2143.232 ≤ 3600.
+        // Insertion order p0, p2, p3, p1 walks 141.421 + 223.607 + 141.421 + 316.228 + 360.555 = 1183.232 m.
+        // 2-opt: reversing [p2, p3] swaps p0–p2 + p3–p1 = 539.835 for p0–p3 + p2–p1 = 500 → p0, p3, p2, p1 walks
+        // 141.421 + 100 + 141.421 + 400 + 360.555 = 1143.397 m, and no reversal shortens that further.
         let plan = TourPlanner.loop(from: Self.origin, minutes: 60, candidates: [
             Self.candidate("p0", north: 100, east: -100, score: 1), Self.candidate("p1", north: -200, east: -300, score: 2),
             Self.candidate("p2", north: 200, east: -300, score: 2), Self.candidate("p3", north: 100, east: -200, score: 3),
         ])
         #expect(plan.stops.map(\.id) == ["p0", "p3", "p2", "p1"])
-        #expect(abs(plan.estimatedSeconds - 2103.397) < Self.tolerance)
+        let walking = 2 * 20_000.0.squareRoot() + 100 + 400 + 130_000.0.squareRoot()
+        #expect(abs(plan.estimatedSeconds - (walking + 4 * 240)) < Self.tight)
     }
 
     @Test func twoOptKeepsTheEndpointsOfAnAToB() {
@@ -269,8 +344,9 @@ import Testing
         #expect(plan.kind == .aToB)
         #expect(plan.start == Self.origin && plan.end == end)
         #expect(plan.stops.map(\.id) == ["side"])
-        #expect(abs(plan.budgetSeconds - 2490) < Self.tolerance)
-        #expect(abs(plan.estimatedSeconds - 2137.367) < Self.tolerance)
+        #expect(abs(plan.budgetSeconds - (1.25 * 1800 + 240)) < Self.tight)
+        // 1e-5, not `tight`: on this kilometre scale haversine is 2.5e-6 m shorter than the plane (checked).
+        #expect(abs(plan.estimatedSeconds - (2 * 900_000.0.squareRoot() + 240)) < 1e-5)
     }
 
     @Test func aToBWithoutFittingStopsKeepsTheBareBudget() {
@@ -323,6 +399,15 @@ import Testing
         #expect(plan.estimatedSeconds == 0)
     }
 
+    @Test func aCandidateAtTheDestinationIsVisited() {
+        // Today's behaviour: origin → 1000 m north with a place exactly at the destination. It adds 1000 + 0 − 1000 = 0
+        // walking + 240 dwell → a stop. Estimate 1000 + 240 = 1240 s, budget 1.25 × 1000 + 240 = 1490 s.
+        let plan = TourPlanner.aToB(from: Self.origin, to: .at(north: 1000), candidates: [Self.candidate("dest", north: 1000)])
+        #expect(plan.stops.map(\.id) == ["dest"])
+        #expect(abs(plan.estimatedSeconds - 1240) < Self.tight)
+        #expect(abs(plan.budgetSeconds - 1490) < Self.tight)
+    }
+
     // MARK: - dropWorst
 
     /// Loop from the origin through a (100 m north, score 2) and b (200 m north, score 3).
@@ -346,14 +431,12 @@ import Testing
         #expect(dropped.kind == .loop && dropped.start == Self.origin && dropped.end == Self.origin)
     }
 
-    @Test func dropWorstFallsBackToEstimatesWhenTheLegsDoNotMatch() {
-        // No routed legs (count 0 ≠ 3): every leg is its estimate.
-        // a saves 100 + 100 − 200 + 240 = 240 s → 2 / 240 = 0.008333; b saves 100 + 200 − 100 + 240 = 440 s →
-        // 3 / 440 = 0.006818 → b goes. A NaN, infinite or negative leg counts as its estimate too, so [NaN, ∞, −5] gives the same result; a
-        // count that is too long falls back the same way.
-        #expect(TourPlanner.dropWorst(Self.twoStopLoop(), legSeconds: []).stops.map(\.id) == ["a"])
+    @Test func dropWorstTakesAnUnusableLegAsItsEstimate() {
+        // A NaN, infinite or negative routed leg is replaced by its estimate, so [NaN, ∞, −5] acts like the estimates
+        // [100, 100, 200]: a saves 100 + 100 − 200 + 240 = 240 s → 2 / 240 = 0.008333; b saves 100 + 200 − 100 + 240 =
+        // 440 s → 3 / 440 = 0.006818 → b goes. Taken literally, NaN would make every comparison false.
         #expect(TourPlanner.dropWorst(Self.twoStopLoop(), legSeconds: [.nan, .infinity, -5]).stops.map(\.id) == ["a"])
-        #expect(TourPlanner.dropWorst(Self.twoStopLoop(), legSeconds: [0, 0, 0, 0]).stops.map(\.id) == ["a"])
+        #expect(TourPlanner.dropWorst(Self.twoStopLoop(), legSeconds: [100, 100, 200]).stops.map(\.id) == ["a"])
     }
 
     @Test func dropWorstRecomputesAnAToBBudget() {
@@ -374,16 +457,17 @@ import Testing
     }
 
     @Test func dropWorstBreaksTiesByDroppingTheLargerId() {
-        // Loop through x (100 m west) and y (100 m east), both score 2, routed legs equal to the estimates
-        // [100, 200, 100]: each saves 100 + 200 − 100 + 240 = 440 s → 2 / 440 for both → y (the larger id) goes, in
-        // either order; insertion would have kept x.
-        let x = Self.stop("x", east: -100), y = Self.stop("y", east: 100)
-        let xy = TourPlan(kind: .loop, start: Self.origin, end: Self.origin, stops: [x, y], estimatedSeconds: 880,
+        // Loop through x and y, both at one point 100 m east with score 2, routed legs [100, 0, 100] (the estimates).
+        // The first saves 100 + 0 − (estimate from the origin to the second, 100) + 240 = 240 s, the second
+        // 0 + 100 − (estimate from the first back to the origin, 100) + 240 = 240 s: equal by construction, 2 / 240
+        // each → y (the larger id) goes, in either order; insertion would have kept x.
+        let x = Self.stop("x", east: 100), y = Self.stop("y", east: 100)
+        let xy = TourPlan(kind: .loop, start: Self.origin, end: Self.origin, stops: [x, y], estimatedSeconds: 680,
                           budgetSeconds: 1800)
-        let yx = TourPlan(kind: .loop, start: Self.origin, end: Self.origin, stops: [y, x], estimatedSeconds: 880,
+        let yx = TourPlan(kind: .loop, start: Self.origin, end: Self.origin, stops: [y, x], estimatedSeconds: 680,
                           budgetSeconds: 1800)
-        #expect(TourPlanner.dropWorst(xy, legSeconds: [100, 200, 100]).stops.map(\.id) == ["x"])
-        #expect(TourPlanner.dropWorst(yx, legSeconds: [100, 200, 100]).stops.map(\.id) == ["x"])
+        #expect(TourPlanner.dropWorst(xy, legSeconds: [100, 0, 100]).stops.map(\.id) == ["x"])
+        #expect(TourPlanner.dropWorst(yx, legSeconds: [100, 0, 100]).stops.map(\.id) == ["x"])
     }
 
     @Test func dropWorstNeverDropsAStopWhoseRemovalSavesNoTime() {
