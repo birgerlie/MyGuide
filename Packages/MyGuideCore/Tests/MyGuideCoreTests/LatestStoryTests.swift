@@ -100,9 +100,4 @@ import Testing
         #expect(StoryPath.replacingCamera(in: [String](), camera: "camera", with: "story") == nil)
         #expect(StoryPath.replacingCamera(in: ["walk"], camera: "camera", with: "story") == nil)
     }
-    @Test func pickedStoryGoesUnderWhatIsOpen() {
-        #expect(StoryPath.underneath([], story: "story") == ["story"])
-        #expect(StoryPath.underneath(["walk"], story: "story") == ["story", "walk"])
-        #expect(StoryPath.underneath(["story", "walk"], story: "story") == ["story", "walk"])
-    }
 }

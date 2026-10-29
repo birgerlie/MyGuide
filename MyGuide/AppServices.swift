@@ -84,7 +84,7 @@ final class AppServices {
             stories: stories,
             walkLog: walkLog,
             nearby: nearby,
-            hasAPIKey: { (try? Self.apiKey(keychain: keychain)) != nil })
+            hasAPIKey: { Self.hasAPIKey(keychain: keychain) })
         let walkingCheck = walkingCheck
         let walking = walking
         let watchLink = watchLink
@@ -350,6 +350,23 @@ final class AppServices {
         APIKeySource.resolve(stored: try keychain.read(apiKeyAccount), bundled: bundledAPIKey)
     }
 
+    /// Whether a key is stored or bundled, for walking mode's readiness. A Keychain failure counts as no key, as
+    /// before, but is logged (error type, domain and code only) instead of passing silently.
+    nonisolated static func hasAPIKey(keychain: KeychainStore) -> Bool {
+        do {
+            return try apiKey(keychain: keychain) != nil
+        } catch {
+            let ns = error as NSError
+            keychainLog.error("""
+                reading the API key failed: \(String(describing: type(of: error)), privacy: .public) \
+                \(ns.domain, privacy: .public) \(ns.code, privacy: .public)
+                """)
+            return false
+        }
+    }
+
+    nonisolated static let keychainLog = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "keychain")
+
     /// `MGBundledOpenAIKey` from Info.plist: empty unless Config/Local.xcconfig sets OPENAI_BUNDLED_KEY.
     nonisolated static var bundledAPIKey: String? {
         Bundle.main.object(forInfoDictionaryKey: "MGBundledOpenAIKey") as? String
@@ -372,11 +389,6 @@ final class AppServices {
 
     private static func speech(openAI: OpenAIClient) -> SpeechService {
         SpeechService(openAI: openAI, cacheDirectory: speechCacheDirectory)
-    }
-
-    /// Throws `OpenAIError.missingAPIKey` when no key is stored.
-    func makeWalkingFlow() throws -> WalkingStoryFlow {
-        Self.walkingFlow(openAI: try makeOpenAI(), memory: memory, articles: articles)
     }
 
     /// Walking stories get the same memory, Apple Maps places and article texts as photo stories.

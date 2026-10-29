@@ -56,7 +56,7 @@ import Testing
         #expect(CompassPoint(degrees: -.infinity) == .north)
     }
 
-    @Test func fieldOfViewAndCaptureHUDUseIt() {
+    @Test func fieldOfViewSendsThePromptWord() {
         for degrees in [-10.0, 0, 22.4, 22.5, 200, 337.5, 360] {
             #expect(FieldOfView.compassPoint(degrees) == CompassPoint(degrees: degrees).promptWord, "\(degrees)")
         }

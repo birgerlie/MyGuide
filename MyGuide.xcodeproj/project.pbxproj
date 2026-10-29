@@ -37,6 +37,7 @@
 		3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */; };
 		3FF2CCCC1B0F2E31717008F2 /* StoryTimingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */; };
 		40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
+		408D65C82AD2DED76F5CB5E1 /* StoryTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34417561BF9F425246DF005C /* StoryTexts.swift */; };
 		418A9B486B3BE04C46C8A1ED /* ScreenChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB1AA4452D008193B28208D2 /* ScreenChrome.swift */; };
 		4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */; };
 		46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CB088E737DE4DD25A20C41 /* DiaryView.swift */; };
@@ -186,6 +187,7 @@
 		2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWidgetsBundle.swift; sourceTree = "<group>"; };
 		3213E88F0E2AABF7072E545C /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		32CB088E737DE4DD25A20C41 /* DiaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryView.swift; sourceTree = "<group>"; };
+		34417561BF9F425246DF005C /* StoryTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryTexts.swift; sourceTree = "<group>"; };
 		3509B449881359F212693562 /* WatchAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppDelegate.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
 		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
@@ -287,6 +289,7 @@
 			children = (
 				0D420089BC27852F1213A205 /* AudioPlayer.swift */,
 				85DD5402F214E227621581EF /* StoryComponents.swift */,
+				34417561BF9F425246DF005C /* StoryTexts.swift */,
 				0127669306FC88F71BBCDBF8 /* StoryView.swift */,
 				5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */,
 			);
@@ -828,6 +831,7 @@
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
 				63FB5DD93DBAABFA5C74374A /* StoryComponents.swift in Sources */,
 				8B6BC3F5149C4ACF27549948 /* StoryText.swift in Sources */,
+				408D65C82AD2DED76F5CB5E1 /* StoryTexts.swift in Sources */,
 				3FF2CCCC1B0F2E31717008F2 /* StoryTimingsView.swift in Sources */,
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,

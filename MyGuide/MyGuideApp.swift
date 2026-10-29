@@ -9,6 +9,8 @@ struct MyGuideApp: App {
     private let container: ModelContainer
     @State private var services: AppServices
     @Environment(\.scenePhase) private var scenePhase
+    /// A fixed id for the debug check of the walk story link at launch.
+    private static let linkProbe = UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF")!
 
     init() {
         // Before any screen or background work reads the setting: the first launch stores its default once.
@@ -48,6 +50,9 @@ struct MyGuideApp: App {
             }
         }
         Theme.Font.verifyBundled()
+        // The widget's copy of the walk story link must keep `WalkLink`'s format; checked in debug builds only.
+        assert(WalkingActivityAttributes.storyURL(Self.linkProbe) == WalkLink.url(for: Self.linkProbe),
+               "WalkingActivityAttributes.storyURL drifted from WalkLink.url(for:)")
         // The action titles are in the iPhone's language, fixed for the process: registered once, here.
         Task { await BuzzNotifier.registerCategories() }
         services.walking.endLeftoverActivities()

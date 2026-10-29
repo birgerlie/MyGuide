@@ -118,12 +118,6 @@ extension MemoryStore {
         }
     }
 
-    /// Places buzzed in the trip, from the buzz log.
-    public func placeIDsBuzzed(tripID: UUID) throws -> Set<String> {
-        let descriptor = FetchDescriptor<BuzzRecord>(predicate: #Predicate { $0.tripID == tripID })
-        return Set(try context.fetch(descriptor).map(\.placeID))
-    }
-
     /// The positions of the trip's stop stories, so the same spot is not told twice in a trip.
     public func stopSpots(tripID: UUID) throws -> [Coordinate] {
         let stop = WalkStory.Kind.stop.rawValue

@@ -75,13 +75,12 @@ import Testing
         #expect(trip.lastUsedAt == Self.t0)
     }
 
-    // MARK: - recordBuzz and placeIDsBuzzed
+    // MARK: - recordBuzz
 
     @Test func recordBuzzLogsItAndUpsertsThePlace() throws {
         let b = Self.buzz("osm:node/1", tier: .good, distance: 42)
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
-        #expect(try store.placeIDsBuzzed(tripID: Self.trip) == ["osm:node/1"])
-        #expect(try store.placeIDsBuzzed(tripID: Self.otherTrip).isEmpty)
+        #expect(try store.context.fetchCount(FetchDescriptor<BuzzRecord>()) == 1)
         let rec = try #require(try store.context.fetch(FetchDescriptor<BuzzRecord>()).first)
         #expect(rec.id == b.id && rec.at == Self.t0 && rec.tripID == Self.trip && rec.placeID == "osm:node/1")
         #expect(rec.placeName == "Name osm:node/1" && rec.kind == "historic=castle" && rec.tier == 2)
@@ -100,8 +99,10 @@ import Testing
         // A second buzz in a later trip moves the last-buzz fields on.
         try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.otherTrip, at: Self.t0 + 100)
         #expect(place.lastBuzzedAt == Self.t0 + 100 && place.lastBuzzTripID == Self.otherTrip)
-        #expect(try store.placeIDsBuzzed(tripID: Self.trip) == ["osm:node/1"])
-        #expect(try store.placeIDsBuzzed(tripID: Self.otherTrip) == ["osm:node/1"])
+        // Both buzzes are in the log, one per trip, both for the same place.
+        let records = try store.context.fetch(FetchDescriptor<BuzzRecord>())
+        #expect(Set(records.map(\.tripID)) == [Self.trip, Self.otherTrip])
+        #expect(records.allSatisfy { $0.placeID == "osm:node/1" })
     }
     @Test func recordingTheSameBuzzTwiceKeepsOneEntry() throws {
         let b = Self.buzz("osm:node/1")

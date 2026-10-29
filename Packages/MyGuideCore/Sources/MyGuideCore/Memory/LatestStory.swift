@@ -84,11 +84,4 @@ public enum StoryPath {
         result[index] = story
         return result
     }
-
-    /// A library photo finished loading. The story goes at the bottom of the path, under anything the owner has
-    /// opened meanwhile (a walk story from a notification), so it never replaces what they are looking at; with an
-    /// empty path it is simply the only entry. An earlier `story` entry is replaced, never duplicated.
-    public static func underneath<R: Equatable>(_ path: [R], story: R) -> [R] {
-        [story] + path.filter { $0 != story }
-    }
 }

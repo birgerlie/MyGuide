@@ -49,7 +49,7 @@ final class WalkLog {
         log(.quiet(reason, due: due), at: date)
     }
 
-    /// After a buzz (and, from Task 7, a pause or a resume) the next quiet decision is always written.
+    /// After a buzz, a pause or a resume the next quiet decision is always written.
     func resetQuiet() {
         quiet.reset()
     }
