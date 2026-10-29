@@ -55,6 +55,14 @@ import Testing
                 == "Legg inn OpenAI-nøkkelen din i Innstillinger først.")
     }
 
+    @Test func setupProblemHasANorwegianText() {
+        #expect(WalkingReadiness.setupProblem == "Open MyGuide on your phone to finish setting up.")
+        #expect(WalkingReadiness.localized(WalkingReadiness.setupProblem, language: .norwegian)
+                == "Åpne MyGuide på telefonen for å gjøre ferdig oppsettet.")
+        #expect(WalkingReadiness.localized(WalkingReadiness.setupProblem, language: .english)
+                == WalkingReadiness.setupProblem)
+    }
+
     @Test func unknownTextIsUnchanged() {
         #expect(WalkingReadiness.localized("Something else.", language: .norwegian) == "Something else.")
     }

@@ -28,4 +28,41 @@ import Testing
         struct Odd: LocalizedError { var errorDescription: String? { "odd thing" } }
         #expect(UserFacingMessage.message(for: Odd()) == "Something went wrong: odd thing")
     }
+
+    @Test(arguments: [
+        (OpenAIError.missingAPIKey as Error, "Legg inn OpenAI-nøkkelen din i Innstillinger først."),
+        (OpenAIError.invalidAPIKey, "OpenAI avviste API-nøkkelen. Sjekk den i Innstillinger."),
+        (OpenAIError.quotaExceeded, "OpenAI-kontoen din er tom for kreditt eller over grensen."),
+        (OpenAIError.rateLimited("x"), "OpenAI er opptatt akkurat nå. Prøv igjen om litt."),
+        (OpenAIError.server(503), "OpenAI hadde et problem (feil 503). Prøv igjen."),
+        (OpenAIError.server(403), "OpenAI nektet tilgang. Sjekk at prosjektet til API-nøkkelen kan bruke denne modellen."),
+        (OpenAIError.network("offline"), "Ingen forbindelse. Sjekk mobildata og prøv igjen."),
+        (OpenAIError.refused("no"), "Kunne ikke fortelle om dette bildet."),
+        (OpenAIError.malformedResponse, "Kunne ikke fortelle om dette bildet."),
+        (OpenAIError.modelRetired, "AI-modellen i denne appen er tatt ut av bruk – oppdater appen."),
+        (OpenAIError.contentBlocked, "OpenAI ville ikke lage dette bildet."),
+        (PhotoStoryError.noPosition, "Dette bildet har ingen posisjon. Bruke der du er nå?"),
+        (PhotoStoryError.noFurtherLevel, "Det er hele fortellingen om dette stedet."),
+        (ImageProcessingError.unreadableImage, "Kunne ikke lese dette bildet."),
+        (ImageProcessingError.encodeFailed, "Kunne ikke lese dette bildet."),
+        (DayStoryError.noPhotos, "Ingen av dagens bilder kunne leses."),
+        (CancellationError(), ""),
+    ])
+    func norwegianMessages(error: Error, expected: String) {
+        #expect(UserFacingMessage.message(for: error, language: .norwegian) == expected)
+    }
+
+    /// The English overload and `language: .english` are the same text for every kind of error.
+    @Test(arguments: [
+        OpenAIError.missingAPIKey as Error, OpenAIError.server(500), PhotoStoryError.noPosition,
+        DayStoryError.noPhotos, ImageProcessingError.unreadableImage, CancellationError(),
+    ])
+    func englishIsTheDefault(error: Error) {
+        #expect(UserFacingMessage.message(for: error, language: .english) == UserFacingMessage.message(for: error))
+    }
+
+    @Test func unknownErrorFallsBackToDescriptionInNorwegian() {
+        struct Odd: LocalizedError { var errorDescription: String? { "odd thing" } }
+        #expect(UserFacingMessage.message(for: Odd(), language: .norwegian) == "Noe gikk galt: odd thing")
+    }
 }

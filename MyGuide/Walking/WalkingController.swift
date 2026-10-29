@@ -164,8 +164,9 @@ final class WalkingController {
 
     nonisolated private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "walking")
 
-    /// The problem text of a start without prompts that cannot start (spec 5.3).
-    static let setupProblem = "Open MyGuide on your phone to finish setting up."
+    /// The problem text of a start without prompts that cannot start (spec 5.3). It goes to the watch in English and
+    /// is shown there in the watch's language (`WalkingReadiness.localized`).
+    static let setupProblem = WalkingReadiness.setupProblem
 
     /// Starts walking mode. Returns why it did not start, or nil when it started, was already on or starting, or was
     /// cancelled by `stop()`.

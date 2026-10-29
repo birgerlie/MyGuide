@@ -31,7 +31,7 @@ struct WatchButtonStyle: ButtonStyle {
 /// Every word on the watch. The phone does not send its story language to the watch, so the watch follows its own
 /// language setting: Norwegian when the first preferred language is Norwegian (nb, no or nn), English otherwise.
 /// `Locale.preferredLanguages` is read rather than `Locale.current`, which follows the app's own (English-only)
-/// localisation. The phone's reason for a failed start comes in the phone's story language.
+/// localisation. The phone's reason for a failed start arrives in English and is shown with `problem(_:)`.
 enum WatchTexts {
     static var norwegian: Bool {
         guard let first = Locale.preferredLanguages.first,
@@ -71,6 +71,12 @@ enum WatchTexts {
     }
 
     static var off: String { norwegian ? "Av" : "Off" }
+
+    /// The phone's reason for a failed start (English on the wire) in the watch's language; a text it does not know
+    /// is shown as it came.
+    static func problem(_ text: String) -> String {
+        WalkingReadiness.localized(text, language: norwegian ? .norwegian : .english)
+    }
 
     // MARK: Walk notes and errors
 

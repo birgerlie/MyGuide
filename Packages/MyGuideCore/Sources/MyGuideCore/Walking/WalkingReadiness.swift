@@ -29,7 +29,11 @@ public enum WalkingReadiness {
         return problems
     }
 
-    /// A problem from `problems` in the story language: the English text itself, or its Norwegian version. A text
+    /// The problem of a start from the watch that cannot start without prompts on the phone (spec 5.3). It travels to
+    /// the watch in English, like the rest, and the watch shows it with `localized` in its own language.
+    public static let setupProblem = "Open MyGuide on your phone to finish setting up."
+
+    /// A problem from `problems` (or `setupProblem`) in the story language: the English text itself, or its Norwegian version. A text
     /// that is not one of `problems`' is returned unchanged.
     public static func localized(_ problem: String, language: StoryLanguage) -> String {
         guard language == .norwegian else { return problem }
@@ -47,6 +51,8 @@ public enum WalkingReadiness {
             "Slå på tidsensitive varsler for MyGuide, så kommer varslene gjennom Fokus.",
         "Add your OpenAI API key in Settings first.":
             "Legg inn OpenAI-nøkkelen din i Innstillinger først.",
+        setupProblem:
+            "Åpne MyGuide på telefonen for å gjøre ferdig oppsettet.",
     ]
 
     /// Whether walking mode may start. "Always" missing does not block (it still works while the app is in use),

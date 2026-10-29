@@ -96,13 +96,14 @@ final class DayStoryModel {
         do {
             flow = try services.makeDayStoryFlow()
         } catch {
-            alert = .error(UserFacingMessage.message(for: error))
+            alert = .error(UserFacingMessage.message(for: error, language: AppServices.currentStoryLanguage()))
             return
         }
         guard let current = loadDay() else { return }
         guard let day = current.day else {
             // Every entry of the day has been deleted since the diary was read.
-            alert = .error(UserFacingMessage.message(for: DayStoryError.noPhotos))
+            alert = .error(UserFacingMessage.message(for: DayStoryError.noPhotos,
+                                                     language: AppServices.currentStoryLanguage()))
             return
         }
         let language = Self.storyLanguage()
@@ -127,9 +128,9 @@ final class DayStoryModel {
             } catch {
                 guard !Task.isCancelled else { return }
                 writeTask = nil
-                let message = UserFacingMessage.message(for: error)
+                let message = UserFacingMessage.message(for: error, language: language)
                 // A cancellation nobody asked for is still a failure the owner must see.
-                alert = .error(message.isEmpty ? StoryViewModel.unexpectedCancellationText : message)
+                alert = .error(message.isEmpty ? ScreenText.somethingWentWrong(language) : message)
             }
         }
     }

@@ -44,7 +44,6 @@ final class StoryViewModel {
         case failed(message: String?)
     }
 
-    static let unexpectedCancellationText = "Something went wrong. Try again."
     /// The `@AppStorage` key of "Les opp automatisk" / "Read aloud automatically" (spec 9); on when never set.
     nonisolated static let readAloudKey = "readAloudAutomatically"
 
@@ -207,8 +206,8 @@ final class StoryViewModel {
                 // A broken stream keeps nothing of the partial level.
                 self.moreTextThrottle?.cancel()
                 self.moreText = nil
-                let message = UserFacingMessage.message(for: error)
-                self.moreState = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message)
+                let message = UserFacingMessage.message(for: error, language: self.language)
+                self.moreState = .failed(message: message.isEmpty ? ScreenText.somethingWentWrong(self.language) : message)
             }
         }
     }
@@ -333,9 +332,9 @@ final class StoryViewModel {
                 // A broken or late stream keeps nothing: no partial text, no card from it, no session.
                 self.storyText?.cancel()
                 self.runID = UUID()
-                let message = UserFacingMessage.message(for: error)
+                let message = UserFacingMessage.message(for: error, language: self.language)
                 // A CancellationError we did not ask for must not leave the spinner up with no way out.
-                self.state = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message,
+                self.state = .failed(message: message.isEmpty ? ScreenText.somethingWentWrong(self.language) : message,
                                      canUseCurrentPosition: (error as? PhotoStoryError) == .noPosition)
             }
         }
@@ -466,8 +465,8 @@ final class StoryViewModel {
             } catch {
                 // Our own cancel is silence, whatever error type the sources report it with.
                 guard !Task.isCancelled, let self else { return }
-                let message = UserFacingMessage.message(for: error)
-                self.thenState = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message)
+                let message = UserFacingMessage.message(for: error, language: self.language)
+                self.thenState = .failed(message: message.isEmpty ? ScreenText.somethingWentWrong(self.language) : message)
             }
         }
     }
@@ -541,7 +540,7 @@ final class StoryViewModel {
                 var message: String?
                 if let e = error as? OpenAIError,
                    e == .invalidAPIKey || e == .quotaExceeded || e == .missingAPIKey || e == .modelRetired {
-                    message = UserFacingMessage.message(for: e)
+                    message = UserFacingMessage.message(for: e, language: self.language)
                 }
                 self.speech[level] = .failed(message: message)
             }
@@ -600,7 +599,7 @@ final class StoryViewModel {
         let wasWorking = isWorking
         cancel()
         if wasWorking {
-            state = .failed(message: Self.unexpectedCancellationText, canUseCurrentPosition: false)
+            state = .failed(message: ScreenText.somethingWentWrong(language), canUseCurrentPosition: false)
         }
     }
 }
@@ -733,6 +732,11 @@ enum ScreenText {
 
     static func couldNotPlay(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Kunne ikke spille av lyden" : "Couldn't play audio"
+    }
+
+    /// A failure with no words of its own (a cancellation nobody asked for, or background time running out).
+    static func somethingWentWrong(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Noe gikk galt. Prøv igjen." : "Something went wrong. Try again."
     }
 
     static func retry(_ language: StoryLanguage) -> String {

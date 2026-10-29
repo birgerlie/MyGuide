@@ -21,7 +21,7 @@ struct GuidedWalkView: View {
     }
 
     /// The watch's own failure first, else the phone's reason for the last failed start or command.
-    private var problem: String? { model.error ?? model.state?.problem }
+    private var problem: String? { model.error ?? model.state?.problem.map(WatchTexts.problem) }
 
     var body: some View {
         NavigationStack {
