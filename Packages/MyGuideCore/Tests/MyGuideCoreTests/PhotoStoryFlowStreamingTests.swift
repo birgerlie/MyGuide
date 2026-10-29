@@ -186,6 +186,7 @@ import Testing
 
     @Test func specNumbers() {
         #expect(PhotoStoryFlow.freshPathWait == .milliseconds(1500))
+        #expect(PhotoStoryFlow.articleWait == .milliseconds(1500))
         #expect(PhotoStoryFlow.articleLimit == 1500)
         #expect(PhotoStoryFlow.guessDistance == 250)
         #expect(PhotoStoryFlow.defaultStoryDeadline == .seconds(90))
@@ -669,6 +670,64 @@ import Testing
         #expect(try !Self.inputText(http).contains("Article about"))
         #expect(outcome.timings.articleChars == 0)
         #expect(articles.titles.value == ["en:Tower"])
+    }
+
+    @Test(arguments: [nil, 601.0] as [TimeInterval?])
+    func slowArticleWaitsAtMost1500msWithoutAFreshList(listAge: TimeInterval?) async throws {
+        // No list, or a stale one (601 s > 600 s): the request waits for the fresh search, which the stubs answer at
+        // once, then for the article step, which must give up after 1.5 s although the source takes 5 s (ignoring
+        // cancellation). So the stream opens ≈ 1.5 s after the start: at least 1.4 s (clock granularity) and well under
+        // 1.5 + 1 = 2.5 s; waiting for the source would take 5 s.
+        let opened = LockedBox<ContinuousClock.Instant?>(nil)
+        let http = StreamingHTTP(lines: Self.sse(Self.storyChunks), onStream: { opened.set(.now) })
+        let articles = Articles("Late.", delay: .seconds(5))
+        let started = ContinuousClock.now
+        let outcome = try await Self.run(Self.flow(http, articles: articles), nearby: listAge.map { Self.list(age: $0) })
+        let wait = try #require(opened.value) - started
+        #expect(wait >= .milliseconds(1400) && wait < .milliseconds(2500))
+        #expect(try !Self.inputText(http).contains("Article about"))
+        #expect(outcome.timings.articleChars == 0)
+        #expect(!outcome.timings.listFresh)
+        // The fresh search ranks Palace (Wikipedia-backed) first, so its article was asked for.
+        #expect(articles.titles.value == ["en:Palace"])
+    }
+
+    @Test func slowArticleWaitsAtMost1500msOnTryAgain() async throws {
+        // "Try again with more places": no search; the article source takes 5 s. The stream opens ≈ 1.5 s after the
+        // start: at least 1.4 s and under 2.5 s.
+        let gate = RankedCandidate(candidate: Self.tower, distance: 120, bearing: 0, inView: true)
+        let given = Grounding(candidates: [gate], address: Address(line: "Gasse"), failedSources: [])
+        let opened = LockedBox<ContinuousClock.Instant?>(nil)
+        let http = StreamingHTTP(lines: Self.sse(Self.storyChunks), onStream: { opened.set(.now) })
+        let articles = Articles("Late.", delay: .seconds(5))
+        let started = ContinuousClock.now
+        let outcome = try await Self.flow(http, articles: articles).tellFirstStoryStreaming(
+            photoJPEG: Self.photo, capture: Self.capture, language: .english, grounding: given) { _ in }
+        let wait = try #require(opened.value) - started
+        #expect(wait >= .milliseconds(1400) && wait < .milliseconds(2500))
+        #expect(try !Self.inputText(http).contains("Article about"))
+        #expect(outcome.timings.articleChars == 0)
+        #expect(articles.titles.value == ["en:Tower"])
+    }
+
+    @Test func articleRunsAlongsideTheMemoryLookups() async throws {
+        // No list. The priors lookup takes 1 s and the article source 1 s (both within the 1.5 s article wait). Run
+        // one after the other they would take 1 + 1 = 2 s; side by side about 1 s. So the stream opens at least 0.9 s
+        // after the start and under 1.8 s, and the article is sent.
+        let opened = LockedBox<ContinuousClock.Instant?>(nil)
+        let http = StreamingHTTP(lines: Self.sse(Self.storyChunks), onStream: { opened.set(.now) })
+        let articles = Articles("Palace text.", delay: .seconds(1))
+        let flow = Self.flow(http, articles: articles) { _, _, _ in
+            try? await Task.sleep(for: .seconds(1))
+            return []
+        }
+        let started = ContinuousClock.now
+        let outcome = try await Self.run(flow, nearby: nil)
+        let wait = try #require(opened.value) - started
+        #expect(wait >= .milliseconds(900) && wait < .milliseconds(1800))
+        #expect(try Self.inputText(http).contains("Palace text."))
+        // "Palace text." = 6 + 1 + 5 = 12 characters.
+        #expect(outcome.timings.articleChars == 12)
     }
 
     @Test(arguments: [
