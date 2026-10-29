@@ -14,6 +14,8 @@
 		11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */; };
 		1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB5929240699451326DF1BD /* PhotoImport.swift */; };
 		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
+		1F38F439526191EA725269C7 /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
+		1F68E52117A68240EF842AD4 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
 		2372F6786301805D64B055F5 /* LibraryImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */; };
 		25CAC5AE46A2956C88341916 /* WalkingStatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
@@ -23,6 +25,7 @@
 		395515A7A501BA457B009E28 /* GuidedWalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A5C636C046DB5D8AB64F46 /* GuidedWalkView.swift */; };
 		3AF03156542508C7009B121A /* WalkLogListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962FB606403221C1C07B5A34 /* WalkLogListView.swift */; };
 		3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */; };
+		40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
 		4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */; };
 		46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CB088E737DE4DD25A20C41 /* DiaryView.swift */; };
 		4A41F0BABB7371E08C5F20E8 /* MyGuideWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */; };
@@ -45,6 +48,7 @@
 		905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */; };
 		97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */; };
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
+		9E23E4CBE38A81B7D26726C5 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
 		9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
 		A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */; };
 		AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25E304A4B1D4048860FAE2FD /* DayStoryView.swift */; };
@@ -58,8 +62,10 @@
 		CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262854964F0668D9EA23A15A /* TellMeIntent.swift */; };
 		D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D718A718A1BAB633570C16E /* WalkingCheckView.swift */; };
+		DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
 		E79E99F1329E44BA88B8CFC2 /* GuidedWalkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */; };
 		E8032EFCA466ECD13CCB7000 /* BuzzLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EC60C12EF6858FD501AD51 /* BuzzLogView.swift */; };
+		EA4C8C8F006CB195A913C71F /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
 		EB9136D293A0DCCB7A5C8046 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1534A69656411063E4F69C80 /* MyGuideCore */; };
 		EC6D778A693C83A46312B2AC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7CFF1615F9030516CF876C85 /* Assets.xcassets */; };
 		EC6DC3036B2DE3C3D1B8572F /* WalkingLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */; };
@@ -130,6 +136,7 @@
 		3509B449881359F212693562 /* WatchAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppDelegate.swift; sourceTree = "<group>"; };
 		35446013504E49DDC25F8906 /* CaptureScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
 		3A699D92E683036004905812 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
+		3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Regular.ttf"; sourceTree = "<group>"; };
 		3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryImport.swift; sourceTree = "<group>"; };
 		4D718A718A1BAB633570C16E /* WalkingCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckView.swift; sourceTree = "<group>"; };
@@ -139,11 +146,14 @@
 		58D59629C52B71A28FA9DCBB /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
 		593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingStatusPill.swift; sourceTree = "<group>"; };
 		5E7A49C840514706DE718EF1 /* WalkStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkStoryView.swift; sourceTree = "<group>"; };
+		5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "PlayfairDisplay-OFL.txt"; sourceTree = "<group>"; };
 		60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogFormat.swift; sourceTree = "<group>"; };
 		6392FD75EB725996A2034B87 /* MyGuideWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuideWatch.entitlements; sourceTree = "<group>"; };
 		68E63B23D5D4103DCC816284 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Medium.ttf"; sourceTree = "<group>"; };
 		6FB5929240699451326DF1BD /* PhotoImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoImport.swift; sourceTree = "<group>"; };
 		728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLocation.swift; sourceTree = "<group>"; };
+		746E8A1175813126816BD7DE /* Inter-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Inter-OFL.txt"; sourceTree = "<group>"; };
 		7601A9D4143D662A6232BA41 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		7CFF1615F9030516CF876C85 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -169,9 +179,11 @@
 		E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingActivityController.swift; sourceTree = "<group>"; };
 		E5588654A1B24191FA872223 /* MyGuideWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MyGuideWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutKeeper.swift; sourceTree = "<group>"; };
+		EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "PlayfairDisplay-Variable.ttf"; sourceTree = "<group>"; };
 		F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneLink.swift; sourceTree = "<group>"; };
 		F2EC60C12EF6858FD501AD51 /* BuzzLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzLogView.swift; sourceTree = "<group>"; };
 		F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingActivityAttributes.swift; sourceTree = "<group>"; };
+		F5C0F406D391D40364290743 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		F878CC395772D74A4E843693 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FA60F0A75E58FC553F167C80 /* MyGuideCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MyGuideCore; path = Packages/MyGuideCore; sourceTree = SOURCE_ROOT; };
 		FB62877340E610053D66495A /* BackgroundTaskHold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskHold.swift; sourceTree = "<group>"; };
@@ -239,6 +251,7 @@
 				96B316F6601D1952CFEF86BE /* MyGuide.entitlements */,
 				8CFD5C325D6D5A568828170F /* MyGuideApp.swift */,
 				A7D7E3A20BB6FBE11F69FE33 /* Capture */,
+				E4D87F8FFAF6D7F0CC6FB666 /* Design */,
 				0D3471D25E9454F50E8D45FA /* Diary */,
 				EABF7E6D3FEFD2F8655C128B /* History */,
 				C33F1654996717C37D9C0E03 /* Home */,
@@ -281,6 +294,18 @@
 				281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		5B44B6FA20F826C8F115A189 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */,
+				746E8A1175813126816BD7DE /* Inter-OFL.txt */,
+				3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */,
+				5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */,
+				EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */,
+			);
+			path = Fonts;
 			sourceTree = "<group>";
 		};
 		65FCED6406B373ED5C73E009 /* Platform */ = {
@@ -391,6 +416,15 @@
 				E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */,
 			);
 			path = Config;
+			sourceTree = "<group>";
+		};
+		E4D87F8FFAF6D7F0CC6FB666 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				F5C0F406D391D40364290743 /* Theme.swift */,
+				5B44B6FA20F826C8F115A189 /* Fonts */,
+			);
+			path = Design;
 			sourceTree = "<group>";
 		};
 		EABF7E6D3FEFD2F8655C128B /* History */ = {
@@ -533,6 +567,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				EC6D778A693C83A46312B2AC /* Assets.xcassets in Resources */,
+				1F68E52117A68240EF842AD4 /* Inter-Medium.ttf in Resources */,
+				EA4C8C8F006CB195A913C71F /* Inter-OFL.txt in Resources */,
+				40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */,
+				9E23E4CBE38A81B7D26726C5 /* PlayfairDisplay-OFL.txt in Resources */,
+				1F38F439526191EA725269C7 /* PlayfairDisplay-Variable.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -594,6 +633,7 @@
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
+				DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */,
 				581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */,
 				A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */,
 				3AF03156542508C7009B121A /* WalkLogListView.swift in Sources */,

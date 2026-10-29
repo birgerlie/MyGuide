@@ -40,6 +40,7 @@ struct MyGuideApp: App {
             default: break
             }
         }
+        Theme.Font.verifyBundled()
         Task { await BuzzNotifier.registerCategories() }
         services.walking.endLeftoverActivities()
     }
@@ -47,6 +48,8 @@ struct MyGuideApp: App {
     var body: some Scene {
         WindowGroup {
             HomeScreen(services: services)
+            .tint(Theme.Colour.accent)
+            .background(Theme.Colour.background.ignoresSafeArea())
             // Foreground and background during a walk go into the walk log.
             .onChange(of: scenePhase) { services.walking.noteScenePhase($1) }
             // myguide://walk/<id>, from the Live Activity: open that walk story.

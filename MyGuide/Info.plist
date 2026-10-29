@@ -53,6 +53,12 @@
 	<string>MyGuide reads when and where a picked photo was taken, to tell its story and to place it in your diary.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>PlayfairDisplay-Variable.ttf</string>
+		<string>Inter-Regular.ttf</string>
+		<string>Inter-Medium.ttf</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

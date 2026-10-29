@@ -33,6 +33,7 @@ targets:
         MGBundledOpenAIKey: "$(OPENAI_BUNDLED_KEY)"
         UILaunchScreen: {}
         UIBackgroundModes: [audio, location]
+        UIAppFonts: [PlayfairDisplay-Variable.ttf, Inter-Regular.ttf, Inter-Medium.ttf]
         NSSupportsLiveActivities: true
         CFBundleURLTypes:
           - CFBundleURLName: io.github.birgerlie.MyGuide
