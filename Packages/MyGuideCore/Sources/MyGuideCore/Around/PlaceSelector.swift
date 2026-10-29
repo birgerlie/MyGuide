@@ -112,12 +112,9 @@ public struct PlaceSelector: Sendable {
         pending = nil
     }
 
-    /// Offset of `bearing` from `heading`, wrapped into (−180, 180].
+    /// Offset of `bearing` from `heading`, wrapped into (−180, 180]: `GeoMath.signedOffset`.
     public static func offset(heading: Double, bearing: Double) -> Double {
-        var r = (bearing - heading).truncatingRemainder(dividingBy: 360)
-        if r < 0 { r += 360 }            // 0 ..< 360
-        if r > 180 { r -= 360 }
-        return r
+        GeoMath.signedOffset(from: heading, to: bearing)
     }
 
     @discardableResult

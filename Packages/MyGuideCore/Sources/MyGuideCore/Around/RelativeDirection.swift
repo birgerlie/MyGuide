@@ -1,14 +1,14 @@
 import Foundation
 
-/// Where a place lies relative to the way the user faces, in the bands of `GuideText.side`.
+/// Where a place lies relative to the way the user faces (or walks): the screen's words and the prompts' side.
 public enum RelativeDirection: Sendable, Equatable {
     case ahead, aheadLeft, aheadRight, left, right, behindLeft, behindRight, behind
 
-    /// Bands of GuideText.side: |r| ≤ 30 ahead; ≤ 60 ahead-left/right; ≤ 120 left/right; ≤ 150 behind-left/right; else behind.
+    /// |r| ≤ 30 ahead; ≤ 60 ahead-left/right; ≤ 120 left/right; ≤ 150 behind-left/right; else behind; r > 0 is right.
     /// `offset` is wrapped into (−180, 180] first, so 350 means −10. Not finite → behind (never claims "ahead").
     public init(offset: Double) {
         guard offset.isFinite else { self = .behind; return }
-        let r = PlaceSelector.offset(heading: 0, bearing: offset)
+        let r = GeoMath.signedOffset(from: 0, to: offset)
         let right = r > 0
         switch abs(r) {
         case ...30: self = .ahead
@@ -19,6 +19,22 @@ public enum RelativeDirection: Sendable, Equatable {
         }
     }
 
+    /// The English side the prompts send to the model ("behind-left"), as `GuideText.side`. Kept as is: the model
+    /// reads it.
+    public var promptWord: String {
+        switch self {
+        case .ahead: "ahead"
+        case .aheadLeft: "ahead-left"
+        case .aheadRight: "ahead-right"
+        case .left: "to your left"
+        case .right: "to your right"
+        case .behindLeft: "behind-left"
+        case .behindRight: "behind-right"
+        case .behind: "behind"
+        }
+    }
+
+    /// The words on screen: "bak deg til venstre" / "behind you to the left".
     public func words(_ language: StoryLanguage) -> String {
         switch language {
         case .norwegian:
@@ -78,20 +94,4 @@ public enum AroundText {
 
     /// A list older than this (seconds) is marked with its age: 10 × 60.
     public static let staleListAge: TimeInterval = 600
-}
-
-extension BuzzText {
-    /// "50 m foran deg" / "50 m til høyre" / "50 m til venstre" / "90 m bak deg" / "50 m unna"; English as `detail`.
-    /// Uses the same four bands and boundaries as `detail`.
-    public static func localizedDetail(distance: Double, bearing: Double, course: Double?, language: StoryLanguage) -> String {
-        let english = detail(distance: distance, bearing: bearing, course: course)
-        guard language == .norwegian else { return english }
-        let d = roundedDistance(distance)
-        // Map by the English suffix so the bands can never drift from `detail`.
-        if english.hasSuffix(" away") { return "\(d) m unna" }
-        if english.hasSuffix(" ahead") { return "\(d) m foran deg" }
-        if english.hasSuffix(" right") { return "\(d) m til høyre" }
-        if english.hasSuffix(" left") { return "\(d) m til venstre" }
-        return "\(d) m bak deg"
-    }
 }

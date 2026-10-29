@@ -8,14 +8,6 @@ public enum CaptureHUD {
         return "\(gps) · \(headingText(compass))"
     }
 
-    /// "north-west" → "NW", from `FieldOfView.compassPoint`.
-    public static func abbreviatedCompassPoint(_ degrees: Double) -> String {
-        FieldOfView.compassPoint(degrees)
-            .split(separator: "-")
-            .compactMap { $0.first.map { String($0).uppercased() } }
-            .joined()
-    }
-
     /// Without a valid accuracy the core treats the heading as unusable, so it shows as unavailable.
     private static func headingText(_ compass: CompassReading?) -> String {
         guard let compass, compass.heading.isFinite,
@@ -23,8 +15,8 @@ public enum CaptureHUD {
         // Matches the core: a heading this inaccurate is not sent as usable (spec 8.1.3).
         guard accuracy <= FieldOfView.maxUsableHeadingAccuracy else { return "Compass unreliable" }
         // Wrap first so any finite heading maps into 0..<360; 359.6 rounds to 360 and shows as 0.
-        let wrapped = (compass.heading.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+        let wrapped = GeoMath.normalizedDegrees(compass.heading)
         let degrees = Int(wrapped.rounded()) % 360
-        return "\(degrees)° \(abbreviatedCompassPoint(wrapped)) ±\(Int(accuracy.rounded()))°"
+        return "\(degrees)° \(CompassPoint(degrees: wrapped).abbreviation) ±\(Int(accuracy.rounded()))°"
     }
 }

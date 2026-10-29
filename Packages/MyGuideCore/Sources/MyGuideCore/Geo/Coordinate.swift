@@ -40,4 +40,19 @@ public enum GeoMath {
         let d = abs(a - b).truncatingRemainder(dividingBy: 360)
         return d > 180 ? 360 - d : d
     }
+
+    /// How far `to` lies clockwise of `from` (compass degrees), wrapped into (−180, 180]: positive is to the right,
+    /// exactly opposite is +180. Any finite angles; not finite → NaN.
+    public static func signedOffset(from: Double, to: Double) -> Double {
+        // The remainder is in (−360, 360); each correction subtracts numbers within a factor of two, so it is exact.
+        var r = (to - from).truncatingRemainder(dividingBy: 360)
+        if r > 180 { r -= 360 }
+        if r <= -180 { r += 360 }
+        return r
+    }
+
+    /// Any finite angle in compass degrees wrapped into 0..<360 (−10 → 350, 360 → 0); not finite → NaN.
+    public static func normalizedDegrees(_ degrees: Double) -> Double {
+        (degrees.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+    }
 }

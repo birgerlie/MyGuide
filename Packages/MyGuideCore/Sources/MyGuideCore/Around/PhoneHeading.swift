@@ -73,8 +73,8 @@ public struct HeadingSmoother: Sendable {
         let dt = at.timeIntervalSince(last)
         guard dt > 0 else { return previous }
         let alpha = 1 - exp(-dt / Self.timeConstant)
-        // Exactly opposite headings: the arc is ambiguous, PlaceSelector.offset resolves it to +180 (clockwise).
-        let arc = PlaceSelector.offset(heading: previous, bearing: sample)
+        // Exactly opposite headings: the arc is ambiguous, GeoMath.signedOffset resolves it to +180 (clockwise).
+        let arc = GeoMath.signedOffset(from: previous, to: sample)
         let next = Self.normalised(previous + alpha * arc)
         self.heading = next
         self.last = at

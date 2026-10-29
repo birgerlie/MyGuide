@@ -42,6 +42,22 @@ import Foundation
         #expect(FieldOfView.compassPoint(22.5) == "north-east")
         #expect(FieldOfView.compassPoint(180) == "south")
     }
+    @Test func compassPointsAtTheirEdges() {
+        // Sector centres 0, 45, …, 315: index i.
+        let words = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
+        for (i, word) in words.enumerated() {
+            #expect(FieldOfView.compassPoint(Double(i) * 45) == word)
+        }
+        // 337.4 → 359.9 / 45 = 7.998 → 7 north-west; 337.5 → 360 / 45 = 8 → 8 % 8 = 0 north.
+        #expect(FieldOfView.compassPoint(337.4) == "north-west")
+        #expect(FieldOfView.compassPoint(337.5) == "north")
+        // −10 → (−10 + 360) % 360 = 350 → 372.5 / 45 = 8.28 → 0 north; 360 → 0 → north; −100 → 260 → 282.5/45 = 6.28 → west.
+        #expect(FieldOfView.compassPoint(-10) == "north")
+        #expect(FieldOfView.compassPoint(360) == "north")
+        #expect(FieldOfView.compassPoint(-100) == "west")
+        // 765 → 765 % 360 = 45 → north-east.
+        #expect(FieldOfView.compassPoint(765) == "north-east")
+    }
     @Test func compassReadingPrefersTrueHeading() {
         #expect(CompassReading(trueHeading: 12, magneticHeading: 15, headingAccuracy: 5) == .init(heading: 12, accuracy: 5))
         // trueHeading < 0 means "no true heading" (no location yet) → use magnetic

@@ -649,12 +649,11 @@ enum ScreenText {
         return "\(BuzzText.roundedDistance(distance)) m \(direction(bearing, language))"
     }
 
-    /// `GuideText`'s compass word for the bearing (a guess is always ahead, so the side would say nothing), in
-    /// Norwegian as "mot …".
+    /// The compass point of the bearing (a guess is always ahead, so the side would say nothing), in Norwegian as
+    /// "mot …". A bearing that is not finite counts as north.
     static func direction(_ bearing: Double, _ language: StoryLanguage) -> String {
-        let word = GuideText.side(bearing: bearing, direction: nil)
-        guard language == .norwegian else { return word }
-        return norwegianCompass[word].map { "mot \($0)" } ?? word
+        let point = CompassPoint(degrees: bearing)
+        return language == .norwegian ? "mot \(point.words(.norwegian))" : point.words(.english)
     }
 
     // MARK: Story screen
@@ -771,9 +770,4 @@ enum ScreenText {
         case .appleMaps: language == .norwegian ? "Apple Kart (adresse og steder)" : "Apple Maps (address and places)"
         }
     }
-
-    private static let norwegianCompass = [
-        "north": "nord", "north-east": "nordøst", "east": "øst", "south-east": "sørøst",
-        "south": "sør", "south-west": "sørvest", "west": "vest", "north-west": "nordvest",
-    ]
 }

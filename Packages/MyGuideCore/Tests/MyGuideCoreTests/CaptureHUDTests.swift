@@ -51,7 +51,24 @@ import Foundation
         // centres of each 45° sector: 0, 45, …, 315
         let expected = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
         for (i, abbreviation) in expected.enumerated() {
-            #expect(CaptureHUD.abbreviatedCompassPoint(Double(i) * 45) == abbreviation)
+            #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: Double(i) * 45, accuracy: 5))
+                    == "GPS ±8 m · \(i * 45)° \(abbreviation) ±5°")
         }
+    }
+
+    @Test func negativeAndFullTurnHeadingsWrap() {
+        // −10 → (−10 % 360 + 360) % 360 = 350 → "350°", (350 + 22.5) / 45 = 8.28 → 0 → "N".
+        #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: -10, accuracy: 5))
+                == "GPS ±8 m · 350° N ±5°")
+        // 360 → 0 → "0° N"; 337.4 → "337° NW" ((337.4 + 22.5) / 45 = 7.998 → 7).
+        #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: 360, accuracy: 5))
+                == "GPS ±8 m · 0° N ±5°")
+        #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: 337.4, accuracy: 5))
+                == "GPS ±8 m · 337° NW ±5°")
+        // 22.4 → "22° N"; 22.5 rounds to 23 (away from zero) → "23° NE".
+        #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: 22.4, accuracy: 5))
+                == "GPS ±8 m · 22° N ±5°")
+        #expect(CaptureHUD.text(fix: Self.fix8, compass: CompassReading(heading: 22.5, accuracy: 5))
+                == "GPS ±8 m · 23° NE ±5°")
     }
 }

@@ -6,11 +6,6 @@ public enum FieldOfView {
     /// Assumed horizontal FOV of the main camera in landscape, degrees.
     public static let landscapeFOV = 69.4
 
-    private static let compassPoints = [
-        "north", "north-east", "east", "south-east",
-        "south", "south-west", "west", "north-west"
-    ]
-
     /// Horizontal FOV of a portrait (3:4) frame given the landscape (4:3) horizontal FOV.
     public static func portraitHorizontalFOV(landscapeFOV: Double) -> Double {
         let half = landscapeFOV / 2 * .pi / 180
@@ -45,11 +40,9 @@ public enum FieldOfView {
         GeoMath.angularDifference(bearing, heading) <= halfWidth
     }
 
-    /// Eight-point compass name for a heading in degrees (any real value; wrapped to 0..<360).
+    /// Eight-point compass name for a heading in degrees, as the prompts send it: `CompassPoint.promptWord`.
     public static func compassPoint(_ degrees: Double) -> String {
-        let normalised = (degrees.truncatingRemainder(dividingBy: 360) + 360)
-            .truncatingRemainder(dividingBy: 360)
-        return compassPoints[Int((normalised + 22.5) / 45) % 8]
+        CompassPoint(degrees: degrees).promptWord
     }
 }
 

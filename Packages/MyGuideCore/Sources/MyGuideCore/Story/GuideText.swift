@@ -18,24 +18,14 @@ public enum GuideText {
         return kept.isEmpty ? nil : kept.joined(separator: " ")
     }
 
-    /// Side of `bearing` relative to `direction` (compass degrees). nil or unusable direction → compass word.
+    /// Side of `bearing` relative to `direction` (compass degrees): `RelativeDirection.promptWord` of the wrapped
+    /// difference. nil or unusable direction (not finite, or negative) → the compass word; a bearing that is not finite
+    /// counts as 0 (north).
     public static func side(bearing: Double, direction: Double?) -> String {
         guard let direction, direction.isFinite, direction >= 0, bearing.isFinite else {
-            return FieldOfView.compassPoint(bearing.isFinite ? bearing : 0)
+            return CompassPoint(degrees: bearing).promptWord
         }
-        // r = bearing − direction, normalised into (−180, 180].
-        var r = (bearing - direction).truncatingRemainder(dividingBy: 360)
-        if r > 180 { r -= 360 }
-        if r <= -180 { r += 360 }
-        let magnitude = abs(r)
-        let right = r > 0
-        switch magnitude {
-        case ...30: return "ahead"
-        case ...60: return right ? "ahead-right" : "ahead-left"
-        case ...120: return right ? "to your right" : "to your left"
-        case ...150: return right ? "behind-right" : "behind-left"
-        default: return "behind"
-        }
+        return RelativeDirection(offset: GeoMath.signedOffset(from: direction, to: bearing)).promptWord
     }
 
     /// "40 m, to your right" — distance via `BuzzText.roundedDistance`.
