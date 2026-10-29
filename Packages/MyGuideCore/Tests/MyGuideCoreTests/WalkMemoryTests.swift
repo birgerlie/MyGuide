@@ -812,4 +812,45 @@ import Testing
         try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 20)
         #expect(try store.deepestLevelHeard(buzzID: b.id) == 2)
     }
+
+    // MARK: - Chosen stories
+
+    static func chosenStory(_ placeID: String, levels: [String], id: UUID = UUID()) -> WalkStory {
+        var story = buzzStory(placeID, levels: levels, id: id)
+        story.kind = .chosen
+        return story
+    }
+
+    @Test func savingAChosenStoryStoresItsPlaceUnheardAndPlayingRetiresIt() throws {
+        let story = Self.chosenStory("osm:node/7", levels: ["One."])
+        try store.saveWalkStory(story, tripID: Self.trip)
+        let place = try #require(try store.place(id: "osm:node/7"))
+        #expect(place.deepestLevelHeard == 0 && place.lastHeardAt == nil && place.name == "Name osm:node/7")
+        #expect(try store.retiredPlaceIDs().isEmpty)
+        try store.markHeard(try #require(story.place), level: 1, at: Self.t0 + 5)
+        #expect(try store.retiredPlaceIDs() == ["osm:node/7"])
+    }
+
+    @Test func savingAStopStoryStillStoresNoPlace() throws {
+        try store.saveWalkStory(Self.stopStory(north: 20, levels: ["Stop."]), tripID: Self.trip)
+        #expect(try store.context.fetch(FetchDescriptor<PlaceRecord>()).isEmpty)
+    }
+
+    @Test func chosenStoryIsRecentWithItsPlaceNameAtEveryLevel() throws {
+        let id = UUID()
+        try store.saveWalkStory(Self.chosenStory("osm:node/7", levels: ["One.", "Two."], id: id), tripID: Self.trip)
+        let r = try store.recentStories(since: Self.t0 - 10, excludingSession: nil)
+        // No buzz record: both levels count as told (not prepared), named after the stored place.
+        #expect(r.count == 2)
+        #expect(r.allSatisfy { $0.placeName == "Name osm:node/7" && !$0.prepared })
+        #expect(Set(r.map(\.text)) == ["One.", "Two."])
+        #expect(try store.recentStories(since: Self.t0 - 10, excludingSession: id).isEmpty)
+    }
+
+    @Test func priorStoriesByPlaceFindChosenStories() throws {
+        try store.saveWalkStory(Self.chosenStory("osm:node/7", levels: ["One."]), tripID: Self.trip)
+        let found = try store.priorStories(placeIDs: ["osm:node/7"], near: .at(north: 5_000), excludingSession: nil)
+        #expect(found.map(\.text) == ["One."] && found.first?.placeID == "osm:node/7")
+        #expect(try store.priorStories(placeIDs: ["osm:node/8"], near: .at(north: 5_000), excludingSession: nil).isEmpty)
+    }
 }

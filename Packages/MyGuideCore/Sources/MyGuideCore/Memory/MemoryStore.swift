@@ -149,7 +149,8 @@ public enum MemoryError: Error, Equatable {
     /// and stop stories within `priorRadius` of `near`, excluding the capture or walk story `excludingSession`;
     /// newest first, at most `priorLimit`. A buzz story is saved when its buzz goes out, before anyone listens, so a
     /// buzz story level counts only once its buzz log entry has heard that deep (`BuzzRecord.deepestLevel`, the buzz
-    /// sharing the story's id); without a log entry none of its levels count. Photo and stop story levels always count.
+    /// sharing the story's id); without a log entry none of its levels count. Photo, stop and chosen story levels always count
+    /// (a chosen story is found by its place like a photo story).
     public func priorStories(placeIDs: [String], near: Coordinate, excludingSession: UUID?) throws -> [PriorStory] {
         var stories: [StoryRecord] = []
 
@@ -222,7 +223,10 @@ public enum MemoryError: Error, Equatable {
                 }
                 guard let walkStory = story.walkStory else { return nil }
                 guard walkStory.kind == buzzKind else {
-                    return RecentStory(toldAt: story.createdAt, placeName: nil, level: level, text: story.text, prepared: false)
+                    // A chosen story has no buzz record: every level counts as told, under the stored place's name.
+                    let name = walkStory.kind == WalkStory.Kind.chosen.rawValue
+                        ? walkStory.placeJSON.flatMap { try? JSONDecoder().decode(Candidate.self, from: $0) }?.name : nil
+                    return RecentStory(toldAt: story.createdAt, placeName: name, level: level, text: story.text, prepared: false)
                 }
                 guard let buzz = buzzes[walkStory.id] else { return nil }
                 if story.level <= buzz.deepestLevel {

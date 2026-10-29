@@ -157,16 +157,16 @@ extension MemoryStore {
         for walk in try context.fetch(FetchDescriptor<WalkStoryRecord>()) {
             let id = "walk:\(walk.id.uuidString)"
             let kind: DiaryEntry.Kind
-            switch walk.kind {
-            case WalkStory.Kind.buzz.rawValue: kind = .buzz
-            case WalkStory.Kind.stop.rawValue: kind = .stop
+            let isChosen: Bool
+            switch WalkStory.Kind(rawValue: walk.kind) {
+            case .buzz: kind = .buzz; isChosen = false
+            case .stop: kind = .stop; isChosen = false
             // A place the walker asked for counts as heard once saved, so it needs no `heardBuzzes` record.
-            case WalkStory.Kind.chosen.rawValue: kind = .buzz
-            default:
+            case .chosen: kind = .buzz; isChosen = true
+            case nil:
                 onCorrupt("\(id) kind")
                 continue
             }
-            let isChosen = walk.kind == WalkStory.Kind.chosen.rawValue
             if kind == .buzz, !isChosen, heardBuzzes[walk.id] == nil { continue }
 
             // JSON null (a failed lookup) decodes to nil, like no data at all.

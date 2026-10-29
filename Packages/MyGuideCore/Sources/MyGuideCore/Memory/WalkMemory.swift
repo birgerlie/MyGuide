@@ -185,7 +185,7 @@ extension MemoryStore {
     }
 
     /// Upserts the story keyed by `story.id`; its fields are refreshed, except the trip it was first saved in.
-    /// Story levels not yet stored are appended, and stored levels are never rewritten. A buzz story stores its
+    /// Story levels not yet stored are appended, and stored levels are never rewritten. A buzz or chosen story stores its
     /// place but does not mark it heard; a stop story stores no place (design 7.6).
     public func saveWalkStory(_ story: WalkStory, tripID: UUID) throws {
         let encoder = JSONEncoder()
@@ -230,9 +230,10 @@ extension MemoryStore {
                 level.walkStory = record
             }
 
-            // A saved buzz story may never have been played (it is prepared when the buzz goes out), so it does
-            // not mark its place heard; `setBuzzOutcome(.heard, ...)` does that once it plays.
-            if story.kind == .buzz, let candidate = story.place {
+            // A saved buzz or chosen story may never have been played (a buzz story is prepared when the buzz goes
+            // out), so it does not mark its place heard; `setBuzzOutcome(.heard, ...)` or `markHeard` does that once
+            // it plays.
+            if story.kind != .stop, let candidate = story.place {
                 _ = try upsertWalkPlace(candidate, seenAt: story.createdAt)
             }
         }
