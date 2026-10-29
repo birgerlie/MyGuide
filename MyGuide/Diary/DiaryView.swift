@@ -39,9 +39,11 @@ struct DiaryView: View {
         .themedTitle(DiaryTexts.title(storyLanguage))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                // Read here: the picker's label closure is Sendable and cannot reach the view's state.
+                let addPhotos = DiaryTexts.addPhotos(storyLanguage)
                 PhotosPicker(selection: $pickerItems, maxSelectionCount: LibraryImport.maxSelection,
                              matching: .images, preferredItemEncoding: .current, photoLibrary: .shared()) {
-                    Label(DiaryTexts.addPhotos(storyLanguage), systemImage: "photo.badge.plus")
+                    Label(addPhotos, systemImage: "photo.badge.plus")
                 }
                 .disabled(isImporting)
             }
