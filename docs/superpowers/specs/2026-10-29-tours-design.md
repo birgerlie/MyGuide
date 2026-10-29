@@ -49,7 +49,10 @@ diary's tour summary page.
     speed is 1.3 m/s;
   - **A→B:** the bounding box of the straight line, padded by 30 % of its length on each side.
 - Wikipedia geosearch tops out at 10 km and 500 results, so a big area is covered by up to 4 geosearch tiles.
-  Overpass gets one bbox query with the same tags as today.
+  Overpass gets one bbox query for the kinds of places that can become stops, without plaques, stolpersteine and
+  stolperschwellen (never top or good, in walking mode either). Ways and relations are printed first (up to 800),
+  then nodes (up to 1200), so small nodes never crowd out the buildings; an answer at either cap marks the search
+  partial.
 - Only tier `top` and `good` places are candidates, plus `wikiOnly` when fewer than 4 top/good places exist
   *(Claude's call: the best or most important, in the owner's words)*.
 - Score: top 3, good 2, wikiOnly 1. A place already heard in the last 30 days scores × 0.5, so it is not
@@ -91,10 +94,13 @@ then the app checks the result with `MKDirections`.
   - «Neste: Pantheon · 300 m», with progress «2 av 6»;
   - «Hopp over stopp»;
   - «Avslutt turen».
-- Walking mode runs with the tour. Arriving within 60 m of the next stop buzzes it, even if its tier would not buzz
-  on its own, and marks it visited. Other places still buzz as usual, but at most 1 buzz per 3 minutes between
+- Walking mode runs with the tour. Arriving within 60 m of a stop not yet visited or skipped (the next one, or one
+  further on: «Neste» then stays) buzzes it, even if its tier would not buzz on its own, and marks it visited. The
+  buzz waits while a story plays and 30 s after the previous stop's; a stop whose buzz never goes out is unvisited
+  again. Other places still buzz as usual, but at most 1 buzz per 3 minutes between
   stops, so the tour stays the main thread *(Claude's call)*.
-- The loop ends at the start and A→B ends at the destination: «Turen er ferdig · 6 stopp · 1 t 31 min».
+- The loop ends at the start and A→B ends at the destination: «Turen er ferdig · 6 stopp · 1 t 31 min», with
+  «Lukk» (clears the tour, walking mode goes on) and «Avslutt turen».
 
 ## 7. State
 
@@ -108,9 +114,12 @@ then the app checks the result with `MKDirections`.
 ## 8. Acceptance criteria
 
 1. A 60 min loop from a central Rome spot plans 4–8 stops, and its routed total is within 60 min + 10 %.
-2. An A→B whose direct route is 30 min plans a routed total ≤ 37.5 min + dwell, through top/good places.
+2. An A→B whose direct route is 30 min plans a routed total within its budget, 37.5 min (1.25 × 30) + 4 min dwell per
+   stop, + 10 %, through top/good places.
 3. With no candidate in range, the preview says so and offers the alternative.
-4. Without network, the preview shows an approximate route and allows starting.
+4. Without network, the place search fails honestly: «Fikk ikke hentet steder. Sjekk nettet og prøv igjen.» with «Prøv
+   igjen», and no tour. When the places load but routing fails, the preview shows an approximate route (straight
+   lines, estimated times) and allows starting.
 5. Arriving at the next stop buzzes it once and advances «Neste».
 6. Closing and reopening the app restores the running tour.
 7. All planner logic (insertion, 2-opt, budget, trimming, scoring) is tested in core with hand-computed cases.
