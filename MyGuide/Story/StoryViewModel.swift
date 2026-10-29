@@ -7,8 +7,15 @@ import UIKit
 @MainActor
 @Observable
 final class StoryViewModel {
+    /// The steps of a first story (spec 6, 14.10). Each replaces the one before; only `showing` has a session.
     enum State {
-        case working(String)
+        /// "Finner stedet …" / "Finding the place …": at once.
+        case finding
+        /// The likely place from the nearby list, marked "Kanskje:" / "Maybe:".
+        case guess(PlaceCard)
+        /// The model request runs. `text` is the story so far (display only, empty until the first words); the final
+        /// decoded story replaces it, and a failure drops it.
+        case writing(card: PlaceCard?, text: String)
         case showing
         case failed(message: String, canUseCurrentPosition: Bool)
     }
@@ -37,28 +44,56 @@ final class StoryViewModel {
         case failed(message: String?)
     }
 
-    static let workingText = "Looking around…"
     static let unexpectedCancellationText = "Something went wrong. Try again."
+    /// The `@AppStorage` key of "Les opp automatisk" / "Read aloud automatically" (spec 9); on when never set.
+    nonisolated static let readAloudKey = "readAloudAutomatically"
 
-    var state: State = .working(StoryViewModel.workingText)
+    var state: State = .finding
     var session: StorySession?
     var moreState: MoreState = .idle
+    /// The next level's text so far while "Tell me more" streams it (display only); nil otherwise.
+    private(set) var moreText: String?
+    /// The fresh search's places, offered as "Prøv igjen med flere steder" / "Try again with more places": set only
+    /// when the story is "unsure" and the fresh search found a place in view that was not sent.
+    private(set) var morePlaces: Grounding?
     var thenState: ThenState = .idle
     /// The decoded "then" image, kept so the view never decodes PNG data during body evaluation.
     private(set) var thenImage: UIImage?
+    /// The photo, downscaled once off the main thread, shown while the story is found and written.
+    private(set) var photoPreview: UIImage?
     /// True when the last save to memory failed. The story stays visible; the view shows a small banner.
     var saveFailed = false
     /// Speech state per level index; a missing entry means idle. At most one level is not idle at a time.
     private(set) var speech: [Int: SpeechState] = [:]
 
+    /// The language of the screen's texts: the session's once there is one, else the one the story is told in.
+    var language: StoryLanguage { session?.language ?? newSessionLanguage }
+
     @ObservationIgnored private let services: AppServices
     @ObservationIgnored private var photoJPEG: Data?
     @ObservationIgnored private var capture: CaptureContext?
+    /// The places a "Try again with more places" run used; Retry after its failure reruns with them.
+    @ObservationIgnored private var givenPlaces: Grounding?
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// Applies the streamed progress of the request in `task`, in order.
+    @ObservationIgnored private var streamTask: Task<Void, Never>?
+    /// Waits for `PhotoStoryOutcome.freshCandidates` after an "unsure" story.
+    @ObservationIgnored private var morePlacesTask: Task<Void, Never>?
+    @ObservationIgnored private var previewTask: Task<Void, Never>?
     @ObservationIgnored private var thenTask: Task<Void, Never>?
     @ObservationIgnored private var speechTask: Task<Void, Never>?
-    /// Keeps a first story (through its level 1 audio fetch) or a continuation running if the phone is locked
-    /// mid-request. At most one is held; `.invalid` when none.
+    /// Identifies the first story whose progress may change the screen; a new run or `cancel()` replaces it.
+    @ObservationIgnored private var runID = UUID()
+    /// Likewise for the "Tell me more" request, so it never stops an "unsure" story's wait for more places.
+    @ObservationIgnored private var moreRunID = UUID()
+    /// The likely-place card, kept while the identification has not arrived.
+    @ObservationIgnored private var guessed: RankedCandidate?
+    /// The nearby list the run used, to place a matched candidate on the card before the story is complete.
+    @ObservationIgnored private var nearbyList: NearbyList?
+    @ObservationIgnored private var storyText: TextThrottle?
+    @ObservationIgnored private var moreTextThrottle: TextThrottle?
+    /// Keeps a first story or a continuation (through its audio fetch, when speech is on) running if the phone is
+    /// locked mid-request. At most one is held; `.invalid` when none.
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     /// Language for a first story; read when the photo is taken or picked. Stored sessions keep their own.
     @ObservationIgnored private var newSessionLanguage: StoryLanguage = .english
@@ -68,6 +103,8 @@ final class StoryViewModel {
         self.services = services
         self.newSessionLanguage = language
         audio.onFinish = { [weak self] _ in self?.speech = [:] }
+        storyText = TextThrottle { [weak self] text in self?.showStoryText(text) }
+        moreTextThrottle = TextThrottle { [weak self] text in self?.showMoreText(text) }
     }
 
     /// Opens a stored session from History: shows its levels at once, with no auto-play. Speech cache keys use
@@ -75,16 +112,23 @@ final class StoryViewModel {
     init(session: StorySession, services: AppServices) {
         self.services = services
         self.session = session
+        self.newSessionLanguage = session.language
         self.state = .showing
         loadStoredThenImage(sessionID: session.id)
         audio.onFinish = { [weak self] _ in self?.speech = [:] }
+        moreTextThrottle = TextThrottle { [weak self] text in self?.showMoreText(text) }
     }
 
     // Backstop: work for a dropped screen must not keep running (the owner normally calls cancel()).
     isolated deinit {
         task?.cancel()
+        streamTask?.cancel()
+        morePlacesTask?.cancel()
+        previewTask?.cancel()
         thenTask?.cancel()
         speechTask?.cancel()
+        storyText?.cancel()
+        moreTextThrottle?.cancel()
         audio.stop()
         endBackgroundWork()
     }
@@ -92,42 +136,75 @@ final class StoryViewModel {
     func start(photoJPEG: Data, capture: CaptureContext) {
         self.photoJPEG = photoJPEG
         self.capture = capture
-        run()
+        makePreview(photoJPEG)
+        run(places: nil)
     }
 
-    /// Re-runs with the same photo and capture.
+    /// Re-runs with the same photo and capture (and the same places, after a failed "Try again with more places").
     func retry() {
-        run()
+        run(places: givenPlaces)
     }
 
-    /// Replaces the capture's position (clearing its heading) and runs again.
+    /// Replaces the capture's position (clearing its heading) and runs again, with a new place search.
     func useCurrentPosition(_ coordinate: Coordinate, accuracy: Double?) {
         guard let capture else { return }
         self.capture = capture.withCoordinate(coordinate, accuracy: accuracy)
-        run()
+        run(places: nil)
     }
 
-    /// Asks for the next level. Ignored while a request is already running or when no level is left.
+    /// "Prøv igjen med flere steder" / "Try again with more places": tells the story again from the fresh search's
+    /// places. Only ever on the owner's tap (a second model call costs money).
+    func retryWithMorePlaces() {
+        guard let places = morePlaces else { return }
+        run(places: places)
+    }
+
+    /// Asks for the next level, streamed. Ignored while a request is already running or when no level is left.
     /// Uses the same `task` as the first story, so `cancel()` and a dropped screen stop it too.
     func tellMore() {
         guard let current = session, current.nextLevel != nil, moreState != .working else { return }
         moreState = .working
+        moreText = nil
+        moreTextThrottle?.cancel()
         task?.cancel()
+        streamTask?.cancel()
+        let moreRunID = UUID()
+        self.moreRunID = moreRunID
+        let (texts, sink) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(1))
+        streamTask = Task { [weak self] in
+            for await text in texts {
+                guard let self, self.moreRunID == moreRunID, self.moreState == .working else { return }
+                self.moreTextThrottle?.push(text)
+            }
+        }
         let background = beginBackgroundWork()
         task = Task { [weak self, services] in
-            defer { self?.endBackgroundWork(background) }
+            var heldBySpeech = false
+            defer {
+                sink.finish()
+                if !heldBySpeech { self?.endBackgroundWork(background) }
+            }
             do {
                 let flow = try services.makeFlow()
-                let (next, usage) = try await flow.continueStory(current)
+                let (next, usage) = try await flow.continueStoryStreaming(current, onText: Self.forwarding(to: sink))
                 services.recordUsage(usage)
                 guard !Task.isCancelled, let self else { return }
+                self.moreTextThrottle?.cancel()
+                self.moreText = nil
                 self.session = next
                 self.moreState = .idle
                 self.persist(next)
-                self.playSpeech(level: next.levels.count - 1)
+                // The level's text is complete: speech starts now, or never when reading aloud is off.
+                if Self.readsAloud {
+                    heldBySpeech = true
+                    self.playSpeech(level: next.levels.count - 1, backgroundWork: background)
+                }
             } catch {
                 // Our own cancel is silence, whatever error type the sources report it with.
                 guard !Task.isCancelled, let self else { return }
+                // A broken stream keeps nothing of the partial level.
+                self.moreTextThrottle?.cancel()
+                self.moreText = nil
                 let message = UserFacingMessage.message(for: error)
                 self.moreState = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message)
             }
@@ -136,55 +213,187 @@ final class StoryViewModel {
 
     /// Stops in-flight work silently; called when the story screen is dropped (navigated back).
     func cancel() {
+        runID = UUID()
+        moreRunID = UUID()
         task?.cancel()
         task = nil
+        streamTask?.cancel()
+        streamTask = nil
+        morePlacesTask?.cancel()
+        morePlacesTask = nil
         thenTask?.cancel()
         thenTask = nil
+        storyText?.cancel()
+        moreTextThrottle?.cancel()
+        moreText = nil
         stopSpeech()
         endBackgroundWork()
         if moreState == .working { moreState = .idle }
         if thenState == .working { thenState = .idle }
     }
 
-    private func run() {
+    /// Whether the first story is still being found or written (no session yet, no failure).
+    var isWorking: Bool {
+        switch state {
+        case .finding, .guess, .writing: true
+        case .showing, .failed: false
+        }
+    }
+
+    /// The card the screen shows: the guess, then the identification as it streams, then the decoded one. After a
+    /// failure only the nearby list's guess remains (never a card from the broken stream).
+    var card: PlaceCard? {
+        switch state {
+        case .guess(let card): card
+        case .writing(let card, _): card
+        case .showing: session.map(PlaceCard.init(session:))
+        case .failed: guessed.map(PlaceCard.init(guess:))
+        case .finding: nil
+        }
+    }
+
+    // MARK: - First story
+
+    /// Tells the first story: from `places` when given ("Try again with more places"), else with the nearby list and a
+    /// fresh place search. Progress is applied in order through `streamTask`; the final decoded story is the one kept.
+    private func run(places: Grounding?) {
         guard let photoJPEG, let capture else { return }
-        task?.cancel()
-        stopSpeech()
-        thenTask?.cancel()
-        thenTask = nil
+        cancel()
         thenState = .idle
         thenImage = nil
         session = nil
         moreState = .idle
+        morePlaces = nil
+        guessed = nil
+        nearbyList = nil
+        givenPlaces = places
         saveFailed = false
-        state = .working(Self.workingText)
+        state = .finding
         let language = newSessionLanguage
+        let runID = UUID()
+        self.runID = runID
+        let (steps, sink) = AsyncStream.makeStream(of: PhotoStoryProgress.self)
+        streamTask = Task { [weak self] in
+            for await step in steps {
+                guard let self, self.runID == runID else { return }
+                self.apply(step)
+            }
+        }
         let background = beginBackgroundWork()
         task = Task { [weak self, services] in
-            // On success the level 1 audio fetch takes over the background task and ends it.
-            var handedToSpeech = false
-            defer { if !handedToSpeech { self?.endBackgroundWork(background) } }
+            // With reading aloud on, the level 1 audio fetch takes over the background task and ends it.
+            var heldBySpeech = false
+            defer {
+                sink.finish()
+                if !heldBySpeech { self?.endBackgroundWork(background) }
+            }
             do {
                 let flow = try services.makeFlow()
-                let (session, usage) = try await flow.tellFirstStory(photoJPEG: photoJPEG, capture: capture,
-                                                                     language: language)
-                // Paid calls are counted even if the screen was dropped meanwhile.
-                services.recordUsage(usage)
-                guard !Task.isCancelled, let self else { return }
-                self.session = session
-                self.state = .showing
-                self.persist(session)
-                // The text is already on screen; audio follows and never delays it.
-                handedToSpeech = true
-                self.playSpeech(level: 0, backgroundWork: background)
+                let progress = Self.forwarding(to: sink)
+                let outcome: PhotoStoryOutcome
+                if let places {
+                    outcome = try await flow.tellFirstStoryStreaming(photoJPEG: photoJPEG, capture: capture,
+                                                                     language: language, grounding: places,
+                                                                     progress: progress)
+                } else {
+                    let list = await services.nearby.current(language: language)
+                    if let self, self.runID == runID { self.nearbyList = list }
+                    outcome = try await flow.tellFirstStoryStreaming(photoJPEG: photoJPEG, capture: capture,
+                                                                     language: language, nearby: list,
+                                                                     progress: progress)
+                }
+                // Paid calls and timings are recorded even if the screen was dropped meanwhile.
+                services.recordUsage(outcome.usage)
+                AppServices.recordPhotoTimings(outcome.timings, at: .now)
+                guard !Task.isCancelled, let self, self.runID == runID else { return }
+                self.show(outcome, runID: runID)
+                // The text is complete: speech starts now, or never when reading aloud is off.
+                if Self.readsAloud {
+                    heldBySpeech = true
+                    self.playSpeech(level: 0, backgroundWork: background)
+                }
             } catch {
                 // Our own cancel (or a superseding run) is silence, whatever error type the sources report it with.
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled, let self, self.runID == runID else { return }
+                // A broken or late stream keeps nothing: no partial text, no card from it, no session.
+                self.storyText?.cancel()
+                self.runID = UUID()
                 let message = UserFacingMessage.message(for: error)
                 // A CancellationError we did not ask for must not leave the spinner up with no way out.
                 self.state = .failed(message: message.isEmpty ? Self.unexpectedCancellationText : message,
                                      canUseCurrentPosition: (error as? PhotoStoryError) == .noPosition)
             }
+        }
+    }
+
+    /// One progress step, applied only while the first story is still working (the final story always wins).
+    private func apply(_ step: PhotoStoryProgress) {
+        guard isWorking else { return }
+        switch step {
+        case .finding:
+            state = .finding
+        case .guess(let candidate):
+            guessed = candidate
+            state = .guess(PlaceCard(guess: candidate))
+        case .writing:
+            state = .writing(card: guessed.map(PlaceCard.init(guess:)), text: "")
+        case .partial(let partial):
+            let card = card(for: partial)
+            if case .writing(let shown, let text) = state, shown != card {
+                state = .writing(card: card, text: text)
+            }
+            if let story = partial.story, !story.isEmpty { storyText?.push(story) }
+        }
+    }
+
+    /// The card for a partial identification. Until it is complete the guess stays, marked "Kanskje:" / "Maybe:".
+    /// "unsure" shows the not-sure sentence as soon as it arrives. A "certain" or "likely" counts once its
+    /// `matchedCandidateID` is known (it arrived, or a later field did, so it was null): then the card shows the
+    /// matched place, placed from the guess or the nearby list when it is there, else by name only; or the model's
+    /// subject when nothing was matched. The flow has already dropped an id that was not sent.
+    private func card(for partial: PartialFirstStory) -> PlaceCard? {
+        let guessCard = guessed.map(PlaceCard.init(guess:))
+        guard let confidence = partial.confidence.flatMap(SubjectConfidence.init(rawValue:)) else { return guessCard }
+        if confidence == .unsure { return .unsure }
+        let idSettled = partial.matchedCandidateID != nil || partial.title != nil || partial.era != nil
+            || partial.story != nil
+        guard idSettled else { return guessCard }
+        if let id = partial.matchedCandidateID {
+            if let guessed, guessed.candidate.id == id { return PlaceCard(identified: guessed) }
+            if let from = capture?.coordinate, let candidate = nearbyList?.candidates.first(where: { $0.id == id }) {
+                return PlaceCard(name: candidate.name, distance: GeoMath.distance(from, candidate.coordinate),
+                                 bearing: GeoMath.bearing(from: from, to: candidate.coordinate), mark: .identified)
+            }
+        }
+        guard let subject = partial.subject, !subject.isEmpty else { return guessCard }
+        return PlaceCard(name: subject, distance: nil, bearing: nil, mark: .identified)
+    }
+
+    private func showStoryText(_ text: String) {
+        guard case .writing(let card, _) = state else { return }
+        state = .writing(card: card, text: text)
+    }
+
+    private func showMoreText(_ text: String) {
+        guard moreState == .working else { return }
+        moreText = text
+    }
+
+    /// The final story replaces whatever streamed. An "unsure" story then asks for the fresh search's places, which
+    /// never delays the story or its speech; the button appears only if they come.
+    private func show(_ outcome: PhotoStoryOutcome, runID: UUID) {
+        storyText?.cancel()
+        streamTask?.cancel()
+        streamTask = nil
+        session = outcome.session
+        state = .showing
+        persist(outcome.session)
+        guard outcome.session.identified.confidence == .unsure else { return }
+        let freshCandidates = outcome.freshCandidates
+        morePlacesTask = Task { [weak self] in
+            let places = await freshCandidates()
+            guard !Task.isCancelled, let places, let self, self.runID == runID, case .showing = self.state else { return }
+            self.morePlaces = places
         }
     }
 
@@ -201,6 +410,36 @@ final class StoryViewModel {
         }
         // A story about a matched place retires it from walking mode, saved or not.
         if let placeID = session.matchedCandidate?.candidate.id { services.walking.noteHeard(placeID: placeID) }
+    }
+
+    /// Decodes a screen-sized copy of the photo off the main thread.
+    private func makePreview(_ photoJPEG: Data) {
+        previewTask?.cancel()
+        photoPreview = nil
+        previewTask = Task { [weak self] in
+            let preview = await Self.preview(of: photoJPEG)
+            guard !Task.isCancelled, let self else { return }
+            self.photoPreview = preview
+        }
+    }
+
+    nonisolated private static func preview(of photoJPEG: Data) async -> UIImage? {
+        guard let image = UIImage(data: photoJPEG), image.size.width > 0, image.size.height > 0 else { return nil }
+        let longSide: CGFloat = 1200
+        let scale = min(1, longSide / max(image.size.width, image.size.height))
+        return await image.byPreparingThumbnail(ofSize: CGSize(width: image.size.width * scale,
+                                                               height: image.size.height * scale))
+    }
+
+    /// The flow reports from its own context; the stream keeps the order and the main actor applies it.
+    nonisolated private static func forwarding<Element: Sendable>(to sink: AsyncStream<Element>.Continuation)
+        -> @Sendable (Element) -> Void {
+        { sink.yield($0) }
+    }
+
+    /// "Les opp automatisk" / "Read aloud automatically", read when a level's text is complete.
+    private static var readsAloud: Bool {
+        UserDefaults.standard.object(forKey: readAloudKey) as? Bool ?? true
     }
 
     // MARK: - "Then" image
@@ -251,7 +490,7 @@ final class StoryViewModel {
 
     func speechState(for level: Int) -> SpeechState { speech[level] ?? .idle }
 
-    /// Play/Stop toggle for one level: stops it when loading or playing, otherwise starts it.
+    /// Lytt/Stop toggle for one level: stops it when loading or playing, otherwise starts it.
     func toggleSpeech(level: Int) {
         switch speechState(for: level) {
         case .idle, .failed: playSpeech(level: level)
@@ -314,11 +553,22 @@ final class StoryViewModel {
     /// Starts a background task for the work about to run, ending any previous one first so none leaks.
     private func beginBackgroundWork() -> UIBackgroundTaskIdentifier {
         endBackgroundWork()
-        let id = UIApplication.shared.beginBackgroundTask(withName: "MyGuide story") { [weak self] in
-            self?.backgroundTimeExpired()
-        }
+        let id = UIApplication.shared.beginBackgroundTask(withName: "MyGuide story",
+                                                          expirationHandler: Self.expirationHandler(for: self))
         backgroundTask = id
         return id
+    }
+
+    /// Built outside the main actor so UIKit gets a nonisolated `@Sendable` handler. UIKit calls it on the main
+    /// thread, where the work is stopped and the task ended before it returns; from anywhere else it hops there.
+    nonisolated private static func expirationHandler(for model: StoryViewModel) -> @Sendable () -> Void {
+        { [weak model] in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { model?.backgroundTimeExpired() }
+            } else {
+                Task { @MainActor in model?.backgroundTimeExpired() }
+            }
+        }
     }
 
     /// Ends `id` if it is still the one held. A stale id (already ended, or replaced by newer work) is ignored,
@@ -337,12 +587,184 @@ final class StoryViewModel {
     }
 
     /// iOS is about to suspend the app: stop the work and end the task. A first story that was still working
-    /// shows the error with Retry instead of a spinner that would never finish.
+    /// shows the error with Retry instead of steps that would never finish.
     private func backgroundTimeExpired() {
-        let wasWorking = if case .working = state { true } else { false }
+        let wasWorking = isWorking
         cancel()
         if wasWorking {
             state = .failed(message: Self.unexpectedCancellationText, canUseCurrentPosition: false)
         }
+    }
+}
+
+// MARK: - Place card
+
+/// The place card above the story: name, distance and direction (spec 6). The view words it in the story language.
+struct PlaceCard: Equatable {
+    enum Mark: Equatable {
+        /// From the nearby list before the model has answered: "Kanskje:" / "Maybe:".
+        case guess
+        /// The model's identification ("certain" or "likely").
+        case identified
+        /// The model is not sure: the card shows the not-sure sentence instead of a place.
+        case unsure
+    }
+
+    var name: String
+    /// Metres from the photo; nil when the place is known by name only.
+    var distance: Double?
+    /// Degrees clockwise from north; nil when the place is known by name only.
+    var bearing: Double?
+    var mark: Mark
+
+    static let unsure = PlaceCard(name: "", distance: nil, bearing: nil, mark: .unsure)
+
+    init(name: String, distance: Double?, bearing: Double?, mark: Mark) {
+        self.name = name
+        self.distance = distance
+        self.bearing = bearing
+        self.mark = mark
+    }
+
+    init(guess: RankedCandidate) {
+        self.init(name: guess.candidate.name, distance: guess.distance, bearing: guess.bearing, mark: .guess)
+    }
+
+    init(identified: RankedCandidate) {
+        self.init(name: identified.candidate.name, distance: identified.distance, bearing: identified.bearing,
+                  mark: .identified)
+    }
+
+    /// The decoded story's card: the not-sure sentence, the matched place, or the model's subject by name.
+    init(session: StorySession) {
+        if session.identified.confidence == .unsure {
+            self = .unsure
+        } else if let matched = session.matchedCandidate {
+            self.init(identified: matched)
+        } else {
+            self.init(name: session.identified.subject, distance: nil, bearing: nil, mark: .identified)
+        }
+    }
+}
+
+// MARK: - Screen texts
+
+/// The camera and story screens' texts in the story language (spec 5, 6, 9; the app has no localisation, so only these
+/// new texts come in both languages).
+enum ScreenText {
+    static func lookingAt(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Hva ser du på?" : "What are you looking at?"
+    }
+
+    static func findPlace(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Finn stedet" : "Find the place"
+    }
+
+    static func finding(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Finner stedet …" : "Finding the place …"
+    }
+
+    static func writing(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Skriver fortellingen …" : "Writing the story …"
+    }
+
+    static func notSure(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Jeg er ikke sikker på hvilket sted dette er." : "I'm not sure which place this is."
+    }
+
+    static func morePlaces(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Prøv igjen med flere steder" : "Try again with more places"
+    }
+
+    static func listen(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Lytt" : "Listen"
+    }
+
+    static func stop(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Stopp" : "Stop"
+    }
+
+    static func readAloud(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Les opp automatisk" : "Read aloud automatically"
+    }
+
+    /// "Kanskje: Pantheon · 120 m mot nordøst" / "Maybe: Pantheon · 120 m north-east"; without a position, the name.
+    static func maybe(_ card: PlaceCard, _ language: StoryLanguage) -> String {
+        let prefix = language == .norwegian ? "Kanskje" : "Maybe"
+        guard let where_ = distanceAndDirection(card, language) else { return "\(prefix): \(card.name)" }
+        return "\(prefix): \(card.name) · \(where_)"
+    }
+
+    /// "120 m mot nordøst" / "120 m north-east" (distance rounded as walking mode does); nil without a position.
+    static func distanceAndDirection(_ card: PlaceCard, _ language: StoryLanguage) -> String? {
+        guard let distance = card.distance, let bearing = card.bearing else { return nil }
+        return "\(BuzzText.roundedDistance(distance)) m \(direction(bearing, language))"
+    }
+
+    /// `GuideText`'s compass word for the bearing (a guess is always ahead, so the side would say nothing), in
+    /// Norwegian as "mot …".
+    static func direction(_ bearing: Double, _ language: StoryLanguage) -> String {
+        let word = GuideText.side(bearing: bearing, direction: nil)
+        guard language == .norwegian else { return word }
+        return norwegianCompass[word].map { "mot \($0)" } ?? word
+    }
+
+    private static let norwegianCompass = [
+        "north": "nord", "north-east": "nordøst", "east": "øst", "south-east": "sørøst",
+        "south": "sør", "south-west": "sørvest", "west": "vest", "north-west": "nordvest",
+    ]
+}
+
+// MARK: - Throttle
+
+/// Shows a growing text at most once per `interval` (spec 8: streamed text at most every 100 ms). The first text shows
+/// at once; texts arriving within the interval wait, and only the newest of them is shown when it ends.
+@MainActor
+final class TextThrottle {
+    static let interval: Duration = .milliseconds(100)
+
+    private let show: (String) -> Void
+    private var pending: String?
+    private var lastShown: ContinuousClock.Instant?
+    private var timer: Task<Void, Never>?
+
+    init(show: @escaping (String) -> Void) {
+        self.show = show
+    }
+
+    isolated deinit {
+        timer?.cancel()
+    }
+
+    func push(_ text: String) {
+        pending = text
+        guard timer == nil else { return }
+        let now = ContinuousClock.now
+        if let lastShown, now - lastShown < Self.interval {
+            let due = lastShown + Self.interval
+            timer = Task { [weak self] in
+                try? await Task.sleep(until: due, clock: .continuous)
+                guard !Task.isCancelled else { return }
+                self?.flush()
+            }
+        } else {
+            flush()
+        }
+    }
+
+    /// Drops the waiting text and forgets the last showing, for the next stream.
+    func cancel() {
+        timer?.cancel()
+        timer = nil
+        pending = nil
+        lastShown = nil
+    }
+
+    private func flush() {
+        timer = nil
+        guard let pending else { return }
+        self.pending = nil
+        lastShown = .now
+        show(pending)
     }
 }

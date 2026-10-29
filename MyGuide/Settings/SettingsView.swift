@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @AppStorage(WalkingController.buzzesPerHourKey) private var buzzesPerHour = BuzzBudget.defaultPerHour
     @AppStorage(BackgroundPlaces.settingKey) private var prepareBackgroundPlaces = true
+    @AppStorage(StoryViewModel.readAloudKey) private var readAloudAutomatically = true
 
     var body: some View {
         Form {
@@ -51,6 +52,16 @@ struct SettingsView: View {
                 Text("Language")
             } footer: {
                 Text("Applies to new photos. Stories already told keep their language.")
+            }
+            Section {
+                Toggle(ScreenText.readAloud(storyLanguage), isOn: $readAloudAutomatically)
+                NavigationLink("Story timings") { StoryTimingsView() }
+            } header: {
+                Text("Photo stories")
+            } footer: {
+                Text(storyLanguage == .norwegian
+                     ? "Av: ingen tale hentes; trykk Lytt for å høre fortellingen. Gjelder alle nivåer. Gåmodus har egne innstillinger."
+                     : "Off: no speech is fetched; tap Listen to hear the story. Applies to every level. Walking mode has its own settings.")
             }
             Section {
                 Toggle(storyLanguage == .norwegian ? "Forbered steder i bakgrunnen" : "Prepare places in the background",

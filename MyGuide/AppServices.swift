@@ -46,6 +46,8 @@ final class AppServices {
     let memoryIsPersistent: Bool
 
     init(memory: MemoryStore, memoryIsPersistent: Bool = true) {
+        // First, before anything can append: every append goes through the same serial queue, after this.
+        Self.trimPhotoTimings()
         self.memory = memory
         self.memoryIsPersistent = memoryIsPersistent
         let http = http
@@ -174,6 +176,50 @@ final class AppServices {
     nonisolated static func logNearbyFailure(_ what: String, _ error: Error) {
         let ns = error as NSError
         nearbyLog.error("\(what, privacy: .public): \(String(describing: type(of: error)), privacy: .public) \(ns.domain, privacy: .public) \(ns.code, privacy: .public) \(WalkLogEvent.errorText(error), privacy: .public)")
+    }
+
+    // MARK: - Photo story timings (spec 10)
+
+    nonisolated static let timingsLog = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "timings")
+
+    /// Application Support/PhotoTimings.jsonl: one `PhotoTimingsEntry` per line, newest last.
+    nonisolated static var photoTimingsURL: URL {
+        URL.applicationSupportDirectory.appending(path: "PhotoTimings.jsonl", directoryHint: .notDirectory)
+    }
+
+    /// Every read and write of the timings file runs here, in order, off the main thread. The launch trim is the first
+    /// item, so no append can come before it.
+    nonisolated private static let timingsQueue = DispatchQueue(label: "io.github.birgerlie.MyGuide.photoTimings")
+
+    /// Keeps the newest `PhotoTimingsLog.keep` lines. Called once, at launch. A failure is logged; the file stays.
+    nonisolated private static func trimPhotoTimings() {
+        let url = photoTimingsURL
+        timingsQueue.async {
+            do { try PhotoTimingsLog.trim(url) } catch { logTimingsFailure("timings trim failed", error) }
+        }
+    }
+
+    /// Appends one finished first story's timings. No story text, no photo. A failure is logged and dropped.
+    nonisolated static func recordPhotoTimings(_ timings: PhotoStoryTimings, at date: Date) {
+        let url = photoTimingsURL
+        let entry = PhotoTimingsEntry(at: date, timings: timings)
+        timingsQueue.async {
+            do { try PhotoTimingsLog.append(entry, to: url) } catch { logTimingsFailure("timings append failed", error) }
+        }
+    }
+
+    /// Every stored entry, oldest first, read after every append already asked for.
+    nonisolated static func photoTimings() async -> [PhotoTimingsEntry] {
+        let url = photoTimingsURL
+        return await withCheckedContinuation { continuation in
+            timingsQueue.async { continuation.resume(returning: PhotoTimingsLog.read(url)) }
+        }
+    }
+
+    /// The error's type, domain and code only.
+    nonisolated private static func logTimingsFailure(_ what: String, _ error: Error) {
+        let ns = error as NSError
+        timingsLog.error("\(what, privacy: .public): \(String(describing: type(of: error)), privacy: .public) \(ns.domain, privacy: .public) \(ns.code, privacy: .public)")
     }
 
     /// Whether a foreground refresh (camera fix) is under way, so fixes arriving every second do not each start one.

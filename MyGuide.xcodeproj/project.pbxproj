@@ -26,6 +26,7 @@
 		395515A7A501BA457B009E28 /* GuidedWalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A5C636C046DB5D8AB64F46 /* GuidedWalkView.swift */; };
 		3AF03156542508C7009B121A /* WalkLogListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962FB606403221C1C07B5A34 /* WalkLogListView.swift */; };
 		3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */; };
+		3FF2CCCC1B0F2E31717008F2 /* StoryTimingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */; };
 		40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
 		4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */; };
 		46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CB088E737DE4DD25A20C41 /* DiaryView.swift */; };
@@ -177,6 +178,7 @@
 		CEB5D94A78BCC8888CEB0790 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D4F54BE4CD7C5098E4E6DACF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DC982992B37C30453C7F88D8 /* WalkingStories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingStories.swift; sourceTree = "<group>"; };
+		E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryTimingsView.swift; sourceTree = "<group>"; };
 		E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingActivityController.swift; sourceTree = "<group>"; };
 		E5588654A1B24191FA872223 /* MyGuideWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MyGuideWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -291,6 +293,7 @@
 			children = (
 				F2EC60C12EF6858FD501AD51 /* BuzzLogView.swift */,
 				3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */,
+				E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */,
 				60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */,
 				962FB606403221C1C07B5A34 /* WalkLogListView.swift */,
 				281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */,
@@ -635,6 +638,7 @@
 				1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */,
 				7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */,
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
+				3FF2CCCC1B0F2E31717008F2 /* StoryTimingsView.swift in Sources */,
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
 				65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */,
 				DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */,

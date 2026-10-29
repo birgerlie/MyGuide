@@ -2,7 +2,9 @@ import MyGuideCore
 import PhotosUI
 import SwiftUI
 
-/// Camera preview, shutter, library picker and a HUD showing what position and heading will be sent. Pushed from
+/// "Hva ser du på?": the camera preview under the design package's overlay (heading, focus corners, shutter, library
+/// picker and the coral "Finn stedet" button), with a one-line HUD showing what position and heading will be sent. The
+/// new texts follow the story language (spec 5). Pushed from
 /// Home, which starts the shared camera while this screen is on top and stops it otherwise; this screen only shows
 /// and drives it. A finished photo (taken or picked) is handed to Home through `onPhoto`; Home starts the story and
 /// replaces this screen with it.
@@ -42,12 +44,26 @@ struct CaptureScreen: View {
                     .multilineTextAlignment(.center)
                     .padding()
             }
-            VStack {
+            legibilityGradient
+            VStack(spacing: Theme.Spacing.margin) {
                 hud
-                Spacer()
+                FocusCorners()
+                    .stroke(Theme.Colour.ivory.opacity(0.9), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .padding(.horizontal, Theme.Spacing.wideMargin)
+                    .padding(.vertical, Theme.Spacing.unit)
+                    .frame(maxHeight: .infinity)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                Text(ScreenText.lookingAt(storyLanguage))
+                    .font(Theme.Font.display)
+                    .foregroundStyle(Theme.Colour.ivory)
+                    .multilineTextAlignment(.center)
+                    .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+                    .accessibilityAddTraits(.isHeader)
                 controls
             }
-            .padding()
+            .padding(.horizontal, Theme.Spacing.wideMargin)
+            .padding(.vertical, Theme.Spacing.margin)
         }
         // Over the whole screen: the overlay's transparent areas pass touches through, its buttons keep their taps.
         .simultaneousGesture(pinchToZoom, including: camera.isRunning ? .all : .subviews)
@@ -98,23 +114,48 @@ struct CaptureScreen: View {
         }
     }
 
+    /// A soft dark wash behind the HUD at the top and the heading and controls at the bottom, so ivory text stays
+    /// legible over a bright scene. It takes no touches.
+    private var legibilityGradient: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: 140)
+            Spacer(minLength: 0)
+            LinearGradient(colors: [.clear, .black.opacity(0.35), .black.opacity(0.7)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 420)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    /// One quiet caption line: what position and heading the photo will carry.
     private var hud: some View {
         // Re-evaluated every second so a fix that goes stale shows as "No GPS fix".
         TimelineView(.periodic(from: .now, by: 1)) { context in
             Text(CaptureHUD.text(fix: LocationProvider.usableFix(location.location, now: context.date),
                                  compass: location.compass))
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.black.opacity(0.55), in: Capsule())
+                .font(Theme.Font.caption.monospacedDigit())
+                .foregroundStyle(Theme.Colour.ivory.opacity(0.85))
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 
     private var controls: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Theme.Spacing.margin) {
             if camera.isRunning { zoomButton }
             controlRow
+            // Takes the photo, same as the shutter. Coral with forest-green text (never light text on coral).
+            Button(action: shutter) {
+                HStack(spacing: Theme.Spacing.unit) {
+                    Text(ScreenText.findPlace(storyLanguage))
+                    Image(systemName: "arrow.right")
+                        .accessibilityHidden(true)
+                }
+            }
+            .buttonStyle(.themePrimary(.coral))
+            .disabled(!camera.isRunning || isBusy)
         }
     }
 
@@ -125,7 +166,7 @@ struct CaptureScreen: View {
                          photoLibrary: .shared()) {
                 Image(systemName: "photo.on.rectangle")
                     .font(.title2)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.Colour.ivory)
                     .frame(width: 56, height: 56)
                     .background(.black.opacity(0.4), in: Circle())
             }
@@ -134,8 +175,8 @@ struct CaptureScreen: View {
             Spacer()
             Button(action: shutter) {
                 Circle()
-                    .strokeBorder(.white, lineWidth: 4)
-                    .background(Circle().fill(.white.opacity(isBusy ? 0.3 : 0.85)).padding(6))
+                    .strokeBorder(Theme.Colour.ivory, lineWidth: 4)
+                    .background(Circle().fill(Theme.Colour.ivory.opacity(isBusy ? 0.3 : 0.85)).padding(6))
                     .frame(width: 76, height: 76)
             }
             .accessibilityLabel("Take photo")
@@ -201,5 +242,39 @@ struct CaptureScreen: View {
         case .runtime(let text): "The camera stopped: \(text) Pick a photo from your library."
         default: "The camera couldn't start. Pick a photo from your library."
         }
+    }
+}
+
+/// The four corner brackets of the design package's viewfinder, inset in the given rect.
+private struct FocusCorners: Shape {
+    /// Length of each bracket arm, at most a quarter of the shorter side.
+    var arm: CGFloat = 36
+    var corner: CGFloat = 10
+
+    func path(in rect: CGRect) -> Path {
+        let arm = min(arm, min(rect.width, rect.height) / 4)
+        let r = min(corner, arm / 2)
+        var path = Path()
+        // Top left.
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + arm))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX + arm, y: rect.minY))
+        // Top right.
+        path.move(to: CGPoint(x: rect.maxX - arm, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r), control: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + arm))
+        // Bottom right.
+        path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - arm))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - r, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - arm, y: rect.maxY))
+        // Bottom left.
+        path.move(to: CGPoint(x: rect.minX + arm, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r), control: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - arm))
+        return path
     }
 }
