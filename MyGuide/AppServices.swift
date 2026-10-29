@@ -351,16 +351,13 @@ final class AppServices {
     }
 
     /// Whether a key is stored or bundled, for walking mode's readiness. A Keychain failure counts as no key, as
-    /// before, but is logged (error type, domain and code only) instead of passing silently.
+    /// before, but is logged (`KeychainError.diagnostic`, which keeps the OSStatus) instead of passing silently.
     nonisolated static func hasAPIKey(keychain: KeychainStore) -> Bool {
         do {
             return try apiKey(keychain: keychain) != nil
         } catch {
-            let ns = error as NSError
-            keychainLog.error("""
-                reading the API key failed: \(String(describing: type(of: error)), privacy: .public) \
-                \(ns.domain, privacy: .public) \(ns.code, privacy: .public)
-                """)
+            // Only the error: an OSStatus or an error description, never the key.
+            keychainLog.error("reading the API key failed: \(KeychainError.diagnostic(error), privacy: .public)")
             return false
         }
     }

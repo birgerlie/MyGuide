@@ -3,6 +3,15 @@ import Security
 
 public enum KeychainError: Error, Equatable {
     case unexpectedStatus(Int32)
+
+    /// A line for the system log that keeps the OSStatus: "KeychainError.unexpectedStatus(-25308)". Bridged to
+    /// NSError this error has code 0, so the status would be lost. Any other error gives its own description.
+    public static func diagnostic(_ error: Error) -> String {
+        if case KeychainError.unexpectedStatus(let status) = error {
+            return "KeychainError.unexpectedStatus(\(status))"
+        }
+        return String(describing: error)
+    }
 }
 
 /// Generic-password Keychain access keyed on service + account.

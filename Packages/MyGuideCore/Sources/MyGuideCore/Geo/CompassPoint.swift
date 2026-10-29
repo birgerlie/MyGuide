@@ -9,8 +9,9 @@ public enum CompassPoint: Int, Sendable, CaseIterable {
     /// belongs to it: 22.5 is north-east. Not finite → north.
     public init(degrees: Double) {
         guard degrees.isFinite else { self = .north; return }
+        // normalizedDegrees is in 0..<360, so (x + 22.5) / 45 is in 0.5..<8.5 and Int(…) % 8 is in 0...7: a raw value.
         let index = Int((GeoMath.normalizedDegrees(degrees) + 22.5) / 45) % 8
-        self = CompassPoint(rawValue: index) ?? .north
+        self = CompassPoint(rawValue: index)!
     }
 
     /// The English word the prompts send to the model ("north-west"). Kept as is: the model reads it.
