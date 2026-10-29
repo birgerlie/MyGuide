@@ -238,9 +238,14 @@ final class AppServices {
 
     /// Logs a nearby-list failure: the error's type, domain and code, and its description (no personal data: the
     /// errors are network and file errors).
+    /// When every Overpass endpoint failed, the type, domain and code are the first endpoint's, and the endpoint
+    /// lines follow.
     nonisolated static func logNearbyFailure(_ what: String, _ error: Error) {
-        let ns = error as NSError
-        nearbyLog.error("\(what, privacy: .public): \(String(describing: type(of: error)), privacy: .public) \(ns.domain, privacy: .public) \(ns.code, privacy: .public) \(WalkLogEvent.errorText(error), privacy: .public)")
+        let failure = error as? OverpassFailure
+        let shown = failure?.first ?? error
+        let ns = shown as NSError
+        let endpoints = failure.map { " (\($0.description))" } ?? ""
+        nearbyLog.error("\(what, privacy: .public): \(String(describing: type(of: shown)), privacy: .public) \(ns.domain, privacy: .public) \(ns.code, privacy: .public) \(WalkLogEvent.errorText(error), privacy: .public)\(endpoints, privacy: .public)")
     }
 
     // MARK: - Photo story timings (spec 10)
