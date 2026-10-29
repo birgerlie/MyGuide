@@ -246,7 +246,7 @@ struct HomeScreen: View {
                 StoryView(model: pushedModel, location: location)
             }
         case .walkStory(let id):
-            WalkStoryView(stories: services.walking.stories, id: id)
+            WalkStoryView(stories: services.walking.stories, placeImages: services.placeImages, id: id)
                 .id(id)
         case .dayStory(let dayKey):
             DayStoryScreen(model: services.diary.dayStory(dayKey, services: services))

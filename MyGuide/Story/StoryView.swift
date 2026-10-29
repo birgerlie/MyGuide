@@ -12,11 +12,6 @@ struct StoryView: View {
     let location: LocationProvider
     @State private var showingSources = false
 
-    /// How far the sheet reaches up over the photo, and its corner radius.
-    private static let sheetOverlap: CGFloat = 24
-    /// The photo's height as a share of its width (4:3 landscape crop).
-    private static let heroAspect: CGFloat = 3.0 / 4.0
-
     var body: some View {
         content
             .foregroundStyle(Theme.Colour.text)
@@ -25,7 +20,8 @@ struct StoryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showingSources) {
                 if let session = model.session {
-                    SourcesSheet(sources: StorySources.list(for: session), language: language)
+                    SourcesSheet(sources: StorySources.list(for: session), language: language,
+                                 emptyText: ScreenText.noPlaceSources(language), note: ScreenText.aiNote(language))
                 }
             }
     }
@@ -52,59 +48,6 @@ struct StoryView: View {
         }
     }
 
-    // MARK: - Layout
-
-    /// The photo, then the sheet with `sheet` in it, over the photo's lower edge.
-    private func page(photo image: UIImage?, @ViewBuilder sheet: () -> some View) -> some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if let image {
-                    hero(image)
-                }
-                VStack(alignment: .leading, spacing: Theme.Spacing.margin) {
-                    sheet()
-                }
-                .padding(.horizontal, Theme.Spacing.wideMargin)
-                .padding(.top, Theme.Spacing.wideMargin)
-                .padding(.bottom, Theme.Spacing.margin)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.Colour.background,
-                            in: UnevenRoundedRectangle(topLeadingRadius: Self.sheetOverlap,
-                                                       topTrailingRadius: Self.sheetOverlap, style: .continuous))
-                .padding(.top, image == nil ? 0 : -Self.sheetOverlap)
-            }
-        }
-    }
-
-    /// Edge to edge, cropped to 4:3 so a tall or dark photo never pushes the story off the screen.
-    private func hero(_ image: UIImage) -> some View {
-        Color.clear
-            .aspectRatio(1 / Self.heroAspect, contentMode: .fit)
-            .overlay {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            }
-            .clipped()
-            .accessibilityHidden(true)
-    }
-
-    /// "STED FUNNET", "KORT FORTELLING": small spaced capitals.
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.custom(Theme.FontName.medium, size: 13, relativeTo: .caption))
-            .tracking(1.6)
-            .opacity(0.75)
-            .accessibilityAddTraits(.isHeader)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(Theme.Colour.stone)
-            .frame(height: 1)
-            .accessibilityHidden(true)
-    }
-
     // MARK: - Place header
 
     /// The status label, the name in Playfair and the line with where it is. "Unsure" shows the not-sure sentence in
@@ -114,11 +57,11 @@ struct StoryView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
             switch card.mark {
             case .unsure:
-                sectionLabel(ScreenText.unsureLabel(language))
+                SectionLabel(ScreenText.unsureLabel(language))
                 Text(ScreenText.notSure(language))
                     .font(Theme.Font.title)
             case .guess, .identified:
-                sectionLabel(ScreenText.statusLabel(card.mark, confidence: confidence, language))
+                SectionLabel(ScreenText.statusLabel(card.mark, confidence: confidence, language))
                 Text(card.name)
                     .font(Theme.Font.display)
                     .fixedSize(horizontal: false, vertical: true)
@@ -140,7 +83,7 @@ struct StoryView: View {
 
     /// Each step replaces the one before, and every spinner has words next to it.
     private var progress: some View {
-        page(photo: model.photoPreview) {
+        StorySheetPage(photo: model.photoPreview) {
             if let card = model.card {
                 placeHeader(card, confidence: nil, address: nil)
             } else {
@@ -148,8 +91,8 @@ struct StoryView: View {
             }
             switch model.state {
             case .writing(_, let text):
-                divider
-                sectionLabel(ScreenText.shortStory(language))
+                StoryDivider()
+                SectionLabel(ScreenText.shortStory(language))
                 if !text.isEmpty {
                     StoryText(text: text)
                 }
@@ -179,7 +122,7 @@ struct StoryView: View {
         let card = PlaceCard(session: session)
         // The model's screen-sized preview; the small thumbnail only while that is being decoded. Never the full
         // photo here: the body redraws up to ten times a second while "Mer" streams in.
-        return page(photo: model.photoPreview ?? UIImage(data: session.thumbnailJPEG)) {
+        return StorySheetPage(photo: model.photoPreview ?? UIImage(data: session.thumbnailJPEG)) {
             placeHeader(card, confidence: session.identified.confidence, address: session.grounding.address)
             let badges = StoryBadges.badges(for: session)
             if !badges.isEmpty {
@@ -194,21 +137,21 @@ struct StoryView: View {
                 Button(ScreenText.morePlaces(language)) { model.retryWithMorePlaces() }
                     .buttonStyle(.themeSecondary)
             }
-            divider
-            sectionLabel(ScreenText.shortStory(language))
+            StoryDivider()
+            SectionLabel(ScreenText.shortStory(language))
             ForEach(Array(session.levels.enumerated()), id: \.offset) { index, text in
                 if index == 0 {
                     StoryText(text: text, selectable: true)
                 } else {
                     // Each deeper level gets its own label and Lytt; the bottom button reads the short story.
-                    sectionLabel(ScreenText.moreLabel(index, language))
+                    SectionLabel(ScreenText.moreLabel(index, language))
                         .padding(.top, Theme.Spacing.unit)
                     StoryText(text: text, selectable: true)
                     listenButton(level: index)
                 }
             }
             if let moreText = model.moreText {
-                sectionLabel(ScreenText.moreLabel(session.levels.count, language))
+                SectionLabel(ScreenText.moreLabel(session.levels.count, language))
                     .padding(.top, Theme.Spacing.unit)
                 StoryText(text: moreText)
             }
@@ -221,149 +164,48 @@ struct StoryView: View {
     }
 
     /// "⊕ Mer om Pantheon" and "Kilder" side by side, as links rather than big buttons.
-    @ViewBuilder
     private func moreAndSources(_ session: StorySession, card: PlaceCard) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
-            if case .failed(let message) = model.moreState {
-                Text(message)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.red)
-            }
-            HStack(spacing: Theme.Spacing.margin) {
-                if let next = session.nextLevel {
-                    let working = model.moreState == .working
-                    let failed = model.moreState != .idle && !working
-                    Button {
-                        model.tellMore()
-                    } label: {
-                        HStack(spacing: Theme.Spacing.unit + 4) {
-                            if working {
-                                ProgressView()
-                            } else {
-                                Image(systemName: failed ? "arrow.clockwise.circle" : "plus.circle")
-                                    .font(.system(size: 28, weight: .light))
-                            }
-                            Text(failed ? ScreenText.retry(language)
-                                 : ScreenText.more(next, name: card.mark == .identified ? card.name : nil, language))
-                                .font(Theme.Font.body)
-                                .multilineTextAlignment(.leading)
-                        }
-                        .frame(minHeight: Theme.minimumTouchHeight)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(working)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Rectangle()
-                        .fill(Theme.Colour.stone)
-                        .frame(width: 1, height: 32)
-                        .accessibilityHidden(true)
-                }
-                Button {
-                    showingSources = true
-                } label: {
-                    HStack(spacing: Theme.Spacing.unit) {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 22, weight: .light))
-                        Text(ScreenText.sources(language))
-                            .font(Theme.Font.body)
-                            .underline()
-                    }
-                    .frame(minHeight: Theme.minimumTouchHeight)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .fixedSize()
-                .frame(maxWidth: session.nextLevel == nil ? .infinity : nil, alignment: .leading)
-            }
-            divider
-        }
-        .padding(.top, Theme.Spacing.unit)
+        let failure: String? = if case .failed(let message) = model.moreState { message } else { nil }
+        let working = model.moreState == .working
+        return MoreSourcesRow(
+            language: language,
+            moreTitle: session.nextLevel.map {
+                ScreenText.more($0, name: card.mark == .identified ? card.name : nil, language)
+            },
+            working: working,
+            failed: model.moreState != .idle && !working,
+            failure: failure,
+            onMore: { model.tellMore() },
+            onSources: { showingSources = true })
     }
 
     /// The bottom: "Lytt til fortellingen" (the first level) in coral with dark text, then the diary status.
     private func bottomBar(listenEnabled: Bool, diaryStatus: Bool) -> some View {
         let state = model.speechState(for: 0)
-        let active = state == .loading || state == .playing
-        return VStack(spacing: Theme.Spacing.unit) {
-            Button {
-                model.toggleSpeech(level: 0)
-            } label: {
-                HStack(spacing: Theme.Spacing.unit + 4) {
-                    if state == .loading {
-                        ProgressView().tint(Theme.Colour.forest)
-                    } else {
-                        Image(systemName: active ? "stop.fill" : "play.fill")
-                    }
-                    Text(active ? ScreenText.stop(language) : ScreenText.listenToStory(language))
-                }
-                // Forest on coral is 4.26:1: under the 4.5:1 for normal text. Inter Medium (weight 500) at 19 pt is not
-                // "large text" (14 pt at weight 700, or 24 pt), so this is the design package's colours, kept by the
-                // owner's call, not a pass.
-                .font(.custom(Theme.FontName.medium, size: 19, relativeTo: .body))
-                .foregroundStyle(Theme.Colour.forest)
-                .frame(maxWidth: .infinity, minHeight: 56)
-                .background(Theme.Colour.coral, in: Capsule())
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(!listenEnabled)
-            .opacity(listenEnabled ? 1 : 0.5)
-            if case .failed(let message) = state {
-                Text(message ?? ScreenText.couldNotPlay(language))
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-            }
-            if diaryStatus {
-                if model.saveFailed {
-                    Label(ScreenText.saveFailed(language), systemImage: "exclamationmark.triangle")
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(.red)
-                } else {
-                    Label(ScreenText.savedInDiary(language), systemImage: "book")
-                        .font(Theme.Font.body)
-                        .opacity(0.75)
-                }
-            }
-        }
-        .padding(.horizontal, Theme.Spacing.margin)
-        .padding(.top, Theme.Spacing.unit)
-        .padding(.bottom, Theme.Spacing.unit)
-        .background(Theme.Colour.background)
+        return ListenBar(
+            language: language,
+            isActive: state == .loading || state == .playing,
+            isLoading: state == .loading,
+            enabled: listenEnabled,
+            failure: speechFailure(state),
+            diaryStatus: diaryStatus ? (model.saveFailed ? .saveFailed : .saved) : nil,
+            action: { model.toggleSpeech(level: 0) })
     }
 
-    /// Lytt / Stopp for a deeper level. Coral marks active audio (design package), always with forest-green text on it.
-    @ViewBuilder
+    /// Lytt / Stopp for a deeper level.
     private func listenButton(level: Int) -> some View {
         let state = model.speechState(for: level)
-        let active = state == .loading || state == .playing
-        VStack(alignment: .leading, spacing: Theme.Spacing.unit / 2) {
-            Button {
-                model.toggleSpeech(level: level)
-            } label: {
-                HStack(spacing: 6) {
-                    if state == .loading {
-                        ProgressView().tint(Theme.Colour.forest)
-                    } else {
-                        Image(systemName: active ? "stop.fill" : "play.fill")
-                    }
-                    Text(active ? ScreenText.stop(language) : ScreenText.listen(language))
-                }
-                .font(Theme.Font.bodyMedium)
-                .foregroundStyle(Theme.Colour.forest)
-                .padding(.horizontal, Theme.Spacing.margin)
-                .frame(minWidth: Theme.minimumTouchHeight, minHeight: Theme.minimumTouchHeight)
-                .background(Theme.Colour.coral, in: Capsule())
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            if case .failed(let message) = state {
-                Text(message ?? ScreenText.couldNotPlay(language))
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.red)
-            }
-        }
+        return LevelListenButton(
+            language: language,
+            isActive: state == .loading || state == .playing,
+            isLoading: state == .loading,
+            failure: speechFailure(state),
+            action: { model.toggleSpeech(level: level) })
+    }
+
+    private func speechFailure(_ state: StoryViewModel.SpeechState) -> String? {
+        guard case .failed(let message) = state else { return nil }
+        return message ?? ScreenText.couldNotPlay(language)
     }
 
     @ViewBuilder
@@ -421,7 +263,7 @@ struct StoryView: View {
     // MARK: - Failure
 
     private func failure(message: String, canUseCurrentPosition: Bool) -> some View {
-        page(photo: model.photoPreview) {
+        StorySheetPage(photo: model.photoPreview) {
             // The list's guess stays, still marked "Kanskje:" / "Maybe:"; nothing from the broken stream does.
             if let card = model.card { placeHeader(card, confidence: nil, address: nil) }
             Text(message)
@@ -442,61 +284,5 @@ struct StoryView: View {
             Button(ScreenText.retry(language)) { model.retry() }
                 .buttonStyle(.themeSecondary)
         }
-    }
-}
-
-/// «Kilder»: the sources behind the story, with links where there is one, and a plain note that the text is written
-/// by an AI model and can be wrong.
-private struct SourcesSheet: View {
-    let sources: [StorySource]
-    let language: StoryLanguage
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    if sources.isEmpty {
-                        Text(ScreenText.noPlaceSources(language))
-                    }
-                    ForEach(sources) { source in
-                        if let url = source.url {
-                            Link(destination: url) { row(source, link: true) }
-                        } else {
-                            row(source, link: false)
-                        }
-                    }
-                } footer: {
-                    Text(ScreenText.aiNote(language))
-                }
-            }
-            .navigationTitle(ScreenText.sources(language))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(ScreenText.done(language)) { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private func row(_ source: StorySource, link: Bool) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(ScreenText.sourceName(source.kind, language))
-                    .font(Theme.Font.bodyMedium)
-                if let detail = source.detail {
-                    Text(detail)
-                        .font(Theme.Font.caption)
-                }
-            }
-            Spacer()
-            if link {
-                Image(systemName: "arrow.up.right.square")
-                    .accessibilityHidden(true)
-            }
-        }
-        .foregroundStyle(Theme.Colour.text)
     }
 }

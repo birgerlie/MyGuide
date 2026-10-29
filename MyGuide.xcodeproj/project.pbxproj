@@ -46,6 +46,7 @@
 		5EFA0074A45D0C954418D2A4 /* MyGuideWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5FA86F274E41178B17735956 /* WalkStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7A49C840514706DE718EF1 /* WalkStoryView.swift */; };
 		60A784568EAE6A93C0CD99BD /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
+		63FB5DD93DBAABFA5C74374A /* StoryComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DD5402F214E227621581EF /* StoryComponents.swift */; };
 		6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7601A9D4143D662A6232BA41 /* AppServices.swift */; };
 		65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */; };
 		6AD7BBF413B4C419E0755A62 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
@@ -201,6 +202,7 @@
 		7CFF1615F9030516CF876C85 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7E7402C10EF3BE222D383C88 /* MyGuide.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGuide.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScreen.swift; sourceTree = "<group>"; };
+		85DD5402F214E227621581EF /* StoryComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryComponents.swift; sourceTree = "<group>"; };
 		8AB976060B732B94CFFDBA0D /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		8BB1989E11EB46A9F381B28D /* WalkingMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingMotion.swift; sourceTree = "<group>"; };
 		8CFD5C325D6D5A568828170F /* MyGuideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideApp.swift; sourceTree = "<group>"; };
@@ -264,6 +266,7 @@
 			isa = PBXGroup;
 			children = (
 				0D420089BC27852F1213A205 /* AudioPlayer.swift */,
+				85DD5402F214E227621581EF /* StoryComponents.swift */,
 				0127669306FC88F71BBCDBF8 /* StoryView.swift */,
 				5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */,
 			);
@@ -784,6 +787,7 @@
 				80E49C95E15C877B7EEFF2D2 /* RootTabs.swift in Sources */,
 				7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */,
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
+				63FB5DD93DBAABFA5C74374A /* StoryComponents.swift in Sources */,
 				8B6BC3F5149C4ACF27549948 /* StoryText.swift in Sources */,
 				3FF2CCCC1B0F2E31717008F2 /* StoryTimingsView.swift in Sources */,
 				9DA37619047F12C30CC86893 /* StoryView.swift in Sources */,
