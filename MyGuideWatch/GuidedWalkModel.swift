@@ -1,5 +1,6 @@
 import HealthKit
 import MyGuideCore
+import WatchKit
 
 /// The watch's guided walk: the phone's walk state, the commands sent to it, and the one workout that records the
 /// walk. The phone holds the truth. The workout follows the watch's own commands at once and is corrected to the
@@ -21,6 +22,13 @@ final class GuidedWalkModel {
     var error: String?
     /// A line about the workout: not saved, or ended from outside.
     var healthNote: String?
+    /// The last buzz the phone sent straight to the watch (spec 18), shown with «Lytt» until the next one or the end
+    /// of the walk.
+    private(set) var buzz: GuidedWalkBuzz?
+    /// True while «Lytt» waits for the phone's reply.
+    private(set) var sendingListen = false
+    /// After «Lytt»: sent, or why it failed. Cleared by the next buzz.
+    var buzzNote: String?
 
     /// A guided walk workout exists or is starting. The Check screen's own test workout must not run then.
     var hasWorkout: Bool { keeper.isActive }
@@ -42,6 +50,8 @@ final class GuidedWalkModel {
     @ObservationIgnored private var reconcileAgain = false
     /// Set when the workout ended from outside: no new workout until the next Start, or until the walk is off.
     @ObservationIgnored private var restartBlocked = false
+    /// The buzzes shown in the last 10 minutes: each is felt once, also when its notification arrives.
+    @ObservationIgnored private var recentBuzzes = RecentBuzzIDs()
 
     init(link: PhoneLink = .shared) {
         self.link = link
@@ -49,6 +59,45 @@ final class GuidedWalkModel {
         link.onState = { [weak self] context in
             guard let state = GuidedWalkState(message: context) else { return }
             self?.apply(state)
+        }
+        link.onMessage = { [weak self] message in
+            // A buzz queued while out of reach can arrive long after; by then the place is behind.
+            guard let buzz = GuidedWalkBuzz(message: message), buzz.isFresh(now: .now) else { return }
+            self?.showBuzz(id: buzz.id, name: buzz.name, line: buzz.line)
+        }
+    }
+
+    // MARK: - Buzzes
+
+    /// Plays the notification haptic and shows the place with «Lytt», once per buzz id within 10 minutes. The workout
+    /// keeps the app running through the walk, so the haptic plays with the wrist down too.
+    func showBuzz(id: UUID, name: String, line: String) {
+        let now = Date.now
+        guard recentBuzzes.remember(id, now: now) else { return }
+        buzz = GuidedWalkBuzz(id: id, name: name, line: line, sentAt: now)
+        buzzNote = nil
+        WKInterfaceDevice.current().play(.notification)
+    }
+
+    /// True when the buzz `id` was shown here in the last 10 minutes; its notification is then not presented again.
+    func hasShownBuzz(_ id: UUID) -> Bool {
+        recentBuzzes.contains(id, now: .now)
+    }
+
+    /// «Lytt» on the shown buzz: the phone tells its story, as with the notification's Listen.
+    func listenToBuzz() async {
+        guard let buzz, !sendingListen else { return }
+        sendingListen = true
+        defer { sendingListen = false }
+        buzzNote = nil
+        do {
+            try await link.tell(GuidedWalkBuzz.tellMessage(id: buzz.id))
+            // A newer buzz that arrived meanwhile keeps its own clean card.
+            if self.buzz?.id == buzz.id { buzzNote = WatchTexts.listenSent }
+        } catch PhoneLinkError.notReachable {
+            if self.buzz?.id == buzz.id { buzzNote = Self.notReachableText }
+        } catch {
+            if self.buzz?.id == buzz.id { buzzNote = error.localizedDescription }
         }
     }
 
@@ -82,7 +131,12 @@ final class GuidedWalkModel {
     func apply(_ newState: GuidedWalkState) {
         guard newState.isNewer(than: state) else { return }
         state = newState
-        if newState.phase == .off { restartBlocked = false }
+        if newState.phase == .off {
+            restartBlocked = false
+            // The walk is over: its last place no longer belongs on screen.
+            buzz = nil
+            buzzNote = nil
+        }
         syncWorkout()
     }
 

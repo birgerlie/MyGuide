@@ -1,11 +1,14 @@
 import Foundation
+import os
 
 /// Fetches named historic places and buildings near a point from OpenStreetMap via Overpass.
 public struct OverpassClient: Sendable {
-    /// The main Overpass server, then a second one tried once when the first fails (spec 13.6).
+    /// The main Overpass server, then two others, each tried once in this order when the one before fails (spec 13.6,
+    /// 18).
     static let endpoints = [
         URL(string: "https://overpass-api.de/api/interpreter")!,
         URL(string: "https://overpass.kumi.systems/api/interpreter")!,
+        URL(string: "https://maps.mail.ru/osm/tools/overpass/api/interpreter")!,
     ]
     static let userAgent = "MyGuide/0.1 (https://github.com/birgerlie/MyGuide)"
 
@@ -21,6 +24,8 @@ public struct OverpassClient: Sendable {
         "start_date", "architect", "building:architecture", "inscription", "description", "artist_name",
         "name:etymology", "wikidata", "heritage:operator", "memorial:type", "material",
     ]
+
+    private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "overpass")
 
     private let http: HTTPClient
 
@@ -45,8 +50,9 @@ public struct OverpassClient: Sendable {
     }
 
     /// The places from the first endpoint; when it fails (HTTP error, timeout, malformed answer, runtime remark) the
-    /// same query goes once to the second, and when that fails too the first error is thrown. Cancellation (also
-    /// `URLError.cancelled`, or a cancelled task) is thrown at once and never retried.
+    /// same query goes once to the next, in order, and when every one fails the first error is thrown. Each failure is
+    /// logged with its endpoint and error. Cancellation (also `URLError.cancelled`, or a cancelled task) is thrown at
+    /// once and never retried.
     public func places(around: Coordinate, radius: Int, language: StoryLanguage) async throws -> [Candidate] {
         var firstError: Error?
         for endpoint in Self.endpoints {
@@ -54,6 +60,8 @@ public struct OverpassClient: Sendable {
                 return try await places(from: endpoint, around: around, radius: radius, language: language)
             } catch {
                 if Self.isCancellation(error) { throw error }
+                let host = endpoint.host() ?? endpoint.absoluteString
+                Self.log.error("\(host, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if firstError == nil { firstError = error }
                 if Task.isCancelled { break }
             }

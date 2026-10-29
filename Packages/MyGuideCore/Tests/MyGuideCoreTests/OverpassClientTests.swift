@@ -145,13 +145,14 @@ import Testing
         #expect(PlaceTiers.tier(for: r[0]) == .good)
     }
 
-    // MARK: - The second endpoint (spec 13.6)
+    // MARK: - The fallback endpoints (spec 13.6, 18)
 
     static let oneElement = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"A","historic":"yes"}}]}"#
 
-    @Test func endpointsAreTheMainOneThenKumi() {
+    @Test func endpointsAreTheMainOneThenKumiThenMailRu() {
         #expect(OverpassClient.endpoints.map(\.absoluteString) == [
             "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         ])
     }
     @Test func overpassFallsBackToSecondEndpointOnce() async throws {
@@ -160,20 +161,52 @@ import Testing
         }
         let r = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
         #expect(r.map(\.id) == ["osm:node/1"])
-        #expect(http.requests.map(\.url) == OverpassClient.endpoints)
+        // Stops at the first success: the third endpoint is never asked.
+        #expect(http.requests.map(\.url) == Array(OverpassClient.endpoints.prefix(2)))
         // The same request goes to the second endpoint.
         #expect(http.requests[1].httpBody == http.requests[0].httpBody && http.requests[1].httpMethod == "POST")
         #expect(http.requests[1].value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
         #expect(http.requests[1].timeoutInterval == 12)
     }
-    @Test func bothEndpointsFailingThrowsTheFirstErrorAfterTwoRequests() async {
+    @Test func overpassFallsBackToThirdEndpointWhenTheFirstTwoFail() async throws {
         let http = StubHTTPClient { request in
-            request.url?.host == "overpass-api.de" ? (502, Data()) : (504, Data())
+            request.url?.host == "maps.mail.ru" ? (200, Data(Self.oneElement.utf8)) : (502, Data())
+        }
+        let r = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
+        #expect(r.map(\.id) == ["osm:node/1"])
+        // Each endpoint once, in order.
+        #expect(http.requests.map(\.url) == OverpassClient.endpoints)
+        #expect(http.requests[2].httpBody == http.requests[0].httpBody && http.requests[2].httpMethod == "POST")
+        #expect(http.requests[2].value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
+        #expect(http.requests[2].timeoutInterval == 12)
+    }
+    @Test func firstEndpointAnsweringAsksNoOther() async throws {
+        let http = StubHTTPClient { _ in (200, Data(Self.oneElement.utf8)) }
+        _ = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
+        #expect(http.requests.map(\.url) == [OverpassClient.endpoints[0]])
+    }
+    @Test func allEndpointsFailingThrowsTheFirstErrorAfterThreeRequests() async {
+        let http = StubHTTPClient { request in
+            switch request.url?.host {
+            case "overpass-api.de": (502, Data())
+            case "overpass.kumi.systems": (504, Data())
+            default: (503, Data())
+            }
         }
         await #expect(throws: GroundingFetchError.http(502)) {
             try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
         }
-        #expect(http.requests.count == 2)
+        #expect(http.requests.map(\.url) == OverpassClient.endpoints)
+    }
+    @Test func cancellationAtTheSecondEndpointIsNotRetriedAtTheThird() async {
+        let http = StubHTTPClient { request in
+            if request.url?.host == "overpass.kumi.systems" { throw URLError(.cancelled) }
+            return (502, Data())
+        }
+        await #expect(throws: URLError(.cancelled)) {
+            try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
+        }
+        #expect(http.requests.map(\.url) == Array(OverpassClient.endpoints.prefix(2)))
     }
     @Test func malformedRuntimeAndTransportFailuresAlsoFallBack() async throws {
         let remark = #"{"elements":[],"remark":"runtime error: Query timed out"}"#

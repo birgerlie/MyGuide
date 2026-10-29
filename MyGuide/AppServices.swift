@@ -91,9 +91,20 @@ final class AppServices {
             // would log that failure.
             if source == .phone, watchLink.isPaired, watchLink.isInstalled { Self.startWatchApp(walkLog: walkLog) }
         }
+        // A guided walk runs on the watch whenever walking mode is on with the watch app installed on a paired watch (a
+        // phone start launches it, above). The notification reaches the watch only while the iPhone is locked, so the
+        // buzz also goes straight to the watch app (spec 18).
+        walking.onBuzzDelivered = { buzz in
+            if watchLink.isPaired, watchLink.isInstalled { watchLink.send(buzz.message) }
+        }
         watchLink.onCommand = { message in
             if message["type"] as? String == "check.tell" {
                 walkingCheck.handleWatchTell()
+                return [:]
+            }
+            // «Lytt» on a buzz the watch showed: the same command as the notification's Listen.
+            if let buzzID = GuidedWalkBuzz.tellID(in: message) {
+                walking.handle(.tellMe(buzzID: buzzID))
                 return [:]
             }
             guard let command = GuidedWalkCommand(message: message) else { return [:] }

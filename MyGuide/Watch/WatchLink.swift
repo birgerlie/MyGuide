@@ -4,8 +4,9 @@ import os
 import WatchConnectivity
 
 /// The iPhone side of WatchConnectivity. Messages are `[String: Any]` dictionaries with a `"type"` key.
-/// From the watch: `ping` (answered here with `pong`), `check.tell` and the guided walk commands `walk.*`. To the
-/// watch: the walk state (`walk.state`) as the application context.
+/// From the watch: `ping` (answered here with `pong`), `check.tell`, the guided walk commands `walk.*` and «Lytt» on a
+/// buzz (`buzz.tell`). To the watch: the walk state (`walk.state`) as the application context, and each buzz (`buzz`)
+/// as a message.
 @MainActor
 @Observable
 final class WatchLink: NSObject {

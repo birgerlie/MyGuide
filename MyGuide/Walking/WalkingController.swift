@@ -58,6 +58,10 @@ final class WalkingController {
     /// Called with each list this run's own network refresh returned (not with a list taken over unchanged); the app
     /// fetches its pictures ahead (spec 12.6).
     @ObservationIgnored var onListRefreshed: ((NearbyList) -> Void)?
+    /// Called with each delivered buzz, after it is recorded and its notification is on its way (never before or in
+    /// place of it); the watch link sends it straight to a guided walk on the watch (spec 18). The line is in the
+    /// iPhone's screen language, as on the notification.
+    @ObservationIgnored var onBuzzDelivered: ((GuidedWalkBuzz) -> Void)?
     /// The walking stories: their text prepared at buzz time, played, continued and skipped.
     let stories: WalkingStories
 
@@ -871,6 +875,13 @@ final class WalkingController {
             }
             // stop() may have cleared the notifications while this one was being added: take it back.
             if !self.isOn || self.runToken != run { BuzzNotifier.removeNotifications(for: buzz.id) }
+        }
+        // After the posting task is made, so the watch never holds up the notification. Worded from the same course as
+        // the notification's subtitle.
+        if let onBuzzDelivered {
+            let line = BuzzText.localizedDetail(distance: buzz.distance, bearing: buzz.bearing, course: direction,
+                                                language: UILanguage.current)
+            onBuzzDelivered(GuidedWalkBuzz(id: buzz.id, name: buzz.title, line: line, sentAt: .now))
         }
         // Prepared at once, so a tap plays within a second or two (design 7.5). This makes the engine busy. The context
         // comes from the route as it is now, so its direction is `direction`, the one the buzz was worded with.

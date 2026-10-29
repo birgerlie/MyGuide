@@ -96,6 +96,14 @@ enum WatchTexts {
         norwegian ? "Treningsøkten ble avsluttet mens den startet" : "The workout ended while starting"
     }
 
+    // MARK: Buzz
+
+    private static var language: StoryLanguage { norwegian ? .norwegian : .english }
+    /// The card's heading, as on the phone's notification: "Sted i nærheten" / "Nearby place".
+    static var nearbyPlace: String { NotificationText.nearbyLabel(language) }
+    static var listen: String { norwegian ? "Lytt" : "Listen" }
+    static var listenSent: String { norwegian ? "Sendt til telefonen" : "Sent to your phone" }
+
     // MARK: Check
 
     static var notStarted: String { norwegian ? "Ikke startet" : "Not started" }

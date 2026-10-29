@@ -27,6 +27,9 @@ struct GuidedWalkView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
+                    if let buzz = model.buzz {
+                        buzzCard(buzz)
+                    }
                     Text(label)
                         .font(.title3.weight(.semibold))
                         .fixedSize(horizontal: false, vertical: true)
@@ -59,6 +62,35 @@ struct GuidedWalkView: View {
             .containerBackground(WatchColour.forest.gradient, for: .navigation)
         }
         .tint(WatchColour.coral)
+    }
+
+    /// The place the phone just buzzed about, first on screen: heading, name and direction, and «Lytt», which asks
+    /// the phone to tell its story (spec 18).
+    private func buzzCard(_ buzz: GuidedWalkBuzz) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(WatchTexts.nearbyPlace, systemImage: "mappin.and.ellipse")
+                .font(.footnote)
+                .foregroundStyle(WatchColour.coral)
+            Text(buzz.name)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(buzz.line)
+                .font(.footnote)
+                .opacity(0.75)
+            Button {
+                Task { await model.listenToBuzz() }
+            } label: {
+                Label(WatchTexts.listen, systemImage: "headphones")
+            }
+            .buttonStyle(WatchButtonStyle(primary: true))
+            .disabled(model.sendingListen)
+            .padding(.top, 4)
+            if let note = model.buzzNote {
+                Text(note).font(.footnote).opacity(0.75)
+            }
+        }
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder private var buttons: some View {

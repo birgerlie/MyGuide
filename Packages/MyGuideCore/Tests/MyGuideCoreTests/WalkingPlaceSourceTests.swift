@@ -18,7 +18,7 @@ import Testing
     ]}}
     """#
 
-    /// Routes by host: either Overpass endpoint vs Wikipedia.
+    /// Routes by host: any Overpass endpoint vs Wikipedia.
     static func stub(osm: @escaping @Sendable () throws -> (Int, Data) = { (200, Data(osmBody.utf8)) },
                      wiki: @escaping @Sendable () throws -> (Int, Data) = { (200, Data(wikiBody.utf8)) }) -> StubHTTPClient {
         StubHTTPClient { request in
@@ -121,8 +121,8 @@ import Testing
         let result = try await source(http).candidates(around: here, language: .english)
         #expect(result.osmFailed)
         #expect(result.candidates.map(\.name) == ["Stephansdom"])
-        // Both Overpass endpoints were tried, then given up.
-        #expect(http.requests.filter(Self.isOverpass).count == 2)
+        // All three Overpass endpoints were tried, then given up.
+        #expect(http.requests.filter(Self.isOverpass).count == 3)
     }
     @Test func secondEndpointAnsweringIsNoFailure() async throws {
         let http = StubHTTPClient { request in

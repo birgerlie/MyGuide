@@ -7,7 +7,7 @@ import UserNotifications
 /// follow the iPhone's language (`UILanguage`); the factual line and the photo credit belong to the place's story and
 /// follow the story language (spec 7.1, 17).
 enum BuzzNotifier {
-    nonisolated static let category = "BUZZ"
+    nonisolated static let category = GuidedWalkBuzz.notificationCategory
     nonisolated static let moreCategory = "MORE"
     nonisolated static let failedCategory = "STORY_FAILED"
     nonisolated static let stopCategory = "STOP"
@@ -17,7 +17,7 @@ enum BuzzNotifier {
     /// The categories `stop()` clears from the notification centre; a failure report stays.
     private static let walkCategories: Set<String> = [category, moreCategory]
     private static let thread = "walk"
-    private static let buzzIDKey = "buzzID"
+    private static let buzzIDKey = GuidedWalkBuzz.notificationIDKey
 
     /// Registers BUZZ, MORE, STORY_FAILED and STOP, merging with the categories other features registered (never
     /// replacing them). The actions run in the background: the story plays without unlocking the phone. Their titles

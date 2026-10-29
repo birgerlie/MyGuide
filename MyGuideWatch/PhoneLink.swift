@@ -24,7 +24,8 @@ final class PhoneLink: NSObject {
     private(set) var isReachable = false
     private(set) var lastReceived: String?
 
-    /// Handles a message from the phone; set by whoever cares (Task 15 adds the walking types).
+    /// Handles a message from the phone, sent now (`sendMessage`) or queued (`transferUserInfo`) when the watch was
+    /// out of reach: a buzz during a guided walk (spec 18).
     @ObservationIgnored var onMessage: (@MainActor ([String: Any]) -> Void)?
 
     /// Handles the phone's application context: each one it pushes, and the newest one already received when the
@@ -111,6 +112,15 @@ extension PhoneLink: WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         let box = UncheckedBox(value: message)
+        Task { @MainActor in
+            self.lastReceived = box.value["type"] as? String
+            self.onMessage?(box.value)
+        }
+    }
+
+    /// A message the phone queued while the watch was out of reach; handled like one sent now.
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        let box = UncheckedBox(value: userInfo)
         Task { @MainActor in
             self.lastReceived = box.value["type"] as? String
             self.onMessage?(box.value)
