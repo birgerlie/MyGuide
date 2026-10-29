@@ -387,3 +387,42 @@ Owner: «kan vi gå gjennom alle skjermbilder så de harmoniserer med selve desi
 **Non-goals:** no new features and no changes to behaviour or data. The diary redesign (day pages, AI title,
 «Del dagen») stays a separate project. Developer and diagnostic screens (logs, checks, timings) get the theme but
 keep their dense layouts.
+
+## 16. Additions from the owner's «Utforsk» developer spec (inspiration, 2026-10-29)
+
+The owner shared a developer spec for the landing page "as inspiration". The following are adopted. Where this
+section and earlier sections differ, this section wins, except rule 6.2.8, which stays.
+
+1. **A tapped place is held until the owner taps the locate button.** Locate re-centres, resumes following and
+   resumes automatic selection. This replaces the 20 s / 60° hold of 6.3.
+2. **The map never re-centres while the owner pans or zooms by hand.** Locate re-centres and resumes following.
+   Panning keeps the selection and any playing story.
+3. **Expanded sheet:** nearby places sorted by distance, where a tap selects one. This list is also how VoiceOver
+   reaches the markers. Under it, «Sist oppdaget» / «Recently discovered» shows the most recent stories from
+   history, only when there are any.
+4. **«Gå en tur»:**
+   - The line under it reads «Få beskjed om interessante steder underveis» / «Get told about interesting places
+     on the way» while there are no theme tours.
+   - With a running or paused walk the button reads «Fortsett turen» / «Continue the walk», with the status
+     under it, and opens the walk. It never starts a second walk.
+5. **Camera button:** it moves up with the sheet and hides when there is no room. Accessibility label «Ta bilde
+   for å identifisere et sted» / «Take a photo to identify a place».
+6. **States:**
+
+   | State | Norwegian | English | Action |
+   |---|---|---|---|
+   | Locating | Finner posisjonen din … | Finding your position … | — |
+   | Location denied | Aktiver posisjon for å se steder rundt deg | Turn on location to see places around you | Open Settings |
+
+   Poor accuracy shows an accuracy circle and no direction words. The camera stays available in every state.
+7. **No picture:** the place kind's symbol on a stone square. This replaces "no picture" in 6.5.
+8. **State is kept** across tab switches and a cancelled camera: map region, sheet height and selected place.
+   Apple's map attribution stays visible above the sheet.
+9. **Accessibility:**
+   - VoiceOver does not announce compass changes or automatic re-selections.
+   - Reduce Motion is respected.
+   - The selected marker differs by size and label, not by colour alone.
+10. **Deferred:**
+    - Pause and resume within a story (the audio player has stop only).
+    - The geometry of large places.
+    - The choice sheet between free walk and theme tour, until tours exist.
