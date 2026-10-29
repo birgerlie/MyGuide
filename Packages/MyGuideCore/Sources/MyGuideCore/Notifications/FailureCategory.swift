@@ -13,7 +13,11 @@ public enum FailureCategory: Sendable, Equatable {
             }
         } else if let e = error as? URLError {
             switch e.code {
-            case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost: self = .noNetwork
+            // Mobile data off for the app, roaming off abroad, no route to the host, DNS or TLS failing on a captive
+            // portal: all read to the owner as "no connection".
+            case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .dataNotAllowed,
+                 .internationalRoamingOff, .cannotConnectToHost, .dnsLookupFailed, .secureConnectionFailed:
+                self = .noNetwork
             case .timedOut: self = .timedOut
             default: self = .other
             }

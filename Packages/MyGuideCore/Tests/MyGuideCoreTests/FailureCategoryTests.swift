@@ -8,6 +8,11 @@ import Testing
         #expect(FailureCategory(URLError(.notConnectedToInternet)) == .noNetwork)
         #expect(FailureCategory(URLError(.networkConnectionLost)) == .noNetwork)
         #expect(FailureCategory(URLError(.cannotFindHost)) == .noNetwork)
+        #expect(FailureCategory(URLError(.dataNotAllowed)) == .noNetwork)
+        #expect(FailureCategory(URLError(.internationalRoamingOff)) == .noNetwork)
+        #expect(FailureCategory(URLError(.cannotConnectToHost)) == .noNetwork)
+        #expect(FailureCategory(URLError(.dnsLookupFailed)) == .noNetwork)
+        #expect(FailureCategory(URLError(.secureConnectionFailed)) == .noNetwork)
         #expect(FailureCategory(URLError(.timedOut)) == .timedOut)
         #expect(FailureCategory(OpenAIError.missingAPIKey) == .noKey)
         #expect(FailureCategory(OpenAIError.invalidAPIKey) == .noKey)
@@ -20,6 +25,8 @@ import Testing
         #expect(FailureCategory(OpenAIError.contentBlocked) == .aiFailed)
         // other URL errors and foreign errors are .other
         #expect(FailureCategory(URLError(.badURL)) == .other)
+        #expect(FailureCategory(URLError(.badServerResponse)) == .other)
+        #expect(FailureCategory(URLError(.serverCertificateUntrusted)) == .other)
         #expect(FailureCategory(CancellationError()) == .other)
         #expect(FailureCategory(GroundingFetchError.malformed) == .other)
     }
