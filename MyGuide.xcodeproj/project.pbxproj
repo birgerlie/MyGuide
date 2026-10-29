@@ -33,6 +33,7 @@
 		3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */; };
 		3FF2CCCC1B0F2E31717008F2 /* StoryTimingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */; };
 		40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
+		418A9B486B3BE04C46C8A1ED /* ScreenChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB1AA4452D008193B28208D2 /* ScreenChrome.swift */; };
 		4586107335B5CFFACA665DBA /* WalkLogRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */; };
 		46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CB088E737DE4DD25A20C41 /* DiaryView.swift */; };
 		488B69ECBEBD43BE7A961581 /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
@@ -55,6 +56,7 @@
 		6C3FDF42EAD1B48C0D631C87 /* BuzzNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */; };
 		6CAFAF4562FB87C72F4F72F4 /* WalkingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9399C561071230F13BDD5526 /* WalkingPanel.swift */; };
 		6E45AE573B3E9C4E3C3E8D7E /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
+		70623E8B571F401324C5D2AD /* DiaryTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D5A9F3266A7BD1AB592507 /* DiaryTexts.swift */; };
 		739CC53B7A785DD930F81C06 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
 		7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AAB6A3685B614A563229E1E /* DayStoryModel.swift */; };
 		791D55EFA8664AC2961AA5FF /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
@@ -81,6 +83,7 @@
 		CB892EAF08D652A33BE6AA47 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
 		CDFAD1A0883E09219D87E2AD /* BackgroundTaskHold.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB62877340E610053D66495A /* BackgroundTaskHold.swift */; };
 		CE4081054052B226778217DA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB976060B732B94CFFDBA0D /* AppDelegate.swift */; };
+		CFD5C8229356B6AA61821B4B /* HistoryTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E86CBAB9DD580EE7D1E07F /* HistoryTexts.swift */; };
 		CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262854964F0668D9EA23A15A /* TellMeIntent.swift */; };
 		D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D718A718A1BAB633570C16E /* WalkingCheckView.swift */; };
@@ -227,6 +230,7 @@
 		DE7EA54B02289A35307068BC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E00B654124830A6916016517 /* AroundTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundTexts.swift; sourceTree = "<group>"; };
 		E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryTimingsView.swift; sourceTree = "<group>"; };
+		E1E86CBAB9DD580EE7D1E07F /* HistoryTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryTexts.swift; sourceTree = "<group>"; };
 		E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingActivityController.swift; sourceTree = "<group>"; };
 		E5588654A1B24191FA872223 /* MyGuideWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MyGuideWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -236,8 +240,10 @@
 		F2EC60C12EF6858FD501AD51 /* BuzzLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzLogView.swift; sourceTree = "<group>"; };
 		F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingActivityAttributes.swift; sourceTree = "<group>"; };
 		F5C0F406D391D40364290743 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		F6D5A9F3266A7BD1AB592507 /* DiaryTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryTexts.swift; sourceTree = "<group>"; };
 		F878CC395772D74A4E843693 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FA60F0A75E58FC553F167C80 /* MyGuideCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MyGuideCore; path = Packages/MyGuideCore; sourceTree = SOURCE_ROOT; };
+		FB1AA4452D008193B28208D2 /* ScreenChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenChrome.swift; sourceTree = "<group>"; };
 		FB62877340E610053D66495A /* BackgroundTaskHold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskHold.swift; sourceTree = "<group>"; };
 		FC89DE0704FE8CCB7457B1D0 /* AroundMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundMap.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -279,6 +285,7 @@
 				0AAB6A3685B614A563229E1E /* DayStoryModel.swift */,
 				25E304A4B1D4048860FAE2FD /* DayStoryView.swift */,
 				1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */,
+				F6D5A9F3266A7BD1AB592507 /* DiaryTexts.swift */,
 				32CB088E737DE4DD25A20C41 /* DiaryView.swift */,
 				9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */,
 				4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */,
@@ -504,6 +511,7 @@
 		E4D87F8FFAF6D7F0CC6FB666 /* Design */ = {
 			isa = PBXGroup;
 			children = (
+				FB1AA4452D008193B28208D2 /* ScreenChrome.swift */,
 				73FCA42F11E8350044FC2AA8 /* StoryText.swift */,
 				F5C0F406D391D40364290743 /* Theme.swift */,
 				5B44B6FA20F826C8F115A189 /* Fonts */,
@@ -514,6 +522,7 @@
 		EABF7E6D3FEFD2F8655C128B /* History */ = {
 			isa = PBXGroup;
 			children = (
+				E1E86CBAB9DD580EE7D1E07F /* HistoryTexts.swift */,
 				B3FDE1443A09F9C472F02CDD /* HistoryView.swift */,
 			);
 			path = History;
@@ -771,8 +780,10 @@
 				7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */,
 				AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */,
 				2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */,
+				70623E8B571F401324C5D2AD /* DiaryTexts.swift in Sources */,
 				46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */,
 				8D2D4C576AFFAF1A8E839F8C /* DiaryWork.swift in Sources */,
+				CFD5C8229356B6AA61821B4B /* HistoryTexts.swift in Sources */,
 				1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */,
 				BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */,
 				2372F6786301805D64B055F5 /* LibraryImport.swift in Sources */,
@@ -785,6 +796,7 @@
 				1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */,
 				ECA8499C6DF9275A4004C77E /* PlaceSymbol.swift in Sources */,
 				80E49C95E15C877B7EEFF2D2 /* RootTabs.swift in Sources */,
+				418A9B486B3BE04C46C8A1ED /* ScreenChrome.swift in Sources */,
 				7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */,
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
 				63FB5DD93DBAABFA5C74374A /* StoryComponents.swift in Sources */,

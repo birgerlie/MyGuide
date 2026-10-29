@@ -12,23 +12,30 @@ struct DayStoryScreen: View {
     @State private var selection = 0
     /// False while another screen covers this one: its alert and share sheet wait until it is back on top.
     @State private var visible = false
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            // Photos fill the pages on black; the screens without pages sit on the theme's dark background.
+            (model.pages == nil ? Theme.Colour.forest : Color.black).ignoresSafeArea()
             content
         }
         .environment(\.colorScheme, .dark)
         .overlay(alignment: .topTrailing) { controls }
         .overlay {
             if model.isWriting || model.isRendering {
-                ProgressView(model.isWriting ? DayStoryModel.writingText : DayStoryModel.renderingText)
-                    .padding()
-                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
-                    .environment(\.colorScheme, .dark)
+                ProgressView {
+                    Text(model.isWriting ? DiaryTexts.writing(storyLanguage) : DiaryTexts.rendering(storyLanguage))
+                        .font(Theme.Font.body)
+                }
+                .tint(Theme.Colour.ivory)
+                .foregroundStyle(Theme.Colour.ivory)
+                .padding(Theme.Spacing.margin)
+                .background(Theme.Colour.forest.opacity(0.9), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .environment(\.colorScheme, .dark)
             } else if !model.loaded {
-                ProgressView().tint(.white)
+                ProgressView().tint(Theme.Colour.ivory)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -39,16 +46,16 @@ struct DayStoryScreen: View {
         }
         .onDisappear { visible = false }
         .onChange(of: model.pages) { selection = 0 }
-        .alert(model.alert?.title ?? "", isPresented: alertPresented, presenting: model.alert) { alert in
+        .alert(model.alert?.title(storyLanguage) ?? "", isPresented: alertPresented, presenting: model.alert) { alert in
             switch alert {
             case .confirmRewrite:
-                Button("Write again") { model.write() }
-                Button("Cancel", role: .cancel) {}
+                Button(DiaryTexts.writeAgain(storyLanguage)) { model.write() }
+                Button(DiaryTexts.cancel(storyLanguage), role: .cancel) {}
             case .error:
-                Button("OK", role: .cancel) {}
+                Button(DiaryTexts.ok(storyLanguage), role: .cancel) {}
             }
         } message: { alert in
-            Text(alert.message)
+            Text(alert.message(storyLanguage))
         }
         .sheet(item: shareSet) { set in
             ActivityView(items: set.images) { model.shareSet = nil }
@@ -62,21 +69,32 @@ struct DayStoryScreen: View {
         if let pages = model.pages {
             pager(pages)
         } else if model.unreadable, !model.isWriting {
-            ContentUnavailableView {
-                Label("This day story couldn't be opened.", systemImage: "exclamationmark.triangle")
-            } actions: {
-                Button("Write again") { model.requestRewrite() }
-                    .buttonStyle(.borderedProminent)
-            }
+            emptyState(DiaryTexts.dayStoryUnreadable(storyLanguage), systemImage: "exclamationmark.triangle",
+                       action: DiaryTexts.writeAgain(storyLanguage)) { model.requestRewrite() }
         } else if model.loaded, !model.isWriting {
             // The first write failed (its alert said why) or could not start.
-            ContentUnavailableView {
-                Label("No day story yet.", systemImage: "book.pages")
-            } actions: {
-                Button("Write day story") { model.write() }
-                    .buttonStyle(.borderedProminent)
-            }
+            emptyState(DiaryTexts.noDayStory(storyLanguage), systemImage: "book.pages",
+                       action: DiaryTexts.writeDayStory(storyLanguage)) { model.write() }
         }
+    }
+
+    /// No pages: what is wrong in Playfair on forest green, and the one way on as the primary button (ivory in the
+    /// dark appearance, with forest text).
+    private func emptyState(_ title: String, systemImage: String, action: String,
+                            perform: @escaping () -> Void) -> some View {
+        ContentUnavailableView {
+            Label {
+                Text(title).font(Theme.Font.title)
+            } icon: {
+                Image(systemName: systemImage)
+            }
+        } actions: {
+            Button(action, action: perform)
+                .buttonStyle(.themePrimary())
+                .fixedSize()
+        }
+        .foregroundStyle(Theme.Colour.ivory)
+        .padding(.horizontal, Theme.Spacing.wideMargin)
     }
 
     /// Pages draw edge to edge; the reader passes them the insets that keep their text clear of the screen edges,
@@ -86,7 +104,7 @@ struct DayStoryScreen: View {
             TabView(selection: $selection) {
                 DayStoryPageSlot(model: model, imageID: pages.photos.first?.id,
                                  content: .summary(header: model.header, summary: pages.summary,
-                                                   note: pages.countNote),
+                                                   note: model.summaryNote(pages)),
                                  insets: proxy.safeAreaInsets)
                     .tag(0)
                 ForEach(Array(pages.photos.enumerated()), id: \.element.id) { index, photo in
@@ -104,27 +122,31 @@ struct DayStoryScreen: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.Spacing.unit + 4) {
             if model.pages != nil {
-                controlButton("Share", systemImage: "square.and.arrow.up") { model.share() }
+                controlButton(DiaryTexts.share(storyLanguage), systemImage: "square.and.arrow.up") { model.share() }
                     .disabled(model.busy)
-                controlButton("Write again", systemImage: "arrow.clockwise") { model.requestRewrite() }
-                    .disabled(model.busy)
+                controlButton(DiaryTexts.writeAgain(storyLanguage), systemImage: "arrow.clockwise") {
+                    model.requestRewrite()
+                }
+                .disabled(model.busy)
             }
             // Always available: going back stops a running write or share.
-            controlButton("Close", systemImage: "xmark") { dismiss() }
+            controlButton(DiaryTexts.close(storyLanguage), systemImage: "xmark") { dismiss() }
         }
-        .padding()
+        .padding(Theme.Spacing.margin)
     }
 
     private func controlButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(.black.opacity(0.5), in: Circle())
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.Colour.forest)
+                .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
+                .background(Theme.Colour.ivory, in: Circle())
+                .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(title)
     }
 
@@ -215,23 +237,23 @@ struct DayStoryPageView: View {
             VStack(alignment: .leading, spacing: 10) {
                 if let date = header.date {
                     Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide).year()))
-                        .font(.title2.weight(.bold))
+                        .font(Theme.Font.title)
                 }
                 if let city = header.city, !city.isEmpty {
-                    Text(city).font(.headline).opacity(0.85)
+                    Text(city).font(Theme.Font.bodyMedium).opacity(0.85)
                 }
                 Text(summary)
-                    .font(.title3)
+                    .font(.custom(Theme.FontName.regular, size: 20, relativeTo: .title3))
                     .minimumScaleFactor(0.6)
                 if let note {
-                    Text(note).font(.footnote).opacity(0.8)
+                    Text(note).font(Theme.Font.caption).opacity(0.8)
                 }
             }
             .modifier(OnGradient(insets: insets, midpoint: 0.25))
         case .photo(_, let caption):
             if let caption {
                 Text(caption)
-                    .font(.body)
+                    .font(Theme.Font.body)
                     .minimumScaleFactor(0.7)
                     .modifier(OnGradient(insets: insets, midpoint: 0.5))
             }
@@ -242,19 +264,19 @@ struct DayStoryPageView: View {
     private var corner: some View {
         if case .photo(let time, _) = content {
             Text(time.formatted(date: .omitted, time: .shortened))
-                .font(.subheadline.weight(.semibold))
+                .font(.custom(Theme.FontName.medium, size: 15, relativeTo: .subheadline))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.Colour.forest)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(.black.opacity(0.45), in: Capsule())
+                .background(Theme.Colour.ivory, in: Capsule())
                 .padding(.top, insets.top + 16)
                 .padding(.leading, insets.leading + 16)
         }
     }
 }
 
-/// White text, full width, on a gradient that darkens towards the bottom of the page.
+/// Ivory text, full width, on a gradient that darkens towards the bottom of the page.
 private struct OnGradient: ViewModifier {
     let insets: EdgeInsets
     /// Where the gradient reaches its middle darkness, from 0 (top of the text block and its padding) to 1 (bottom).
@@ -262,7 +284,7 @@ private struct OnGradient: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.Colour.ivory)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.leading, insets.leading)
@@ -279,16 +301,16 @@ private struct OnGradient: ViewModifier {
 }
 
 private extension DayStoryModel.Alert {
-    var title: String {
+    func title(_ language: StoryLanguage) -> String {
         switch self {
-        case .confirmRewrite: "Write the day story again?"
-        case .error: "Couldn't complete that"
+        case .confirmRewrite: DiaryTexts.confirmRewriteTitle(language)
+        case .error: DiaryTexts.failedTitle(language)
         }
     }
 
-    var message: String {
+    func message(_ language: StoryLanguage) -> String {
         switch self {
-        case .confirmRewrite: "The new story replaces this one."
+        case .confirmRewrite: DiaryTexts.confirmRewriteMessage(language)
         case .error(let text): text
         }
     }

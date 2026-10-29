@@ -11,24 +11,23 @@ struct HistoryView: View {
     @Query(sort: \CaptureRecord.takenAt, order: .reverse) private var records: [CaptureRecord]
     @State private var story: StoryViewModel?
     @State private var errorText: String?
-
-    static let corruptText = "This story couldn't be opened."
-    static let deleteFailedText = "Couldn't delete the story."
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         VStack(spacing: 0) {
             if let fallback = services.memoryFallback { MemoryUnavailableNotice(fallback: fallback) }
             content
         }
-        .navigationTitle("History")
-        .navigationBarTitleDisplayMode(.inline)
+        .foregroundStyle(Theme.Colour.text)
+        .background(Theme.Colour.background.ignoresSafeArea())
+        .themedTitle(HistoryTexts.title(storyLanguage))
         .navigationDestination(isPresented: storyPresented) {
             if let story {
                 StoryView(model: story, location: location)
             }
         }
-        .alert("Couldn't complete that", isPresented: errorPresented) {
-            Button("OK", role: .cancel) {}
+        .alert(HistoryTexts.failedTitle(storyLanguage), isPresented: errorPresented) {
+            Button(HistoryTexts.ok(storyLanguage), role: .cancel) {}
         } message: {
             Text(errorText ?? "")
         }
@@ -37,8 +36,8 @@ struct HistoryView: View {
     @ViewBuilder
     private var content: some View {
         if records.isEmpty {
-            ContentUnavailableView("No stories yet", systemImage: "clock.arrow.circlepath",
-                                   description: Text("Photograph something and its story will be kept here."))
+            ThemedEmptyState(title: HistoryTexts.emptyTitle(storyLanguage), systemImage: "clock.arrow.circlepath",
+                             description: HistoryTexts.emptyDescription(storyLanguage))
         } else {
             List {
                 ForEach(records) { record in
@@ -46,7 +45,9 @@ struct HistoryView: View {
                         .buttonStyle(.plain)
                 }
                 .onDelete(perform: delete)
+                .themedRows()
             }
+            .themedList()
         }
     }
 
@@ -69,7 +70,7 @@ struct HistoryView: View {
             story = StoryViewModel(session: session, services: services)
         } catch {
             AppServices.logMemoryFailure("open session failed", error)
-            errorText = Self.corruptText
+            errorText = HistoryTexts.corrupt(storyLanguage)
         }
     }
 
@@ -80,7 +81,7 @@ struct HistoryView: View {
             do {
                 try services.deleteHistoryEntry(record)
             } catch {
-                errorText = Self.deleteFailedText
+                errorText = HistoryTexts.deleteFailed(storyLanguage)
                 return
             }
         }
@@ -91,14 +92,17 @@ private struct HistoryRow: View {
     let record: CaptureRecord
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.Spacing.unit + 4) {
             thumbnail
-            VStack(alignment: .leading, spacing: 2) {
-                Text(record.title).font(.headline).lineLimit(2)
-                Text(record.subject).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: Theme.Spacing.unit / 4) {
+                Text(record.title).font(Theme.Font.bodyMedium).lineLimit(2)
+                Text(record.subject).font(Theme.Font.caption).opacity(0.75).lineLimit(1)
+                Text(caption).font(Theme.Font.caption).opacity(0.75).lineLimit(1)
             }
+            Spacer(minLength: 0)
         }
+        .foregroundStyle(Theme.Colour.text)
+        .frame(minHeight: Theme.minimumTouchHeight)
         .contentShape(Rectangle())
     }
 
@@ -109,9 +113,10 @@ private struct HistoryRow: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         } else {
-            RoundedRectangle(cornerRadius: 8).fill(.quaternary).frame(width: 56, height: 56)
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.Colour.stone)
+                .frame(width: 56, height: 56)
         }
     }
 

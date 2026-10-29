@@ -27,22 +27,21 @@ struct DiaryView: View {
     @State private var visible = false
     /// The screen's one alert, so an error and an import summary never compete.
     @State private var alert: DiaryAlert?
-
-    static let loadFailedText = "Couldn't load the diary."
-    static let deleteFailedText = "Couldn't delete the photo."
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         VStack(spacing: 0) {
             if let fallback = services.memoryFallback { MemoryUnavailableNotice(fallback: fallback) }
             content
         }
-        .navigationTitle("Diary")
-        .navigationBarTitleDisplayMode(.inline)
+        .foregroundStyle(Theme.Colour.text)
+        .background(Theme.Colour.background.ignoresSafeArea())
+        .themedTitle(DiaryTexts.title(storyLanguage))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 PhotosPicker(selection: $pickerItems, maxSelectionCount: LibraryImport.maxSelection,
                              matching: .images, preferredItemEncoding: .current, photoLibrary: .shared()) {
-                    Label("Add photos", systemImage: "photo.badge.plus")
+                    Label(DiaryTexts.addPhotos(storyLanguage), systemImage: "photo.badge.plus")
                 }
                 .disabled(isImporting)
             }
@@ -51,9 +50,15 @@ struct DiaryView: View {
         .navigationBarBackButtonHidden(isImporting)
         .overlay {
             if isImporting {
-                ProgressView("Adding photos…")
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                ProgressView {
+                    Text(DiaryTexts.addingPhotos(storyLanguage))
+                        .font(Theme.Font.body)
+                }
+                .tint(Theme.Colour.text)
+                .foregroundStyle(Theme.Colour.text)
+                .padding(Theme.Spacing.margin)
+                .background(Theme.Colour.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.Colour.stone))
             }
         }
         .navigationDestination(isPresented: storyPresented) {
@@ -62,12 +67,12 @@ struct DiaryView: View {
             }
         }
         .fullScreenCover(item: $fullScreenPhoto) { photo in
-            LibraryPhotoScreen(id: photo.id, memory: services.memory)
+            LibraryPhotoScreen(id: photo.id, memory: services.memory, language: storyLanguage)
         }
-        .alert(alert?.title ?? "", isPresented: alertPresented, presenting: alert) { _ in
-            Button("OK", role: .cancel) {}
+        .alert(alert?.title(storyLanguage) ?? "", isPresented: alertPresented, presenting: alert) { _ in
+            Button(DiaryTexts.ok(storyLanguage), role: .cancel) {}
         } message: { alert in
-            Text(alert.message)
+            Text(alert.message(storyLanguage))
         }
         .onAppear {
             visible = true
@@ -88,8 +93,8 @@ struct DiaryView: View {
     private var content: some View {
         if days.isEmpty {
             if loaded {
-                ContentUnavailableView("No diary entries yet", systemImage: "book",
-                                       description: Text("Photo stories, walk stories and photos you add are kept here by day."))
+                ThemedEmptyState(title: DiaryTexts.emptyTitle(storyLanguage), systemImage: "book",
+                                 description: DiaryTexts.emptyDescription(storyLanguage))
             } else {
                 Color.clear
             }
@@ -101,22 +106,24 @@ struct DiaryView: View {
                             row(entry)
                         }
                     } header: {
-                        DiaryDayHeader(day: day) { openDayStory(day) }
+                        DiaryDayHeader(day: day, language: storyLanguage) { openDayStory(day) }
                     }
+                    .themedRows()
                 }
             }
+            .themedList()
             .disabled(isImporting)
         }
     }
 
     private func row(_ entry: DiaryEntry) -> some View {
         Button { open(entry) } label: {
-            DiaryRow(entry: entry, caption: captions[entry.id], loadThumbnail: thumbnail)
+            DiaryRow(entry: entry, caption: captions[entry.id], language: storyLanguage, loadThumbnail: thumbnail)
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if entry.kind == .libraryPhoto {
-                Button("Delete", systemImage: "trash", role: .destructive) { delete(entry) }
+                Button(DiaryTexts.delete(storyLanguage), systemImage: "trash", role: .destructive) { delete(entry) }
             }
         }
     }
@@ -133,7 +140,7 @@ struct DiaryView: View {
             }
         } catch {
             AppServices.logMemoryFailure("diary load failed", error)
-            showError(Self.loadFailedText)
+            showError(DiaryTexts.loadFailed(storyLanguage))
             loaded = true
             return
         }
@@ -179,7 +186,7 @@ struct DiaryView: View {
 
     private func open(_ entry: DiaryEntry) {
         guard let id = entry.recordID else {
-            showError(HistoryView.corruptText)
+            showError(HistoryTexts.corrupt(storyLanguage))
             return
         }
         switch entry.kind {
@@ -187,7 +194,7 @@ struct DiaryView: View {
             do {
                 guard let record = try fetchCapture(id) else {
                     // Deleted in History since the diary was read.
-                    showError(HistoryView.corruptText)
+                    showError(HistoryTexts.corrupt(storyLanguage))
                     reload()
                     return
                 }
@@ -195,7 +202,7 @@ struct DiaryView: View {
                 story = StoryViewModel(session: session, services: services)
             } catch {
                 AppServices.logMemoryFailure("open session failed", error)
-                showError(HistoryView.corruptText)
+                showError(HistoryTexts.corrupt(storyLanguage))
             }
         case .buzz, .stop:
             openWalkStory(id)
@@ -210,7 +217,7 @@ struct DiaryView: View {
             try services.memory.deleteLibraryPhoto(id: id)
         } catch {
             AppServices.logMemoryFailure("library photo delete failed", error)
-            showError(Self.deleteFailedText)
+            showError(DiaryTexts.deleteFailed(storyLanguage))
         }
         reload()
     }
@@ -253,17 +260,17 @@ private enum DiaryAlert {
     case error(String)
     case summary(LibraryImport.Summary)
 
-    var title: String {
+    func title(_ language: StoryLanguage) -> String {
         switch self {
-        case .error: "Couldn't complete that"
-        case .summary(let summary): summary.title
+        case .error: DiaryTexts.failedTitle(language)
+        case .summary(let summary): summary.title(language)
         }
     }
 
-    var message: String {
+    func message(_ language: StoryLanguage) -> String {
         switch self {
         case .error(let text): text
-        case .summary(let summary): summary.message
+        case .summary(let summary): summary.message(language)
         }
     }
 }
@@ -276,6 +283,7 @@ private struct FullScreenPhoto: Identifiable {
 private struct LibraryPhotoScreen: View {
     let id: UUID
     let memory: MemoryStore
+    let language: StoryLanguage
 
     @State private var image: UIImage?
     @State private var loaded = false
@@ -289,9 +297,10 @@ private struct LibraryPhotoScreen: View {
                     .resizable()
                     .scaledToFit()
                     .ignoresSafeArea()
-                    .accessibilityLabel("Photo")
+                    .accessibilityLabel(DiaryTexts.photo(language))
             } else if loaded {
-                Text("This photo couldn't be opened.")
+                Text(DiaryTexts.photoUnreadable(language))
+                    .font(Theme.Font.body)
                     .foregroundStyle(.white)
             } else {
                 ProgressView().tint(.white)
@@ -307,7 +316,7 @@ private struct LibraryPhotoScreen: View {
                     .frame(width: 44, height: 44)
                     .background(.black.opacity(0.5), in: Circle())
             }
-            .accessibilityLabel("Close")
+            .accessibilityLabel(DiaryTexts.close(language))
             .padding()
         }
         .task(id: id) {

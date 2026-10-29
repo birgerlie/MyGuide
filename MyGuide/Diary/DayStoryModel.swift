@@ -22,10 +22,6 @@ final class DayStoryModel {
         let images: [UIImage]
     }
 
-    static let writingText = "Writing the day story…"
-    static let renderingText = "Preparing pages…"
-    static let saveFailedText = "The day story was written but couldn't be saved."
-    static let shareFailedText = "Couldn't prepare the pages to share."
     /// Shared pages are rendered at this size in points, times `shareScale`: 1080 × 1920 pixels (spec 5.5).
     static let sharePageSize = CGSize(width: 360, height: 640)
     static let shareScale: CGFloat = 3
@@ -127,7 +123,7 @@ final class DayStoryModel {
                 writeTask = nil
                 unreadable = unreadable && !saved
                 show(written, photoTimes: current.photoTimes)
-                if !saved { alert = .error(Self.saveFailedText) }
+                if !saved { alert = .error(DiaryTexts.saveFailed(AppServices.currentStoryLanguage())) }
             } catch {
                 guard !Task.isCancelled else { return }
                 writeTask = nil
@@ -145,12 +141,13 @@ final class DayStoryModel {
     func share() {
         guard !busy, let pages else { return }
         let header = header
+        let note = summaryNote(pages)
         shareTask = Task {
             // Let the progress overlay draw before the first page blocks the main thread.
             try? await Task.sleep(for: .milliseconds(50))
             var images: [UIImage] = []
             let contents = [DayStoryPageView.Content.summary(header: header, summary: pages.summary,
-                                                             note: pages.countNote)]
+                                                             note: note)]
                 + pages.photos.map { DayStoryPageView.Content.photo(time: $0.time, caption: $0.caption) }
             // The summary page shows the first photo.
             let imageIDs: [String?] = [pages.photos.first?.id] + pages.photos.map(\.id)
@@ -167,7 +164,7 @@ final class DayStoryModel {
             if images.count == contents.count {
                 shareSet = ShareSet(images: images)
             } else {
-                alert = .error(Self.shareFailedText)
+                alert = .error(DiaryTexts.shareFailed(AppServices.currentStoryLanguage()))
             }
         }
     }
@@ -186,6 +183,13 @@ final class DayStoryModel {
     func displayImage(id: String) async -> UIImage? {
         guard let data = services.photoJPEG(id: id), let image = UIImage(data: data) else { return nil }
         return await image.byPreparingForDisplay() ?? image
+    }
+
+    /// The summary page's note ("3 av 12 bilder") in the story's own language, when the story was written from some
+    /// of the day's photos; `DayStoryPages` decides whether there is one.
+    func summaryNote(_ pages: DayStoryPages) -> String? {
+        guard pages.countNote != nil, let story else { return nil }
+        return DiaryTexts.countNote(sent: story.photoIDs.count, total: story.totalPhotos, story.language)
     }
 
     /// Date and city for the summary page.
@@ -219,7 +223,7 @@ final class DayStoryModel {
             }
         } catch {
             AppServices.logMemoryFailure("diary load failed", error)
-            alert = .error(DiaryView.loadFailedText)
+            alert = .error(DiaryTexts.loadFailed(AppServices.currentStoryLanguage()))
             return nil
         }
         // All photos, not just this day's: a story's photos stay its own even if the phone's time zone moved

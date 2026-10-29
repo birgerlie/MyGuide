@@ -20,15 +20,15 @@ enum LibraryImport {
         /// The photo could not be loaded, read or saved.
         var failed = 0
 
-        var title: String { added == 1 ? "Added 1 photo" : "Added \(added) photos" }
+        func title(_ language: StoryLanguage) -> String { DiaryTexts.importTitle(added: added, language) }
 
         /// One line per kind of skip; empty when nothing was skipped.
-        var message: String {
+        func message(_ language: StoryLanguage) -> String {
             var lines: [String] = []
-            if noDate > 0 { lines.append("\(noDate) skipped (no date)") }
-            if noAccess > 0 { lines.append("\(noAccess) skipped: allow photo access in Settings") }
-            if alreadyAdded > 0 { lines.append("\(alreadyAdded) already added") }
-            if failed > 0 { lines.append("\(failed) couldn't be read") }
+            if noDate > 0 { lines.append(DiaryTexts.skippedNoDate(noDate, language)) }
+            if noAccess > 0 { lines.append(DiaryTexts.skippedNoAccess(noAccess, language)) }
+            if alreadyAdded > 0 { lines.append(DiaryTexts.alreadyAdded(alreadyAdded, language)) }
+            if failed > 0 { lines.append(DiaryTexts.unreadable(failed, language)) }
             return lines.joined(separator: "\n")
         }
     }

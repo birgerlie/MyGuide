@@ -10,29 +10,46 @@ extension DiaryEntry {
     }
 }
 
-/// Weekday, date and city, with the button to the day's story (enabled when the day has a photo).
+/// Weekday and date in Playfair (the day is the heading), the city under it, and the stone button to the day's story
+/// (enabled when the day has a photo).
 struct DiaryDayHeader: View {
     let day: DiaryDay
+    let language: StoryLanguage
     let openDayStory: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center, spacing: Theme.Spacing.margin) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.unit / 2) {
                 Text(day.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year()))
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                    .font(.custom(Theme.FontName.display, size: 20, relativeTo: .headline))
+                    .accessibilityAddTraits(.isHeader)
                 if let city = day.city, !city.isEmpty {
-                    Text(city).font(.subheadline).foregroundStyle(.secondary)
+                    Text(city)
+                        .font(Theme.Font.caption)
+                        .opacity(0.75)
                 }
             }
             Spacer(minLength: 0)
-            Button("Day story", systemImage: "book.pages", action: openDayStory)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!day.entries.contains(where: \.hasPhoto))
+            Button(action: openDayStory) {
+                Label(DiaryTexts.dayStoryButton(language), systemImage: "book.pages")
+                    .font(.custom(Theme.FontName.medium, size: 15, relativeTo: .subheadline))
+                    .foregroundStyle(Theme.Colour.forest)
+                    .padding(.horizontal, Theme.Spacing.margin - 4)
+                    .frame(minHeight: Theme.minimumTouchHeight)
+                    .background(Theme.Colour.stone, in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .disabled(!hasPhoto)
+            .opacity(hasPhoto ? 1 : 0.5)
         }
+        .foregroundStyle(Theme.Colour.text)
         .textCase(nil)
+        .padding(.vertical, Theme.Spacing.unit / 2)
     }
+
+    private var hasPhoto: Bool { day.entries.contains(where: \.hasPhoto) }
 }
 
 /// One diary line. Photo story: thumbnail, title, time. Buzz: walking icon, title, place, time. Stop: pin icon,
@@ -40,34 +57,37 @@ struct DiaryDayHeader: View {
 struct DiaryRow: View {
     let entry: DiaryEntry
     let caption: String?
+    let language: StoryLanguage
     /// The stored thumbnail of a photo story or library photo; nil when it is gone or unreadable.
     let loadThumbnail: (DiaryEntry) -> UIImage?
 
     @State private var thumbnail: UIImage?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.Spacing.unit + 4) {
             leading
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.unit / 4) {
                 switch entry.kind {
                 case .photoStory, .stop:
-                    Text(entry.title).font(.headline).lineLimit(2)
+                    Text(entry.title).font(Theme.Font.bodyMedium).lineLimit(2)
                 case .buzz:
-                    Text(entry.title).font(.headline).lineLimit(2)
+                    Text(entry.title).font(Theme.Font.bodyMedium).lineLimit(2)
                     if let place = entry.placeName, !place.isEmpty {
-                        Text(place).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        Text(place).font(Theme.Font.caption).opacity(0.75).lineLimit(1)
                     }
                 case .libraryPhoto:
                     if let caption, !caption.isEmpty {
-                        Text(caption).font(.subheadline).lineLimit(3)
+                        Text(caption).font(Theme.Font.body).lineLimit(3)
                     }
                 }
                 Text(entry.time.formatted(date: .omitted, time: .shortened))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.Font.caption)
+                    .opacity(0.75)
             }
             Spacer(minLength: 0)
         }
+        .frame(minHeight: Theme.minimumTouchHeight)
+        .foregroundStyle(Theme.Colour.text)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
@@ -86,9 +106,10 @@ struct DiaryRow: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: 8).fill(.quaternary).frame(width: 56, height: 56)
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.Colour.stone)
+                    .frame(width: 56, height: 56)
             }
         case .buzz:
             icon("figure.walk")
@@ -99,19 +120,14 @@ struct DiaryRow: View {
 
     private func icon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.title3)
-            .foregroundStyle(.tint)
+            .font(.system(size: 22, weight: .regular))
+            .foregroundStyle(Theme.Colour.forest)
             .frame(width: 56, height: 56)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            .background(Theme.Colour.stone, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var accessibilityText: String {
-        let time = entry.time.formatted(date: .omitted, time: .shortened)
-        switch entry.kind {
-        case .photoStory: return "Photo story, \(entry.title), \(time)"
-        case .buzz: return "Walk story, \(entry.title)\(entry.placeName.map { ", \($0)" } ?? ""), \(time)"
-        case .stop: return "Stop story, \(entry.title), \(time)"
-        case .libraryPhoto: return "Photo, \(time)\(caption.map { ", \($0)" } ?? "")"
-        }
+        DiaryTexts.rowLabel(kind: entry.kind, title: entry.title, place: entry.placeName, caption: caption,
+                            time: entry.time.formatted(date: .omitted, time: .shortened), language)
     }
 }
