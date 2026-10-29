@@ -7,7 +7,7 @@ public enum GroundingError: Error, Equatable {
 
 /// Gathers nearby places (OpenStreetMap, Wikipedia) and a street address for a capture.
 /// A failing source is recorded in `failedSources`; only cancellation propagates.
-/// The geocoder is bounded by a timeout; running out of time counts as a geocoder failure.
+/// The geocoder and OpenStreetMap are bounded by timeouts; running out of time counts as that source's failure.
 public struct GroundingService: Sendable {
     static let osmRadius = 250
     static let wikiRadius = 400
@@ -17,13 +17,18 @@ public struct GroundingService: Sendable {
     private let geocoder: ReverseGeocoding
     public static let defaultGeocoderTimeout: Duration = .seconds(8)
     private let geocoderTimeout: Duration
+    /// Bounds the whole OpenStreetMap call, both Overpass endpoints included (each may take 12 s), so a photo never
+    /// waits for a failing server and its fallback (spec 13.6): it goes on with Wikipedia and the address.
+    public static let defaultOSMTimeout: Duration = .seconds(15)
+    private let osmTimeout: Duration
 
     public init(overpass: OverpassClient, wikipedia: WikipediaClient, geocoder: ReverseGeocoding,
-                geocoderTimeout: Duration = Self.defaultGeocoderTimeout) {
+                geocoderTimeout: Duration = Self.defaultGeocoderTimeout, osmTimeout: Duration = Self.defaultOSMTimeout) {
         self.overpass = overpass
         self.wikipedia = wikipedia
         self.geocoder = geocoder
         self.geocoderTimeout = geocoderTimeout
+        self.osmTimeout = osmTimeout
     }
 
     public func ground(_ capture: CaptureContext, language: StoryLanguage) async throws -> Grounding {
@@ -45,7 +50,12 @@ public struct GroundingService: Sendable {
                 address: @escaping @Sendable () async throws -> Address?) async throws -> Grounding {
         guard let here = capture.coordinate else { throw GroundingError.noPosition }
 
-        async let osm = Self.attempt { try await overpass.places(around: here, radius: Self.osmRadius, language: language) }
+        let overpass = self.overpass, osmTimeout = self.osmTimeout
+        async let osm = Self.attempt {
+            try await Self.withTimeout(osmTimeout) {
+                try await overpass.places(around: here, radius: Self.osmRadius, language: language)
+            }
+        }
         async let wiki = Self.attempt { try await wikipedia.articles(around: here, radius: Self.wikiRadius, language: language) }
         async let geo = address()
         let (osmResult, wikiResult, geoResult) = try await (osm, wiki, geo)

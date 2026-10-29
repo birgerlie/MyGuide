@@ -7,6 +7,9 @@ public struct NearbyList: Sendable, Equatable, Codable {
     public static let freshAge: TimeInterval = 600
     /// The list's centre at most this far (metres) from the photo to count as fresh.
     public static let freshDistance = 250.0
+    /// A list whose OpenStreetMap part failed is stale once it is this old (seconds), wherever the owner is, so the
+    /// next fix retries OpenStreetMap instead of walking on with Wikipedia only for 250 m.
+    public static let osmFailedRetryAge: TimeInterval = 60
 
     /// Where the list was fetched.
     public var centre: Coordinate
@@ -39,19 +42,28 @@ public struct NearbyList: Sendable, Equatable, Codable {
         osmFailed = try c.decodeIfPresent(Bool.self, forKey: .osmFailed) ?? false
     }
 
-    /// At most `freshAge` old and centred within `freshDistance` of `position`. A list dated after `now` (the clock
-    /// was set back) is never fresh: its age is unknown.
+    /// At most `freshAge` old (less than `osmFailedRetryAge` when OpenStreetMap failed) and centred within
+    /// `freshDistance` of `position`. A list dated after `now` (the clock was set back) is never fresh: its age is
+    /// unknown.
     public func isFresh(for position: Coordinate, now: Date) -> Bool {
         let age = now.timeIntervalSince(fetchedAt)
-        return age >= 0 && age <= Self.freshAge && GeoMath.distance(centre, position) <= Self.freshDistance
+        return age >= 0 && age <= Self.freshAge && !isStaleAfterOSMFailure(age: age)
+            && GeoMath.distance(centre, position) <= Self.freshDistance
+    }
+
+    /// True when OpenStreetMap failed for this list and it is at least `osmFailedRetryAge` old.
+    public func isStaleAfterOSMFailure(age: TimeInterval) -> Bool {
+        osmFailed && age >= Self.osmFailedRetryAge
     }
 
     /// Whether this list can serve a walker at `position` without a refresh: centred less than
-    /// `NearbyPlaces.walkingDistance` away and at most `freshAge` old. A list dated after `now` (the clock was set
-    /// back) never serves: its age is unknown. `NearbyPlaces` refreshes for walking exactly when this is false.
+    /// `NearbyPlaces.walkingDistance` away and at most `freshAge` old (less than `osmFailedRetryAge` when
+    /// OpenStreetMap failed). A list dated after `now` (the clock was set back) never serves: its age is unknown.
+    /// `NearbyPlaces` refreshes for walking exactly when this is false.
     public func serves(walkerAt position: Coordinate, now: Date) -> Bool {
         let age = now.timeIntervalSince(fetchedAt)
-        return age >= 0 && age <= Self.freshAge && GeoMath.distance(centre, position) < NearbyPlaces.walkingDistance
+        return age >= 0 && age <= Self.freshAge && !isStaleAfterOSMFailure(age: age)
+            && GeoMath.distance(centre, position) < NearbyPlaces.walkingDistance
     }
 
     /// The candidates that can buzz while walking, in list order, with their tiers; nil tiers are dropped.

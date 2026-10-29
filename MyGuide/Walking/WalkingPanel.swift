@@ -13,6 +13,7 @@ struct WalkingPanel: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // Hidden while paused (`heardEverythingNearby` is false then): no decisions are made, so it could be stale.
             if walking.heardEverythingNearby {
                 Label(Self.heardEverythingText(storyLanguage), systemImage: "checkmark.circle")
                     .font(.subheadline)

@@ -41,8 +41,8 @@ final class WalkingController {
     private(set) var lastBuzz: (placeID: String, at: Date)?
     /// Why the engine stayed quiet at the last fix; nil after a buzz, before the first decision and while off.
     private(set) var lastQuietReason: QuietReason?
-    /// True while walking mode is on and the engine is quiet because every due place is used (spec 13.7).
-    var heardEverythingNearby: Bool { isOn && lastQuietReason == .allExcluded }
+    /// True while walking mode is on, not paused, and the engine is quiet because every due place is used (spec 13.7).
+    var heardEverythingNearby: Bool { isOn && !isPaused && lastQuietReason == .allExcluded }
     /// The pause in progress: `auto` from the pause detector, `manual` from the owner's Pause (phone or watch), which
     /// holds until Resume. Nil while active. While paused: no buzzes, fetches, stop detection, track or route (spec 5.4).
     private(set) var pauseKind: WalkingPauseKind?

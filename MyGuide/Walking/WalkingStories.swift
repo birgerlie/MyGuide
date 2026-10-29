@@ -306,11 +306,25 @@ final class WalkingStories {
     }
 
     /// The owner opened the story in the app (spec 13.2): reading it counts as hearing level 1, so its place rests
-    /// 30 days in memory (`markHeard` sets `lastHeardAt`) and does not buzz again this run. A stop story has no place.
-    /// The buzz log's outcome is left to "Tell me" and "Skip". The story screen calls this once per opening.
+    /// 30 days in memory (`markHeard` sets `lastHeardAt`) and does not buzz again this run. A buzz story's log entry
+    /// becomes heard at level 1 too, so ending walking mode does not close it as ignored; a refused change (already
+    /// heard deeper, or skipped) leaves it. A buzz never logged (`recordBuzz` failed) and a chosen story have no entry:
+    /// only `markHeard`, never a `corruptRecord` failure. A stop story has no place. The story screen calls this once
+    /// per opening.
     func markRead(_ story: WalkStory) {
         guard story.kind != .stop, let candidate = story.place else { return }
-        do { try memory.markHeard(candidate, level: 1, at: .now) } catch { fail("read failed", error) }
+        let now = Date.now
+        if story.kind == .buzz {
+            do {
+                try memory.setBuzzOutcome(story.id, .heard, deepestLevel: 1, at: now)
+            } catch MemoryError.corruptRecord {
+                // No log entry for this buzz: markHeard below still rests the place.
+            } catch {
+                fail("read outcome failed", error)
+            }
+        }
+        // Also after an applied outcome: harmless (the level never drops), and a refused one still counts the read.
+        do { try memory.markHeard(candidate, level: 1, at: now) } catch { fail("read failed", error) }
         onHeard?(candidate.id)
     }
 

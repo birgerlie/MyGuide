@@ -830,4 +830,67 @@ private struct Boom: Error {}
         failed.osmFailed = true
         #expect(try JSONDecoder().decode(NearbyList.self, from: JSONEncoder().encode(failed)) == failed)
     }
+
+    // MARK: - A list whose OpenStreetMap part failed is retried after 60 s (fix round 1)
+
+    static func failedList(fetchedAt: Date = t0) -> NearbyList {
+        var list = list(fetchedAt: fetchedAt)
+        list.osmFailed = true
+        return list
+    }
+
+    @Test func osmFailedListIsNotFreshForAPhotoFromSixtySeconds() {
+        #expect(NearbyList.osmFailedRetryAge == 60)
+        let failed = Self.failedList(), ok = Self.list()
+        // Age 59 s < 60 → fresh at the centre; age 60 s ≥ 60 → stale, though well inside 600 s and 250 m.
+        #expect(failed.isFresh(for: .at(), now: Self.t0.addingTimeInterval(59)))
+        #expect(!failed.isFresh(for: .at(), now: Self.t0.addingTimeInterval(60)))
+        // A list without the failure stays fresh at 60 s (and to 600 s).
+        #expect(ok.isFresh(for: .at(), now: Self.t0.addingTimeInterval(60)))
+        #expect(failed.isStaleAfterOSMFailure(age: 60) && !failed.isStaleAfterOSMFailure(age: 59.9))
+        #expect(!ok.isStaleAfterOSMFailure(age: 600))
+    }
+    @Test func osmFailedListStopsServingAWalkerFromSixtySeconds() {
+        let failed = Self.failedList(), ok = Self.list()
+        // At the centre, regardless of distance: 59 s serves, 60 s does not.
+        #expect(failed.serves(walkerAt: .at(), now: Self.t0.addingTimeInterval(59)))
+        #expect(!failed.serves(walkerAt: .at(), now: Self.t0.addingTimeInterval(60)))
+        #expect(ok.serves(walkerAt: .at(), now: Self.t0.addingTimeInterval(60)))
+    }
+    @Test func osmFailedStoredListRefreshesAfterSixtySecondsForForegroundAndWalking() async throws {
+        // A stored list: no fetch attempt this run, so only the list's own age decides (no 60 s attempt spacing).
+        for trigger in [RefreshTrigger.foreground, .walking] {
+            for (age, expected) in [(59.0, false), (60.0, true)] {
+                let directory = Self.tempDirectory()
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let store = NearbyListStore(directory: directory)
+                try store.save(Self.failedList())
+                let clock = LockedBox(Self.t0.addingTimeInterval(age))
+                let places = Self.places(StubFetcher(.success([])), store: store, clock: clock)
+                #expect(await places.shouldRefresh(at: .at(), trigger: trigger, language: .english) == expected,
+                        "\(trigger) at \(age) s")
+            }
+        }
+        // Without the failure, the same stored list at 60 s does not refresh at its centre.
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = NearbyListStore(directory: directory)
+        try store.save(Self.list())
+        let places = Self.places(StubFetcher(.success([])), store: store, clock: LockedBox(Self.t0.addingTimeInterval(60)))
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .foreground, language: .english))
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .walking, language: .english))
+    }
+    @Test func osmFailedFetchIsRetriedOnTheNextFixAfterSixtySeconds() async throws {
+        // In a run: the failed fetch at t0 sets both the attempt spacing and the list age; at t0 + 60 both allow it.
+        let fetcher = StubFetcher(.success([]))
+        fetcher.set(.success([]), osmFailed: true)
+        let clock = LockedBox(Self.t0)
+        let places = Self.places(fetcher, clock: clock)
+        try await places.refresh(at: .at(), language: .english)
+        clock.set(Self.t0.addingTimeInterval(59))
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .walking, language: .english))
+        clock.set(Self.t0.addingTimeInterval(60))
+        #expect(await places.shouldRefresh(at: .at(), trigger: .walking, language: .english))
+        #expect(await places.shouldRefresh(at: .at(), trigger: .foreground, language: .english))
+    }
 }

@@ -282,6 +282,28 @@ import Testing
         try store.markHeard(Self.candidate("osm:node/1"), level: 1, at: Self.t0 + 40)
         #expect(try store.retiredPlaceIDs(now: Self.t0 + 50) == ["osm:node/1"])
     }
+    @Test func readBuzzIsHeardAndNotClosedAsIgnored() throws {
+        // The app's markRead for a logged buzz: outcome heard at level 1, then markHeard; ending walking mode keeps it.
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 10)
+        try store.markHeard(Self.candidate("osm:node/1"), level: 1, at: Self.t0 + 10)
+        try store.closePendingBuzzes()
+        let entry = try #require(try store.buzzLog().first)
+        #expect(entry.outcome == .heard && entry.deepestLevel == 1)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 20) == ["osm:node/1"])
+    }
+    @Test func readChosenStoryHasNoBuzzEntryAndOnlyMarkHeardIsUsed() throws {
+        // A chosen story's id has no buzz record: setBuzzOutcome would throw corruptRecord, so the app never calls it
+        // for one; markHeard alone retires the place and logs nothing.
+        let story = Self.chosenStory("osm:node/7", levels: ["One."])
+        #expect(throws: MemoryError.corruptRecord) {
+            try store.setBuzzOutcome(story.id, .heard, deepestLevel: 1, at: Self.t0)
+        }
+        try store.markHeard(try #require(story.place), level: 1, at: Self.t0)
+        #expect(try store.buzzLog().isEmpty)
+        #expect(try store.retiredPlaceIDs(now: Self.t0) == ["osm:node/7"])
+    }
     @Test func resetWithNoPlacesDoesNothing() throws {
         try store.resetPlaceNotifications()
         #expect(try store.context.fetchCount(FetchDescriptor<PlaceRecord>()) == 0)

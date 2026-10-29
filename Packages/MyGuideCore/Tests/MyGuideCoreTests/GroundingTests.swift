@@ -192,6 +192,37 @@ import Testing
         #expect(g?.address == nil && g?.failedSources == [.geocoder])
         #expect(g?.candidates.map(\.candidate.name) == ["Palace", "Gate"])
     }
+    /// Overpass hosts answer only after 60 s (cancellable, or ignoring cancellation); Wikipedia answers at once.
+    struct SlowOverpassHTTP: HTTPClient {
+        var ignoresCancellation: Bool
+        func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            if request.url!.host!.contains("overpass") {
+                if ignoresCancellation {
+                    await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
+                } else {
+                    try await Task.sleep(for: .seconds(60))
+                }
+                return (Data(GroundingTests.osmJSON.utf8), response)
+            }
+            return (Data(GroundingTests.wikiJSON.utf8), response)
+        }
+    }
+    @Test(arguments: [false, true]) func osmTimeoutIsAFailureAndThePhotoGoesOn(ignoresCancellation: Bool) async throws {
+        let http = SlowOverpassHTTP(ignoresCancellation: ignoresCancellation)
+        let s = GroundingService(overpass: .init(http: http), wikipedia: .init(http: http), geocoder: Geo(),
+                                 osmTimeout: .milliseconds(50))
+        var g: Grounding?
+        let took = try await elapsed { g = try await s.ground(Self.capture(heading: 0, acc: 10), language: .english) }
+        #expect(took < .seconds(1))
+        #expect(g?.failedSources == [.openStreetMap])
+        #expect(g?.candidates.map(\.candidate.name) == ["Palace"])
+        #expect(g?.address?.line == "Michaelerplatz")
+    }
+    @Test func defaultOSMTimeoutIsFifteenSeconds() {
+        // Two Overpass endpoints at 12 s each could take 24 s; the photo waits at most 15 s.
+        #expect(GroundingService.defaultOSMTimeout == .seconds(15))
+    }
     @Test func defaultGeocoderTimeoutIsEightSeconds() {
         #expect(GroundingService.defaultGeocoderTimeout == .seconds(8))
     }
