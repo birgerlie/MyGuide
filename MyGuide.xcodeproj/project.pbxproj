@@ -8,11 +8,15 @@
 
 /* Begin PBXBuildFile section */
 		031FC67AC4F02F2C47A0EC45 /* WalkingCheckModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */; };
+		05DDE787377A90B8BFDC6DDE /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
+		08860B174F861BFCF4807666 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
 		08B928932F9F8237303751C3 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18B303580E1A43C2AF22BDA4 /* CameraPreview.swift */; };
 		0B84E5A8F8F53234C0482789 /* MapKitReverseGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */; };
 		0D2B5B8D505B303F92B8CF04 /* WalkingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90746D6CA8E40DE76B97D622 /* WalkingController.swift */; };
+		0FF0C6DF04DE23355656B2C3 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
 		11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */; };
 		1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB5929240699451326DF1BD /* PhotoImport.swift */; };
+		171D6B09E744C5313C984C14 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
 		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
 		1F38F439526191EA725269C7 /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		1F68E52117A68240EF842AD4 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
@@ -35,6 +39,7 @@
 		4E558A5B9F8731F7512FE827 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A699D92E683036004905812 /* CameraController.swift */; };
 		56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */; };
 		581B8AC89B109B6AD9FC28AB /* WalkLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1937BD8CD114DE987914DC8 /* WalkLog.swift */; };
+		5C67E1F5A43FE2E52CE79813 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
 		5E68A6D38C8E497826AB6A2F /* WalkingMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB1989E11EB46A9F381B28D /* WalkingMotion.swift */; };
 		5E7B8190ABEA4609D2693F89 /* AroundModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DDCA86FDC346959CC0CBB7 /* AroundModel.swift */; };
 		5EFA0074A45D0C954418D2A4 /* MyGuideWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -46,8 +51,11 @@
 		6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */; };
 		6C3FDF42EAD1B48C0D631C87 /* BuzzNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */; };
 		6CAFAF4562FB87C72F4F72F4 /* WalkingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9399C561071230F13BDD5526 /* WalkingPanel.swift */; };
+		6E45AE573B3E9C4E3C3E8D7E /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AAB6A3685B614A563229E1E /* DayStoryModel.swift */; };
+		791D55EFA8664AC2961AA5FF /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
 		7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AC3F6758B70A451EA067EB /* SelfCheckView.swift */; };
+		7F16257E352A6AA5B5F55823 /* NotificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D41BC2F7B13FA2E2A7BE52 /* NotificationViewController.swift */; };
 		80E49C95E15C877B7EEFF2D2 /* RootTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE66C7AF4C2AC3FACB6E6C93 /* RootTabs.swift */; };
 		8B6BC3F5149C4ACF27549948 /* StoryText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73FCA42F11E8350044FC2AA8 /* StoryText.swift */; };
 		8D2D4C576AFFAF1A8E839F8C /* DiaryWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */; };
@@ -56,6 +64,7 @@
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
 		9E23E4CBE38A81B7D26726C5 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
 		9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
+		A67E85E6A418A00CB3CDAD5E /* NotificationCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6095C1673AF14B495B34401A /* NotificationCard.swift */; };
 		A7028932FEF72DE67193E4ED /* WalkLogFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */; };
 		AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25E304A4B1D4048860FAE2FD /* DayStoryView.swift */; };
 		B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D420089BC27852F1213A205 /* AudioPlayer.swift */; };
@@ -70,6 +79,7 @@
 		D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D718A718A1BAB633570C16E /* WalkingCheckView.swift */; };
 		DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
+		DEA013A61090F530F1145FC8 /* MyGuideNotificationContent.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 217D212EDC5E2D502B4F362C /* MyGuideNotificationContent.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DFDF2CE095968F322A0273DA /* PhoneHeadingProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C1BE4968CEF097E30E75A /* PhoneHeadingProvider.swift */; };
 		E420354402540821B0E98244 /* AroundSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED0A94E737227C527026CAC /* AroundSheet.swift */; };
 		E79E99F1329E44BA88B8CFC2 /* GuidedWalkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */; };
@@ -101,6 +111,13 @@
 			remoteGlobalIDString = FBC3F90268ABD22A3B8F9899;
 			remoteInfo = MyGuideWatch;
 		};
+		9A2AD331378A60F55D53D86F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 26A387503C2C22ECEAE0C829 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DFEECCBEBF59ED4D0F70326B;
+			remoteInfo = MyGuideNotificationContent;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -111,6 +128,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				D1AB7A6EE8D83F4B397EBB85 /* MyGuideWidgets.appex in Embed Foundation Extensions */,
+				DEA013A61090F530F1145FC8 /* MyGuideNotificationContent.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -139,6 +157,7 @@
 		18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckModel.swift; sourceTree = "<group>"; };
 		1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryRows.swift; sourceTree = "<group>"; };
 		1ED0A94E737227C527026CAC /* AroundSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundSheet.swift; sourceTree = "<group>"; };
+		217D212EDC5E2D502B4F362C /* MyGuideNotificationContent.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MyGuideNotificationContent.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		218B42192D1FE9E1FA0828F3 /* WatchCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCheckView.swift; sourceTree = "<group>"; };
 		23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzNotifier.swift; sourceTree = "<group>"; };
 		25E304A4B1D4048860FAE2FD /* DayStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayStoryView.swift; sourceTree = "<group>"; };
@@ -161,6 +180,7 @@
 		58D59629C52B71A28FA9DCBB /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
 		5E7A49C840514706DE718EF1 /* WalkStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkStoryView.swift; sourceTree = "<group>"; };
 		5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "PlayfairDisplay-OFL.txt"; sourceTree = "<group>"; };
+		6095C1673AF14B495B34401A /* NotificationCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCard.swift; sourceTree = "<group>"; };
 		60CC74B1B1D1A7FA7751B7B4 /* WalkLogFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogFormat.swift; sourceTree = "<group>"; };
 		618C1BE4968CEF097E30E75A /* PhoneHeadingProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneHeadingProvider.swift; sourceTree = "<group>"; };
 		635B227C5CCD96148DF5AF1F /* PlaceSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceSymbol.swift; sourceTree = "<group>"; };
@@ -183,6 +203,7 @@
 		9399C561071230F13BDD5526 /* WalkingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingPanel.swift; sourceTree = "<group>"; };
 		962FB606403221C1C07B5A34 /* WalkLogListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogListView.swift; sourceTree = "<group>"; };
 		96B316F6601D1952CFEF86BE /* MyGuide.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuide.entitlements; sourceTree = "<group>"; };
+		96D41BC2F7B13FA2E2A7BE52 /* NotificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationViewController.swift; sourceTree = "<group>"; };
 		99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPayload.swift; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryWork.swift; sourceTree = "<group>"; };
@@ -195,6 +216,7 @@
 		D4F54BE4CD7C5098E4E6DACF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DC982992B37C30453C7F88D8 /* WalkingStories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingStories.swift; sourceTree = "<group>"; };
 		DE66C7AF4C2AC3FACB6E6C93 /* RootTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabs.swift; sourceTree = "<group>"; };
+		DE7EA54B02289A35307068BC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E00B654124830A6916016517 /* AroundTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundTexts.swift; sourceTree = "<group>"; };
 		E14B4AD5486A8A4515138C2B /* StoryTimingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryTimingsView.swift; sourceTree = "<group>"; };
 		E354EC6E8E730E863ACFAA6D /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
@@ -358,6 +380,16 @@
 			path = Around;
 			sourceTree = "<group>";
 		};
+		866B611AF451F9E32C4BD129 /* MyGuideNotificationContent */ = {
+			isa = PBXGroup;
+			children = (
+				DE7EA54B02289A35307068BC /* Info.plist */,
+				6095C1673AF14B495B34401A /* NotificationCard.swift */,
+				96D41BC2F7B13FA2E2A7BE52 /* NotificationViewController.swift */,
+			);
+			path = MyGuideNotificationContent;
+			sourceTree = "<group>";
+		};
 		87526A6788AC8C36C40DAF1D /* Shared */ = {
 			isa = PBXGroup;
 			children = (
@@ -443,6 +475,7 @@
 			children = (
 				E4CDA82B4D48CB386EC8A119 /* Config */,
 				355D01E0692B42DA97F82825 /* MyGuide */,
+				866B611AF451F9E32C4BD129 /* MyGuideNotificationContent */,
 				3B2A02D6212714FC8C838ABB /* MyGuideWatch */,
 				B6865EF0D1262BE2D32A9637 /* MyGuideWidgets */,
 				A2045D91DF9C1D35D8527131 /* Packages */,
@@ -481,6 +514,7 @@
 			isa = PBXGroup;
 			children = (
 				7E7402C10EF3BE222D383C88 /* MyGuide.app */,
+				217D212EDC5E2D502B4F362C /* MyGuideNotificationContent.appex */,
 				8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */,
 				E5588654A1B24191FA872223 /* MyGuideWidgets.appex */,
 			);
@@ -504,6 +538,7 @@
 			);
 			dependencies = (
 				F6E78D359DC59B5F6C9351DE /* PBXTargetDependency */,
+				B840E0D4E32F79B1BFDDBAC1 /* PBXTargetDependency */,
 				033B18513824CAD973CB4B99 /* PBXTargetDependency */,
 			);
 			name = MyGuide;
@@ -529,6 +564,24 @@
 			);
 			productName = MyGuideWidgets;
 			productReference = E5588654A1B24191FA872223 /* MyGuideWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		DFEECCBEBF59ED4D0F70326B /* MyGuideNotificationContent */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1B571A1A8176E76AED215202 /* Build configuration list for PBXNativeTarget "MyGuideNotificationContent" */;
+			buildPhases = (
+				18F99A3B5BCF3AA081E13DD6 /* Sources */,
+				F994AA415AB5345014FA0D52 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MyGuideNotificationContent;
+			packageProductDependencies = (
+			);
+			productName = MyGuideNotificationContent;
+			productReference = 217D212EDC5E2D502B4F362C /* MyGuideNotificationContent.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		FBC3F90268ABD22A3B8F9899 /* MyGuideWatch */ = {
@@ -566,6 +619,9 @@
 					DC5AF3183E01E983A566A820 = {
 						ProvisioningStyle = Automatic;
 					};
+					DFEECCBEBF59ED4D0F70326B = {
+						ProvisioningStyle = Automatic;
+					};
 					FBC3F90268ABD22A3B8F9899 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -589,6 +645,7 @@
 			projectRoot = "";
 			targets = (
 				1C5D53266C348E4046C9E9F1 /* MyGuide */,
+				DFEECCBEBF59ED4D0F70326B /* MyGuideNotificationContent */,
 				FBC3F90268ABD22A3B8F9899 /* MyGuideWatch */,
 				DC5AF3183E01E983A566A820 /* MyGuideWidgets */,
 			);
@@ -614,6 +671,18 @@
 				40698BEEAF0214B94E19A219 /* Inter-Regular.ttf in Resources */,
 				9E23E4CBE38A81B7D26726C5 /* PlayfairDisplay-OFL.txt in Resources */,
 				1F38F439526191EA725269C7 /* PlayfairDisplay-Variable.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F994AA415AB5345014FA0D52 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				171D6B09E744C5313C984C14 /* Inter-Medium.ttf in Resources */,
+				791D55EFA8664AC2961AA5FF /* Inter-OFL.txt in Resources */,
+				5C67E1F5A43FE2E52CE79813 /* Inter-Regular.ttf in Resources */,
+				0FF0C6DF04DE23355656B2C3 /* PlayfairDisplay-OFL.txt in Resources */,
+				6E45AE573B3E9C4E3C3E8D7E /* PlayfairDisplay-Variable.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -643,6 +712,17 @@
 				B7D8FAEEF5DD3E027FB2728F /* WatchAppDelegate.swift in Sources */,
 				56C3D880D34DD4473CCE60B4 /* WatchCheckView.swift in Sources */,
 				11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		18F99A3B5BCF3AA081E13DD6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A67E85E6A418A00CB3CDAD5E /* NotificationCard.swift in Sources */,
+				05DDE787377A90B8BFDC6DDE /* NotificationPayload.swift in Sources */,
+				7F16257E352A6AA5B5F55823 /* NotificationViewController.swift in Sources */,
+				08860B174F861BFCF4807666 /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -714,6 +794,11 @@
 			isa = PBXTargetDependency;
 			target = FBC3F90268ABD22A3B8F9899 /* MyGuideWatch */;
 			targetProxy = 33CB4AD1F6ED262A8A635CFE /* PBXContainerItemProxy */;
+		};
+		B840E0D4E32F79B1BFDDBAC1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DFEECCBEBF59ED4D0F70326B /* MyGuideNotificationContent */;
+			targetProxy = 9A2AD331378A60F55D53D86F /* PBXContainerItemProxy */;
 		};
 		F6E78D359DC59B5F6C9351DE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -846,6 +931,25 @@
 			};
 			name = Release;
 		};
+		5E0A43B098723D12B03E4BD9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = MyGuideNotificationContent/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.birgerlie.MyGuide.NotificationContent;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		6CF88C6A0BADB6300915AE07 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -878,6 +982,25 @@
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		A9EA401DD8575A9311698A66 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = MyGuideNotificationContent/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.birgerlie.MyGuide.NotificationContent;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -957,6 +1080,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1B571A1A8176E76AED215202 /* Build configuration list for PBXNativeTarget "MyGuideNotificationContent" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A9EA401DD8575A9311698A66 /* Debug */,
+				5E0A43B098723D12B03E4BD9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		462D46FBA3B040A1BE183335 /* Build configuration list for PBXNativeTarget "MyGuideWatch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
