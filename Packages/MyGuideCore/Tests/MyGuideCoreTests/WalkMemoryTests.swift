@@ -262,16 +262,22 @@ import Testing
         try store.markSkipped(Self.candidate("osm:node/2"), at: Self.t0)
         try store.recordBuzz(Self.buzz("osm:node/3"), tripID: Self.trip, at: Self.t0)
         try store.save(MemoryStoreTests.session(placeID: "osm:node/4", levels: ["one"]))
-        #expect(try store.heardPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/1", "osm:node/4"])
+        #expect(try store.heardPlaceIDs(since: Self.t0 - 1_000) == ["osm:node/1", "osm:node/4"])
     }
-    @Test func heardPlaceIDsUsesTheThirtyDayWindowInclusively() throws {
-        // 30 days = 30 × 86 400 = 2 592 000 s. Heard at t0: counted at t0 + 2 592 000 (cutoff = t0, inclusive),
-        // not at t0 + 2 592 001 (cutoff one second after the hearing).
+    @Test func heardPlaceIDsCutoffIsInclusive() throws {
+        // Heard at t0: counted from a cutoff of t0 (inclusive), not from t0 + 1 s.
         try store.markHeard(Self.candidate("osm:node/1"), level: 2, at: Self.t0)
-        #expect(try store.heardPlaceIDs(now: Self.t0 + 2_592_000) == ["osm:node/1"])
-        #expect(try store.heardPlaceIDs(now: Self.t0 + 2_592_001).isEmpty)
-        // A clock set back before the hearing still counts it.
-        #expect(try store.heardPlaceIDs(now: Self.t0 - 60) == ["osm:node/1"])
+        #expect(try store.heardPlaceIDs(since: Self.t0) == ["osm:node/1"])
+        #expect(try store.heardPlaceIDs(since: Self.t0 + 1).isEmpty)
+        #expect(try store.heardPlaceIDs(since: Self.t0 - 60) == ["osm:node/1"])
+    }
+    @Test func toursHeardWindowIsThirtyDays() throws {
+        // 30 days = 30 × 86 400 = 2 592 000 s. Heard at t0, asked at t0 + 2 592 000: cutoff t0 → counted; asked one
+        // second later: cutoff t0 + 1 → not counted.
+        #expect(TourCandidates.heardWindow == 2_592_000)
+        try store.markHeard(Self.candidate("osm:node/1"), level: 1, at: Self.t0)
+        #expect(try store.heardPlaceIDs(since: Self.t0 + 2_592_000 - TourCandidates.heardWindow) == ["osm:node/1"])
+        #expect(try store.heardPlaceIDs(since: Self.t0 + 2_592_001 - TourCandidates.heardWindow).isEmpty)
     }
     @Test func heardPlaceIDsSkipsUnknownOrMissingHearings() throws {
         // Level heard without lastHeardAt (stored before the field existed), and lastHeardAt without a level.
@@ -280,10 +286,10 @@ import Testing
         store.context.insert(PlaceRecord(id: "osm:node/2", name: "Odd", latitude: 0, longitude: 0, firstSeenAt: Self.t0,
                                          deepestLevelHeard: 0, lastHeardAt: Self.t0))
         try store.context.save()
-        #expect(try store.heardPlaceIDs(now: Self.t0).isEmpty)
+        #expect(try store.heardPlaceIDs(since: Self.t0 - 1_000).isEmpty)
     }
     @Test func heardPlaceIDsOnAnEmptyStoreIsEmpty() throws {
-        #expect(try store.heardPlaceIDs(now: Self.t0).isEmpty)
+        #expect(try store.heardPlaceIDs(since: Self.t0).isEmpty)
     }
     @Test func resetMakesEveryPlaceEligibleAndKeepsHistory() throws {
         let heard = Self.buzz("osm:node/1"), skipped = Self.buzz("osm:node/2")

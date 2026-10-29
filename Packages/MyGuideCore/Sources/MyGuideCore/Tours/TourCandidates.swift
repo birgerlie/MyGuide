@@ -16,6 +16,9 @@ public enum TourCandidates {
     public static let minimumTopOrGood = 4
     /// A place heard in the last 30 days keeps this share of its score, so it loses to new ones but is not excluded.
     public static let heardFactor = 0.5
+    /// A place counts as heard for `heardFactor` when heard within this many seconds (30 days, tours spec 4). Its own
+    /// constant: walking mode's rest (`MemoryStore.placeRestDays`) is a different rule that happens to match today.
+    public static let heardWindow: TimeInterval = 30 * 86_400
 
     /// The places in the area that a tour may visit (spec 4): tier top and good, plus wikiOnly only when fewer than
     /// `minimumTopOrGood` top/good places lie in the area. Scores are top 3, good 2, wikiOnly 1, halved when the

@@ -63,8 +63,8 @@ import Testing
         #expect(TourFormat.distance(4, language: .norwegian) == "0 m")
         #expect(TourFormat.distance(-10, language: .english) == "0 m")
         #expect(TourFormat.distance(.nan, language: .english) == "0 m")
-        // Capped at 1e7 m: 1e7 / 100 = 100 000 tenths → 10 000,0 km.
         #expect(TourFormat.distance(.infinity, language: .english) == "0 m")
+        // Capped at 1e7 m: 1e7 / 100 = 100 000 tenths → 10 000,0 km.
         #expect(TourFormat.distance(1e15, language: .norwegian) == "10000,0 km")
     }
 

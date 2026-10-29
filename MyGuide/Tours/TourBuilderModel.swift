@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import ImageIO
 import MyGuideCore
 import Observation
 import os
@@ -27,7 +28,11 @@ final class TourBuilderModel {
 
     enum Step: Equatable { case locating, findingPlaces, routing }
 
-    enum Failure: Equatable { case locationDenied, noPosition, placesFailed }
+    enum Failure: Equatable {
+        case locationDenied, noPosition, placesFailed
+        /// The destination is over `TourPlanner.maxDirectMetres` away in a straight line.
+        case destinationTooFar
+    }
 
     struct Preview {
         var request: Request
@@ -104,6 +109,9 @@ final class TourBuilderModel {
 
     var canMakeTour: Bool { request != nil && !isPlanning }
 
+    /// Whether the shared provider has a usable fix now (observed through `LocationProvider.location`).
+    var hasFix: Bool { location.fix() != nil }
+
     /// The next longer loop duration, offered when no stop fits (spec 5); nil after the longest.
     nonisolated static func longerDuration(than minutes: Int) -> Int? {
         durations.first { $0 > minutes }
@@ -169,17 +177,33 @@ final class TourBuilderModel {
         }
     }
 
-    /// Steers the destination suggestions towards the owner's surroundings.
+    /// Steers the destination suggestions towards the owner's surroundings, once a fix exists; later calls do
+    /// nothing, so the region does not jump while the owner types.
     func biasSearch() {
-        if let fix = location.fix() { search.bias(around: fix.coordinate) }
+        guard !search.isBiased, let fix = location.fix() else { return }
+        search.bias(around: fix.coordinate)
     }
 
-    /// The stop's picture when it is in the cache; nil otherwise (never fetched here).
-    func cachedPicture(for stop: TourStop, in preview: Preview) async -> UIImage? {
+    /// The stop's picture when it is in the cache, decoded as a thumbnail of at most `maxPixels` on its long side;
+    /// nil otherwise (never fetched here).
+    func cachedPicture(for stop: TourStop, in preview: Preview, maxPixels: Int) async -> UIImage? {
         guard let candidate = preview.places[stop.id], let title = PlaceImages.title(for: candidate),
               let stored = await placeImages.cached(wikipediaTitle: title) else { return nil }
         let url = stored.fileURL
-        return await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: url.path) }.value
+        return await Task.detached(priority: .userInitiated) { Self.thumbnail(at: url, maxPixels: maxPixels) }.value
+    }
+
+    /// Decodes only what a thumbnail needs (a full Wikimedia picture can be several megapixels).
+    nonisolated private static func thumbnail(at url: URL, maxPixels: Int) -> UIImage? {
+        guard maxPixels > 0, let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 
     // MARK: - Planning
@@ -213,6 +237,12 @@ final class TourBuilderModel {
             return
         }
         guard isCurrent(token) else { return }
+        if case .destination(let destination) = request,
+           !TourPlanner.isWithinWalkingRange(from: start, to: destination.coordinate) {
+            phase = .failed(.destinationTooFar)
+            work = nil
+            return
+        }
         phase = .planning(.findingPlaces, since: .now)
 
         let area: TourArea = switch request {
@@ -236,7 +266,7 @@ final class TourBuilderModel {
 
         let heard: Set<String>
         do {
-            heard = try memory.heardPlaceIDs(now: .now)
+            heard = try memory.heardPlaceIDs(since: Date.now.addingTimeInterval(-TourCandidates.heardWindow))
         } catch {
             // Without the heard places every place keeps its full score; the tour is still worth making.
             AppServices.logMemoryFailure("tour heard places failed", error)
@@ -272,15 +302,17 @@ final class TourBuilderModel {
     }
 
     /// The owner's position: the first fix within `goodAccuracy`, or, when `positionWait` runs out, the latest usable
-    /// fix however poor. Nil without any fix, when location is denied, or when cancelled. The shared provider runs
-    /// while this tab is visible (HomeScreen).
+    /// fix however poor. While the owner has not yet answered the location prompt it keeps waiting, and the wait
+    /// starts over once they have. Nil without any fix, when location is denied, or when cancelled. The shared
+    /// provider runs while this tab is visible or a run is planning (HomeScreen).
     private func currentPosition() async -> Coordinate? {
         let clock = ContinuousClock()
-        let deadline = clock.now + Self.positionWait
+        var deadline = clock.now + Self.positionWait
         while !Task.isCancelled {
             let fix = location.fix()
             if let fix, fix.accuracy <= Self.goodAccuracy { return fix.coordinate }
             if isLocationDenied { return nil }
+            if location.authorization == .notDetermined { deadline = clock.now + Self.positionWait }
             if clock.now >= deadline { return fix?.coordinate }
             try? await Task.sleep(for: .milliseconds(500))
         }

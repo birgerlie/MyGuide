@@ -95,7 +95,7 @@ private struct ModeCard<Content: View>: View {
                         .font(.system(size: 20, weight: .semibold))
                         .frame(width: 28)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(title).font(.custom(Theme.FontName.display, size: 22, relativeTo: .title3))
+                        Text(title).font(.custom(Theme.FontName.medium, size: 20, relativeTo: .title3))
                         Text(detail).font(Theme.Font.caption)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -170,7 +170,7 @@ private struct DestinationCard: View {
     let language: StoryLanguage
 
     @State private var resolving: Task<Void, Never>?
-    @State private var resolvingID: Int?
+    @State private var resolvingID: String?
     @State private var notFound = false
     @FocusState private var fieldFocused: Bool
 
@@ -193,8 +193,12 @@ private struct DestinationCard: View {
             }
             .disabled(model.isPlanning)
         }
+        .onChange(of: model.hasFix, initial: true) { _, hasFix in
+            if hasFix { model.biasSearch() }
+        }
         .onChange(of: search.query) { _, query in
             notFound = false
+            if !search.isBiased { model.biasSearch() }
             // Editing the text after choosing un-chooses the destination.
             if let destination = model.destination, destination.name != query { model.destination = nil }
         }
@@ -211,12 +215,16 @@ private struct DestinationCard: View {
         HStack(spacing: Theme.Spacing.unit) {
             Image(systemName: "magnifyingglass")
                 .accessibilityHidden(true)
-            TextField(ToursTexts.searchPlaceholder(language), text: $search.query)
-                .font(Theme.Font.body)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .focused($fieldFocused)
+            // The placeholder is forest at 65 % on solid stone: legible in both appearances (stone does not change).
+            TextField(text: $search.query, prompt: placeholder) {
+                Text(ToursTexts.searchPlaceholder(language))
+            }
+            .font(Theme.Font.body)
+            .tint(Theme.Colour.forest)
+            .textInputAutocapitalization(.words)
+            .autocorrectionDisabled()
+            .submitLabel(.search)
+            .focused($fieldFocused)
             if !search.query.isEmpty {
                 Button {
                     search.clear()
@@ -230,9 +238,15 @@ private struct DestinationCard: View {
                 .accessibilityLabel(ToursTexts.clearSearch(language))
             }
         }
+        // Stone is the same in both appearances, so everything on it is forest.
+        .foregroundStyle(Theme.Colour.forest)
         .padding(.leading, 12)
         .frame(minHeight: Theme.minimumTouchHeight)
-        .background(Theme.Colour.stone.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Theme.Colour.stone, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var placeholder: Text {
+        Text(ToursTexts.searchPlaceholder(language)).foregroundStyle(Theme.Colour.forest.opacity(0.65))
     }
 
     @ViewBuilder
@@ -276,10 +290,13 @@ private struct DestinationCard: View {
         resolving?.cancel()
         resolvingID = suggestion.id
         notFound = false
+        let typed = search.query
         resolving = Task {
             let destination = await search.resolve(suggestion)
             guard !Task.isCancelled else { return }
             resolvingID = nil
+            // The owner typed on while it resolved: their text wins, and this answer is dropped.
+            guard search.query == typed else { return }
             guard let destination else {
                 notFound = true
                 return
@@ -287,43 +304,55 @@ private struct DestinationCard: View {
             fieldFocused = false
             // Destination first, so the query change below finds the names equal and keeps it.
             model.destination = destination
-            search.query = destination.name
+            search.showChosen(destination.name)
         }
     }
 }
 
 // MARK: - Status
 
-/// «Finner steder …» / «Lager rute …» with a spinner and «Avbryt»; after 10 s of routing, why it takes time.
+/// «Finner steder …» / «Lager rute …» with a spinner and «Avbryt»; after 10 s of finding places or routing, why it
+/// takes time.
 private struct PlanningStatus: View {
     let step: TourBuilderModel.Step
     let since: Date
     let language: StoryLanguage
     let cancel: () -> Void
 
-    /// Routing slower than this explains itself.
-    private static let slowRouting: TimeInterval = 10
+    /// A step slower than this explains itself.
+    private static let slowStep: TimeInterval = 10
+
+    /// Why the slow steps take time; nil for finding the position, which ends after 15 s by itself.
+    private var slowNote: String? {
+        switch step {
+        case .locating: nil
+        case .findingPlaces: ToursTexts.findingPlacesTakesTime(language)
+        case .routing: ToursTexts.routingTakesTime(language)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
             HStack(spacing: 12) {
-                ProgressView().tint(Theme.Colour.text)
+                ProgressView().tint(Theme.Colour.forest)
                 Text(text).font(Theme.Font.bodyMedium)
                 Spacer(minLength: Theme.Spacing.unit)
                 Button(ToursTexts.cancel(language), action: cancel)
                     .font(Theme.Font.bodyMedium)
                     .frame(minHeight: Theme.minimumTouchHeight)
             }
-            if step == .routing {
+            if let slowNote {
                 TimelineView(.periodic(from: since, by: 1)) { context in
-                    if context.date.timeIntervalSince(since) >= Self.slowRouting {
-                        Text(ToursTexts.routingTakesTime(language)).font(Theme.Font.caption)
+                    if context.date.timeIntervalSince(since) >= Self.slowStep {
+                        Text(slowNote).font(Theme.Font.caption)
                     }
                 }
             }
         }
+        // Stone is the same in both appearances, so the text on it is always forest.
+        .foregroundStyle(Theme.Colour.forest)
         .padding(Theme.Spacing.margin)
-        .background(Theme.Colour.stone.opacity(0.45), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Theme.Colour.stone, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 
@@ -349,18 +378,25 @@ private struct FailureStatus: View {
                 Text(text).font(Theme.Font.body).frame(maxWidth: .infinity, alignment: .leading)
             }
             .accessibilityElement(children: .combine)
-            if failure == .locationDenied {
+            switch failure {
+            case .locationDenied:
+                // Forest, not the stone secondary style, which would vanish on this stone card.
                 Button(ToursTexts.openSettings(language)) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
-                .buttonStyle(.themeSecondary)
-            } else {
+                .buttonStyle(.themePrimary(.forest))
+            case .noPosition, .placesFailed:
                 Button(ToursTexts.tryAgain(language), action: retry)
-                    .buttonStyle(.themeSecondary)
+                    .buttonStyle(.themePrimary(.forest))
+            case .destinationTooFar:
+                // Trying again cannot help; the text says to pick a nearer destination.
+                EmptyView()
             }
         }
+        // Stone is the same in both appearances, so the text on it is always forest.
+        .foregroundStyle(Theme.Colour.forest)
         .padding(Theme.Spacing.margin)
-        .background(Theme.Colour.stone.opacity(0.45), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Theme.Colour.stone, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var symbol: String {
@@ -368,6 +404,7 @@ private struct FailureStatus: View {
         case .locationDenied: "location.slash"
         case .noPosition: "location.magnifyingglass"
         case .placesFailed: "wifi.exclamationmark"
+        case .destinationTooFar: "ruler"
         }
     }
 
@@ -376,6 +413,7 @@ private struct FailureStatus: View {
         case .locationDenied: ToursTexts.locationDenied(language)
         case .noPosition: ToursTexts.noPosition(language)
         case .placesFailed: ToursTexts.placesFailed(language)
+        case .destinationTooFar: ToursTexts.destinationTooFar(language)
         }
     }
 }

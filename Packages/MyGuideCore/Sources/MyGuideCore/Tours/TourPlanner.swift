@@ -58,6 +58,9 @@ public enum TourPlanner {
     public static let overrunAllowance = 0.10
     /// An A→B whose ends are fewer straight metres apart than this gets no stops: the direct route is the tour.
     public static let minimumDirectMetres = 200.0
+    /// An A→B whose ends are farther apart than this (straight metres) is refused before any search: a walk of over
+    /// 15 km is not a tour, and the corridor's place search would cover a huge area.
+    public static let maxDirectMetres = 15_000.0
     /// An A→B may walk this multiple of the direct estimate (the dwell comes on top).
     public static let aToBBudgetFactor = 1.25
     /// A tour has at most this many stops (controller ruling), in both modes.
@@ -68,6 +71,13 @@ public enum TourPlanner {
     private static let budgetTolerance = 1e-6
     /// 2-opt applies a reversal only when it saves more than this many seconds, so rounding cannot make it loop.
     private static let improvementTolerance = 1e-9
+
+    /// Whether an A→B from `start` to `destination` may be planned: both ends finite and at most `maxDirectMetres`
+    /// apart in a straight line.
+    public static func isWithinWalkingRange(from start: Coordinate, to destination: Coordinate) -> Bool {
+        guard isFinite(start), isFinite(destination) else { return false }
+        return GeoMath.distance(start, destination) <= maxDirectMetres
+    }
 
     /// The estimated walk between two points: straight metres × `detourFactor` / `walkingSpeed`.
     public static func estimatedLegSeconds(from a: Coordinate, to b: Coordinate) -> Double {

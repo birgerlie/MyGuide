@@ -104,8 +104,8 @@ struct HomeScreen: View {
             keepDayStories()
         }
         .onChange(of: diaryPath) { keepDayStories() }
-        // Location runs while the map or the camera is on top, while a story offers "Use where I am now", or while
-        // the tours tab is selected.
+        // Location runs while the map or the camera is on top, while a story offers "Use where I am now", while
+        // the tours tab is selected, or while a tour is being planned.
         .onChange(of: locationWanted, initial: true) { _, wanted in
             if wanted {
                 // Fixes while the map or the camera (or a story's "Use where I am now") is up keep the nearby list
@@ -288,10 +288,11 @@ struct HomeScreen: View {
         return model
     }
 
-    /// «Start turen» on the tour preview. For now the tour is only handed to `AppServices.pendingTour` and the map is
-    /// shown; the active tour (tours task T5) replaces this with starting walking mode on the tour.
+    /// «Start turen» on the tour preview: hands the tour to `AppServices.offerTour` and shows the map at its root.
+    /// The active tour (tours task T5) takes it with `takePendingTour()` and starts walking mode on it.
     private func startTour(_ tour: RoutedTour) {
-        services.pendingTour = tour
+        services.offerTour(tour)
+        path = []
         tab = .explore
     }
 
@@ -362,12 +363,14 @@ struct HomeScreen: View {
     // MARK: - What runs
 
     /// Whether location updates should run now (re-evaluated as the scene, the tab, the top screen or the story
-    /// changes): the Utforsk tab showing the map, the camera, or a story offering "Use where I am now", and the Turer
-    /// tab. Never while the Dagbok tab is selected. This screen alone starts and stops the shared provider and sets its `onFix`.
+    /// changes): the Utforsk tab showing the map, the camera, or a story offering "Use where I am now"; the Turer
+    /// tab; and a tour being planned on any tab. Otherwise never while the Dagbok tab is selected. This screen alone
+    /// starts and stops the shared provider and sets its `onFix`.
     private var locationWanted: Bool {
         guard scenePhase != .background else { return false }
-        // The tours tab plans from where the owner stands, and its destination search is biased to it.
-        if tab == .tours { return true }
+        // The tours tab plans from where the owner stands, and its destination search is biased to it. A run being
+        // planned keeps it on after the owner switches tab, so it still gets its position.
+        if tab == .tours || services.tourBuilder.isPlanning { return true }
         return tab == .explore && (path.isEmpty || path.last == .camera || storyOffersCurrentPosition)
     }
 

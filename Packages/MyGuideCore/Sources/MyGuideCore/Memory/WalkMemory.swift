@@ -103,11 +103,11 @@ extension MemoryStore {
         }.map(\.id))
     }
 
-    /// Places heard or read (a story level saved, with `lastHeardAt`) at or after `now` − 30 days; skips do not count.
-    /// Tours halve the scores of places heard in the last 30 days (tours spec 4); the spec names hearing only, so a
-    /// skip keeps the full score. A heard place with `lastHeardAt` nil is not counted, as in `retiredPlaceIDs(now:)`.
-    public func heardPlaceIDs(now: Date) throws -> Set<String> {
-        let cutoff = now.addingTimeInterval(-TimeInterval(Self.placeRestDays) * 86_400)
+    /// Places heard or read (a story level saved, with `lastHeardAt`) at or after `cutoff`; skips do not count. Tours
+    /// pass now − `TourCandidates.heardWindow` (tours spec 4 halves places heard in the last 30 days; the spec names
+    /// hearing only, so a skip keeps the full score). A heard place with `lastHeardAt` nil is not counted, as in
+    /// `retiredPlaceIDs(now:)`.
+    public func heardPlaceIDs(since cutoff: Date) throws -> Set<String> {
         let descriptor = FetchDescriptor<PlaceRecord>(predicate: #Predicate { place in place.deepestLevelHeard >= 1 })
         return Set(try context.fetch(descriptor).filter { place in
             place.lastHeardAt.map { $0 >= cutoff } ?? false

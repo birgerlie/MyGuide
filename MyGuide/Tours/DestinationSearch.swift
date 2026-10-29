@@ -15,7 +15,8 @@ struct TourDestination: Equatable, Sendable {
 final class DestinationSearch: NSObject {
     /// One suggestion row. The completion stays on the main actor; MapKit objects are not Sendable.
     struct Suggestion: Identifiable {
-        let id: Int
+        /// Title and subtitle: stable while the owner types on, so a row being resolved keeps its spinner.
+        let id: String
         let title: String
         let subtitle: String
         fileprivate let completion: MKLocalSearchCompletion
@@ -37,13 +38,18 @@ final class DestinationSearch: NSObject {
 
     private(set) var suggestions: [Suggestion] = []
     private(set) var status: Status = .idle
+    /// Whether the completer has been steered to the owner's surroundings yet.
+    private(set) var isBiased = false
     /// The text in the field; setting it asks the completer, and blank text clears the suggestions.
+    /// `showChosen(_:)` sets it without asking.
     var query = "" {
         didSet {
             guard query != oldValue else { return }
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
+            if settingChosen || trimmed.isEmpty {
                 completer.cancel()
+                // Forgotten, so typing the same text again asks again.
+                completer.queryFragment = ""
                 suggestions = []
                 status = .idle
             } else {
@@ -53,6 +59,7 @@ final class DestinationSearch: NSObject {
     }
 
     @ObservationIgnored private let completer = MKLocalSearchCompleter()
+    @ObservationIgnored private var settingChosen = false
 
     override init() {
         super.init()
@@ -65,6 +72,14 @@ final class DestinationSearch: NSObject {
         completer.region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: centre.latitude,
                                                                              longitude: centre.longitude),
                                               latitudinalMeters: Self.biasSpan, longitudinalMeters: Self.biasSpan)
+        isBiased = true
+    }
+
+    /// Puts a picked destination's name in the field without asking the completer, and hides the suggestions.
+    func showChosen(_ name: String) {
+        settingChosen = true
+        defer { settingChosen = false }
+        query = name
     }
 
     /// Empties the field and the suggestions.
@@ -85,18 +100,28 @@ final class DestinationSearch: NSObject {
                                                                   longitude: coordinate.longitude))
     }
 
+    /// The field's text is what the completer was asked: false for blank text and for a chosen destination's name
+    /// (`showChosen`), so a late answer to an earlier fragment cannot bring suggestions back.
+    private var isAsked: Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && completer.queryFragment == trimmed
+    }
+
     /// Reads the completer's current results; it always matches the latest fragment, so a late callback for an
     /// older fragment cannot show stale rows.
     private func takeResults() {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        suggestions = completer.results.prefix(Self.maxSuggestions).enumerated().map { index, completion in
-            Suggestion(id: index, title: completion.title, subtitle: completion.subtitle, completion: completion)
-        }
+        guard isAsked else { return }
+        var seen = Set<String>()
+        suggestions = Array(completer.results.compactMap { completion -> Suggestion? in
+            let id = completion.title + "\n" + completion.subtitle
+            guard seen.insert(id).inserted else { return nil }
+            return Suggestion(id: id, title: completion.title, subtitle: completion.subtitle, completion: completion)
+        }.prefix(Self.maxSuggestions))
         status = suggestions.isEmpty ? .noResults : .results
     }
 
     private func takeFailure(notFound: Bool) {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard isAsked else { return }
         suggestions = []
         status = notFound ? .noResults : .failed
     }

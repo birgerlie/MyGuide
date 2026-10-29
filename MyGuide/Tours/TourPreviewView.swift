@@ -36,7 +36,7 @@ struct TourPreviewView: View {
                     .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.Colour.stone))
                 VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
                     Text(heading(preview.request))
-                        .font(Theme.Font.title)
+                        .font(.custom(Theme.FontName.medium, size: 22, relativeTo: .title2))
                         .accessibilityAddTraits(.isHeader)
                     Text(TourFormat.totals(seconds: routed.totalSeconds, metres: routed.totalMetres,
                                            stops: routed.plan.stops.count, language: language))
@@ -103,8 +103,10 @@ struct TourPreviewView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Stone is the same in both appearances, so the text on it is always forest.
+        .foregroundStyle(Theme.Colour.forest)
         .padding(Theme.Spacing.margin)
-        .background(Theme.Colour.stone.opacity(0.45), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Theme.Colour.stone, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 
@@ -197,6 +199,7 @@ private struct TourStopRow: View {
     let language: StoryLanguage
 
     @State private var picture: UIImage?
+    @Environment(\.displayScale) private var displayScale
 
     private static let pictureSize: CGFloat = 56
 
@@ -253,7 +256,8 @@ private struct TourStopRow: View {
         }
         .padding(.vertical, 12)
         .task(id: "\(stop.id)#\(model.picturesVersion)") {
-            let loaded = await model.cachedPicture(for: stop, in: preview)
+            let loaded = await model.cachedPicture(for: stop, in: preview,
+                                                   maxPixels: Int((Self.pictureSize * displayScale).rounded(.up)))
             guard !Task.isCancelled else { return }
             if let loaded { picture = loaded }
         }

@@ -23,8 +23,8 @@ enum ToursTexts {
     }
 
     static func destinationDetail(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Innom de beste stedene på veien, med høyst 25 % omvei."
-            : "Past the best places on the way, with at most a 25 % detour."
+        language == .norwegian ? "Innom de beste stedene på veien, med litt ekstra gåing."
+            : "Past the best places on the way, with a little extra walking."
     }
 
     /// A duration chip: «30 min», «1 t», «1 t 30 min».
@@ -84,8 +84,14 @@ enum ToursTexts {
     }
 
     static func routingTakesTime(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Gangrutene hentes én etappe om gangen; det kan ta litt tid."
-            : "Walking routes come one leg at a time; this can take a while."
+        language == .norwegian
+            ? "Gangrutene hentes fire etapper om gangen, og én om gangen når et stopp må ut for at turen skal passe. Det kan ta litt tid."
+            : "Walking routes come four legs at a time, then one at a time when a stop has to go for the tour to fit. This can take a while."
+    }
+
+    static func findingPlacesTakesTime(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Kartdataene kan bruke opptil et par minutter på å svare."
+            : "The map data can take up to a couple of minutes to answer."
     }
 
     static func cancel(_ language: StoryLanguage) -> String {
@@ -105,6 +111,13 @@ enum ToursTexts {
     static func placesFailed(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Fikk ikke hentet steder. Sjekk nettet og prøv igjen."
             : "Couldn't fetch places. Check your connection and try again."
+    }
+
+    /// An A→B over `TourPlanner.maxDirectMetres` (15 km) in a straight line.
+    static func destinationTooFar(_ language: StoryLanguage) -> String {
+        let limit = "\(Int(TourPlanner.maxDirectMetres / 1000)) km"
+        return language == .norwegian ? "For langt å gå – velg et mål innen \(limit)."
+            : "Too far to walk – pick a destination within \(limit)."
     }
 
     static func tryAgain(_ language: StoryLanguage) -> String {
@@ -165,19 +178,23 @@ enum ToursTexts {
             : "Some sources didn't answer, so the tour may miss places."
     }
 
-    /// Spec 5's honest text: «Ingen severdigheter passer inn i 30 minutter herfra».
+    /// Spec 5's honest text, with durations written as everywhere on the tab: «Ingen severdigheter passer inn i
+    /// 30 min herfra».
     static func noStopsLoop(minutes: Int, _ language: StoryLanguage) -> String {
-        language == .norwegian ? "Ingen severdigheter passer inn i \(minutes) minutter herfra."
-            : "No sights fit into \(minutes) minutes from here."
+        let length = duration(minutes: minutes, language)
+        return language == .norwegian ? "Ingen severdigheter passer inn i \(length) herfra."
+            : "No sights fit into \(length) from here."
     }
 
+    /// «Prøv 1 t 30 min».
     static func tryLonger(minutes: Int, _ language: StoryLanguage) -> String {
-        language == .norwegian ? "Prøv \(minutes) minutter" : "Try \(minutes) minutes"
+        let length = duration(minutes: minutes, language)
+        return language == .norwegian ? "Prøv \(length)" : "Try \(length)"
     }
 
     static func noStopsAToB(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Ingen severdigheter passer på veien dit innen 25 % omvei."
-            : "No sights fit on the way there within a 25 % detour."
+        language == .norwegian ? "Ingen severdigheter passer på veien dit uten en lang omvei."
+            : "No sights fit on the way there without a long detour."
     }
 
     /// An A→B whose ends are under 200 m apart: «Målet er bare 150 m unna, så turen har ingen stopp.»

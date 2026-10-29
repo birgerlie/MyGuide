@@ -37,6 +37,21 @@ import Testing
         #expect(TourPlanner.minimumDirectMetres == 200)
         #expect(TourPlanner.aToBBudgetFactor == 1.25)
         #expect(TourPlanner.maxStops == 12)
+        #expect(TourPlanner.maxDirectMetres == 15_000)
+    }
+
+    @Test func walkingRangeEndsAtFifteenKilometres() {
+        // On the equator a metre north is a metre by haversine: 14 999 m ≤ 15 000 → in range; 15 001 m > 15 000 → out.
+        #expect(TourPlanner.isWithinWalkingRange(from: Self.origin, to: .at(north: 14_999)))
+        #expect(!TourPlanner.isWithinWalkingRange(from: Self.origin, to: .at(north: 15_001)))
+        // Diagonals, far from the limit so haversine's curvature cannot matter: 8000 m east, 12 000 m north →
+        // √(64 000 000 + 144 000 000) = √208 000 000 ≈ 14 422 m, in; 9000 m east, 12 100 m north →
+        // √(81 000 000 + 146 410 000) = √227 410 000 ≈ 15 080 m, out.
+        #expect(TourPlanner.isWithinWalkingRange(from: Self.origin, to: .at(north: 12_000, east: 8_000)))
+        #expect(!TourPlanner.isWithinWalkingRange(from: Self.origin, to: .at(north: 12_100, east: 9_000)))
+        #expect(TourPlanner.isWithinWalkingRange(from: Self.origin, to: Self.origin))
+        #expect(!TourPlanner.isWithinWalkingRange(from: Self.origin, to: Coordinate(latitude: .nan, longitude: 0)))
+        #expect(!TourPlanner.isWithinWalkingRange(from: Coordinate(latitude: 0, longitude: .infinity), to: Self.origin))
     }
 
     @Test func legEstimateIsStraightTimesDetourOverSpeed() {
