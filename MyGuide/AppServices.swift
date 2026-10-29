@@ -26,6 +26,8 @@ final class AppServices {
     let watchLink = WatchLink()
     /// The diary's import and day story writes, kept here so they survive a walk story pushed over their screens.
     let diary = DiaryWork()
+    /// One audio at a time: a photo story starting to speak stops walk audio, and walk audio stops a photo story.
+    let audioFocus = AudioFocus()
     private let http: HTTPClient = AppServices.sharedHTTP
     /// The one Wikipedia article text cache, for the app's lifetime: photo and walking stories share it.
     private let articles: ArticleTextCache = AppServices.sharedArticles
@@ -74,6 +76,9 @@ final class AppServices {
             },
             makeSpeech: { try Self.speech(openAI: Self.openAI(keychain: keychain, http: http)) },
             recordUsage: { Self.recordUsage($0, memory: memory) })
+        let audioFocus = audioFocus
+        audioFocus.stopWalkAudio = { stories.stopListening() }
+        stories.onWillPlay = { audioFocus.walkAudioWillStart() }
         walking = WalkingController(
             memory: memory,
             stories: stories,
@@ -493,5 +498,30 @@ final class AppServices {
         for file in files where file.lastPathComponent.hasPrefix(prefix) {
             do { try fm.removeItem(at: file) } catch { logMemoryFailure("speech cache cleanup failed", error) }
         }
+    }
+}
+
+/// Keeps photo-story speech and walk-story audio from talking over each other: whichever starts stops the other.
+/// Several photo story screens can exist (Home, History, Diary); only the one that spoke last is remembered.
+@MainActor
+final class AudioFocus {
+    /// Stops walk audio; set by `AppServices` to the walking stories' Stop.
+    var stopWalkAudio: (() -> Void)?
+    /// Stops the photo story that spoke last; nil when none has, or walk audio already stopped it.
+    private var stopPhotoSpeech: (() -> Void)?
+
+    /// A photo story is about to speak: the photo story that spoke before it and any walk audio stop. `stop` stops
+    /// this one when walk audio starts later.
+    func photoSpeechWillStart(stop: @escaping () -> Void) {
+        stopPhotoSpeech?()
+        stopPhotoSpeech = stop
+        stopWalkAudio?()
+    }
+
+    /// Walk audio is about to play: the photo story speaking (or fetching its speech) stops.
+    func walkAudioWillStart() {
+        let stop = stopPhotoSpeech
+        stopPhotoSpeech = nil
+        stop?()
     }
 }

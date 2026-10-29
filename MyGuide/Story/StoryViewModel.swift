@@ -507,6 +507,9 @@ final class StoryViewModel {
             onAudioReady?(nil)
             return
         }
+        // Before this model's own stop: the previous photo story may be this one, and stopping it here must not
+        // cancel the request that starts below.
+        services.audioFocus.photoSpeechWillStart { [weak self] in self?.stopSpeech() }
         stopSpeech()
         speech[level] = .loading
         let text = session.levels[level]
