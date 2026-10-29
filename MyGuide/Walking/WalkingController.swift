@@ -37,6 +37,8 @@ final class WalkingController {
     private(set) var buzzCount = 0
     /// The time of the last fix the buzz engine could use; nil until one arrives. Not updated while paused.
     private(set) var lastFixAt: Date?
+    /// Set on every delivered buzz; the map selects this place explicitly when the app is active (spec 12.2).
+    private(set) var lastBuzz: (placeID: String, at: Date)?
     /// The pause in progress: `auto` from the pause detector, `manual` from the owner's Pause (phone or watch), which
     /// holds until Resume. Nil while active. While paused: no buzzes, fetches, stop detection, track or route (spec 5.4).
     private(set) var pauseKind: WalkingPauseKind?
@@ -127,6 +129,7 @@ final class WalkingController {
         // No buzz while a story is preparing, being continued or playing.
         stories.onBusyChanged = { [weak self] busy in self?.engine?.isBusy = busy }
         stories.onHeard = { [weak self] placeID in self?.noteHeard(placeID: placeID) }
+        stories.onChosenHeard = { [weak self] candidate in self?.noteChosenHeard(candidate) }
         stories.onRetire = { [weak self] id, candidate, level in self?.retire(id, candidate: candidate, deepestLevel: level) }
         stories.currentTripID = { [weak self] in self?.tripID }
         stories.currentPlaces = { [weak self] in self?.feed.places ?? [] }
@@ -385,6 +388,34 @@ final class WalkingController {
     /// later runs).
     func noteHeard(placeID: String) {
         engine?.exclude(placeID)
+    }
+
+    /// Called by `WalkingStories` when a level of a `.chosen` story starts playing: the place never buzzes this run.
+    /// `WalkingStories` has already marked it heard in memory, which retires it for later runs (spec 12.1).
+    func noteChosenHeard(_ place: Candidate) {
+        engine?.exclude(place.id)
+    }
+
+    /// Tells a place chosen on the map (spec 12.1), with walking mode on or off; see `WalkingStories.tellPlace`.
+    /// While walking mode is on, the walk context comes from the route, as for a buzz (no course: the place was not
+    /// passed). While it is off there is no route: the context holds only the address at `position` (nil after a
+    /// failed lookup or 8 s).
+    func tellPlace(_ place: WalkingPlace, position: Coordinate, language: StoryLanguage) {
+        let context: @MainActor @Sendable () async -> WalkContext
+        if isOn, runToken != nil {
+            let run = runToken, now = Date.now
+            let snapshot = route, generation = routeGeneration
+            context = { [weak self] in
+                await self?.walkContext(at: position, course: nil, snapshot: snapshot, generation: generation,
+                                        run: run, now: now)
+                    ?? WalkContext(address: nil, bearing: nil, street: nil, cameFrom: nil)
+            }
+        } else {
+            context = {
+                WalkContext(address: await Self.address(at: position), bearing: nil, street: nil, cameFrom: nil)
+            }
+        }
+        stories.tellPlace(place, position: position, language: language, context: context)
     }
 
     /// The playback machine's `retire` effect for a skipped buzz. `candidate` is the story's place, when known.
@@ -789,6 +820,7 @@ final class WalkingController {
 
     private func deliver(_ buzz: Buzz, position: Coordinate, direction: Double?, at now: Date) {
         postedCandidates[buzz.id] = buzz.place.candidate
+        lastBuzz = (buzz.place.candidate.id, now)
         if let tripID {
             do { try memory.recordBuzz(buzz, tripID: tripID, at: now) } catch { fail("buzz record failed", error) }
         }

@@ -14,6 +14,9 @@ public struct WalkingPlayback: Sendable, Equatable {
         /// A story the machine does not know (relaunch, or forgotten) was found in memory with `storedLevels`
         /// levels, `deepestHeard` of them heard (0 for none). It becomes ready with that level cap.
         case restored(UUID, storedLevels: Int, deepestHeard: Int)
+        /// The owner chose a place on the map (spec 12.1): its new story starts preparing and plays when ready, as
+        /// after a "tell me". Whatever plays stops now. For an id the machine knows already it is a "tell me".
+        case chosenStarted(UUID)
     }
 
     public enum Effect: Sendable, Equatable {
@@ -46,6 +49,12 @@ public struct WalkingPlayback: Sendable, Equatable {
 
     public static func == (a: WalkingPlayback, b: WalkingPlayback) -> Bool {
         a.phases == b.phases && a.levels == b.levels && a.stored == b.stored && a.playing?.id == b.playing?.id && a.playing?.level == b.playing?.level
+    }
+
+    /// The story the owner asked to play whose text is still being prepared; it plays when ready. At most one story
+    /// waits: a newer request (another wait, a play, a stop) ends the wait (spec 12.2, one owner of audio).
+    public var waiting: UUID? {
+        phases.first { $0.value == .preparing(wanted: true) }?.key
     }
 
     /// Preparing any story, fetching more, or playing.
@@ -91,7 +100,7 @@ public struct WalkingPlayback: Sendable, Equatable {
         switch event {
         case .buzzSent(let id), .storyReady(let id), .storyFailed(let id), .moreReady(let id, _), .moreFailed(let id, _),
              .tellMe(let id), .more(let id), .skip(let id), .finished(let id, _), .listen(let id, _),
-             .restored(let id, _, _):
+             .restored(let id, _, _), .chosenStarted(let id):
             touch(id)
         case .stoppedExternally:
             break
@@ -144,10 +153,20 @@ public struct WalkingPlayback: Sendable, Equatable {
             phases[id] = .failed
             return wanted ? [.reportFailure(id)] : []
 
+        case .chosenStarted(let id):
+            guard phases[id] == nil else { return process(.tellMe(id)) }
+            var effects: [Effect] = []
+            if playing != nil {
+                playing = nil
+                effects.append(.stopAudio)
+            }
+            wait(for: id)
+            return effects
+
         case .tellMe(let id):
             switch phases[id] {
             case .preparing:
-                phases[id] = .preparing(wanted: true)
+                wait(for: id)
                 return []
             case .ready, .fetching:
                 // Already playing this story: the tap changes nothing. While more is being fetched the tap replays
@@ -201,7 +220,9 @@ public struct WalkingPlayback: Sendable, Equatable {
             return (levels[id] ?? level) < StoryLevel.allCases.count ? [.offerMore(id)] : []
 
         case .stoppedExternally:
+            // The owner's Stop also ends a wait: the story stays prepared but no longer starts by itself.
             playing = nil
+            endWait()
             return []
 
         case .listen(let id, let level):
@@ -221,7 +242,21 @@ public struct WalkingPlayback: Sendable, Equatable {
         }
     }
 
+    /// `id` (preparing) plays when ready; any other story waiting no longer does.
+    private mutating func wait(for id: UUID) {
+        endWait()
+        phases[id] = .preparing(wanted: true)
+    }
+
+    private mutating func endWait() {
+        for (id, phase) in phases where phase == .preparing(wanted: true) {
+            phases[id] = .preparing(wanted: false)
+        }
+    }
+
     private mutating func start(_ id: UUID, level: Int) -> [Effect] {
+        // A story that starts playing ends any wait: the waiting one must not cut in when its text arrives.
+        endWait()
         var effects: [Effect] = []
         if let current = playing, current.id != id { effects.append(.stopAudio) }
         playing = (id, level)

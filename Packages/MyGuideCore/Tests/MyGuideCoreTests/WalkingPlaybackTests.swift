@@ -350,4 +350,81 @@ import Testing
         #expect(p.storedLevels(Self.a) == 3)
         #expect(p.storedLevels(Self.b) == 0)            // unknown
     }
+
+    // MARK: - A place chosen on the map, and one story waiting at a time
+
+    @Test func chosenStoryPlaysWhenReady() {
+        var p = WalkingPlayback()
+        #expect(p.handle(.chosenStarted(Self.a)).isEmpty)
+        #expect(p.isBusy && p.waiting == Self.a && p.playing == nil)
+        #expect(p.handle(.storyReady(Self.a)) == [.play(Self.a, level: 1)])
+        #expect(p.waiting == nil && p.playing?.id == Self.a && p.storedLevels(Self.a) == 1)
+    }
+    @Test func chosenStoryStopsWhatPlays() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.b)); _ = p.handle(.storyReady(Self.b)); _ = p.handle(.tellMe(Self.b))
+        #expect(p.handle(.chosenStarted(Self.a)) == [.stopAudio])
+        #expect(p.playing == nil && p.waiting == Self.a)
+        // Nothing plays any more, so no second stop.
+        #expect(p.handle(.storyReady(Self.a)) == [.play(Self.a, level: 1)])
+        // The stopped story stays ready: "tell me" replays it.
+        #expect(p.handle(.tellMe(Self.b)) == [.stopAudio, .play(Self.b, level: 1)])
+    }
+    @Test func chosenStoryFailureIsReported() {
+        var p = WalkingPlayback()
+        _ = p.handle(.chosenStarted(Self.a))
+        #expect(p.handle(.storyFailed(Self.a)) == [.reportFailure(Self.a)])
+        #expect(p.waiting == nil && !p.isBusy && !p.hasStory(Self.a))
+    }
+    @Test func chosenStartedForAKnownStoryActsAsTellMe() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.storyReady(Self.a))
+        #expect(p.handle(.chosenStarted(Self.a)) == [.play(Self.a, level: 1)])
+        // Preparing: it waits, as after "tell me".
+        _ = p.handle(.buzzSent(Self.b))
+        #expect(p.handle(.chosenStarted(Self.b)).isEmpty && p.waiting == Self.b)
+        #expect(p.handle(.storyReady(Self.b)) == [.stopAudio, .play(Self.b, level: 1)])
+    }
+    @Test func chosenStoryReplacesAnotherWait() {
+        // A buzz the owner tapped "tell me" on is still preparing when a place is chosen: the latest request wins.
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.tellMe(Self.a))
+        #expect(p.waiting == Self.a)
+        #expect(p.handle(.chosenStarted(Self.b)).isEmpty && p.waiting == Self.b)
+        #expect(p.handle(.storyReady(Self.a)).isEmpty && p.playing == nil)
+        #expect(p.handle(.storyReady(Self.b)) == [.play(Self.b, level: 1)])
+        // The buzz story stays ready for a later "tell me".
+        #expect(p.hasStory(Self.a))
+    }
+    @Test func tellMeOnAPreparingStoryReplacesAnotherWait() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.tellMe(Self.a))
+        _ = p.handle(.buzzSent(Self.b))
+        #expect(p.handle(.tellMe(Self.b)).isEmpty && p.waiting == Self.b)
+        #expect(p.handle(.storyFailed(Self.a)).isEmpty)          // no longer wanted: silent
+        #expect(p.handle(.storyReady(Self.b)) == [.play(Self.b, level: 1)])
+    }
+    @Test func playingAnotherStoryEndsAWait() {
+        // Story a is still preparing when the owner plays the ready story b: a no longer starts by itself.
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.b)); _ = p.handle(.storyReady(Self.b))
+        _ = p.handle(.chosenStarted(Self.a))
+        #expect(p.handle(.listen(Self.b, level: 1)) == [.play(Self.b, level: 1)])
+        #expect(p.waiting == nil)
+        #expect(p.handle(.storyReady(Self.a)).isEmpty && p.playing?.id == Self.b)
+        #expect(p.handle(.tellMe(Self.a)) == [.stopAudio, .play(Self.a, level: 1)])
+    }
+    @Test func stopEndsAWait() {
+        var p = WalkingPlayback()
+        _ = p.handle(.chosenStarted(Self.a))
+        #expect(p.handle(.stoppedExternally).isEmpty && p.waiting == nil)
+        // Still preparing (busy) until its result comes, which then plays nothing.
+        #expect(p.isBusy)
+        #expect(p.handle(.storyReady(Self.a)).isEmpty && !p.isBusy && p.hasStory(Self.a))
+    }
+    @Test func skipEndsAWait() {
+        var p = WalkingPlayback()
+        _ = p.handle(.buzzSent(Self.a)); _ = p.handle(.tellMe(Self.a))
+        #expect(p.handle(.skip(Self.a)) == [.retire(Self.a)] && p.waiting == nil)
+    }
 }
