@@ -888,3 +888,32 @@ reuse those components.
 - [ ] Texts: any user-facing string you touch comes in both story languages, through a local texts enum per area.
 - [ ] Build the app (it embeds the watch app). Expected: no errors.
 - [ ] Commit `style: every remaining screen in the design package`.
+
+### Task 15: Screen language follows the iPhone (String Catalog)
+
+Spec section 17 is binding. This task runs after Task 14.
+
+**Files:**
+- Create: `MyGuide/Localizable.xcstrings` (en, nb), plus catalogs for the extension and widget targets (or a
+  shared catalog added to each target).
+- Modify:
+  - the texts enums (`ScreenText`, `AroundTexts`, `WalkStoryText`, `NotificationText` callers, and the texts
+    enums Task 14 adds), which now resolve through `String(localized:)` or `LocalizedStringResource`;
+  - `project.yml`: `developmentRegion: en`, `knownRegions [en, nb]`, the catalogs in the targets' resources;
+  - `AppServices.currentStoryLanguage()`: the first-launch default from `Locale.preferredLanguages`
+    (`nb`/`no`/`nn` → `.norwegian`, else `.english`). It never overrides a stored choice.
+- Core keeps `StoryLanguage` for content texts (FactLine, kind labels, photo credit) and stays free of UI
+  localization. Screen texts that live in core today (`NotificationText`, `AroundText.whereLine` words,
+  `RelativeDirection.words`, `FailureCategory.text`) stay parameterised by language. The app passes the
+  UI-language `StoryLanguage` equivalent (`UILanguage.current` → `.norwegian` / `.english`) for screen texts,
+  and the story language for content.
+
+**Steps:**
+- [ ] Add `UILanguage.current` to the app: `Locale.preferredLanguages.first` begins with `nb`, `no` or `nn` →
+      `.norwegian`, else `.english`. Each screen text call site passes it instead of the story language. Content
+      call sites keep the story language.
+- [ ] Move the app's own texts enums into the String Catalog with keys and nb translations.
+- [ ] Notification categories are registered at launch with `UILanguage.current`. Re-registering on a
+      story-language change is no longer needed for actions.
+- [ ] Build. Then a manual check in the simulator with the device language set to English and to Norwegian.
+- [ ] Commit `feat(i18n): screen language follows the iPhone; story language stays its own setting`.

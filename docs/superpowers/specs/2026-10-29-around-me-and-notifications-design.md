@@ -426,3 +426,20 @@ section and earlier sections differ, this section wins, except rule 6.2.8, which
     - Pause and resume within a story (the audio player has stop only).
     - The geometry of large places.
     - The choice sheet between free walk and theme tour, until tours exist.
+
+## 17. Screen language follows the iPhone (owner, 2026-10-29)
+
+Owner: «følg iphonens språk, ta det etter denne runden».
+
+- **Screen texts follow the iPhone's language.** This covers the app, the notification texts and actions, the
+  expanded card, the Live Activity and the watch. It goes through an Apple String Catalog
+  (`Localizable.xcstrings`) with English (development language) and Norwegian Bokmål (`nb`). Every bilingual
+  texts enum built so far moves into the catalog.
+- **Any other iPhone language** falls back to English.
+- **The story language stays a separate setting.** It decides the language of stories, prompts and Wikipedia.
+  Its default on first launch is the iPhone language when that is Norwegian (`nb`, `no` or `nn`), and English
+  otherwise. An explicit choice in Settings is kept.
+- **Content texts follow the story language**, because they belong to the story: the factual line, the place
+  kind labels, the walk story text and the photo credit wording.
+- **Notification action titles and categories** follow the iPhone language and are registered at launch.
+- **Order:** this is done after the current round (Task 14), before the whole-branch review.
