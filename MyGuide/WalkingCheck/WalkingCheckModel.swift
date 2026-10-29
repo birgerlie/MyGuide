@@ -28,16 +28,16 @@ final class WalkingCheckModel: NSObject {
 
     // Buzz from the watch
     private(set) var buzzPending = false
-    private(set) var buzzStatus = "Not started"
+    private(set) var buzzStatus = WalkingCheckTexts.notStarted(AppServices.currentStoryLanguage())
     private(set) var buzzResult: CheckResult?
 
     // Live Activity
     private(set) var activityRunning = false
-    private(set) var activityStatus = "Not started"
+    private(set) var activityStatus = WalkingCheckTexts.notStarted(AppServices.currentStoryLanguage())
     private(set) var activityResult: CheckResult?
 
     // Watch
-    private(set) var watchTellStatus = "No Tell me received from the watch yet"
+    private(set) var watchTellStatus = WalkingCheckTexts.noWatchTell(AppServices.currentStoryLanguage())
     private(set) var watchTellResult: CheckResult?
 
     @ObservationIgnored private let manager = CLLocationManager()
@@ -50,6 +50,9 @@ final class WalkingCheckModel: NSObject {
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var buzzTimer: Task<Void, Never>?
 
+    /// The story language as it is now: each status is worded when it is set, and the computed ones when shown.
+    private var language: StoryLanguage { AppServices.currentStoryLanguage() }
+
     override init() {
         authorization = manager.authorizationStatus
         super.init()
@@ -60,25 +63,26 @@ final class WalkingCheckModel: NSObject {
     // MARK: - Background location
 
     var locationStatus: String {
-        let fixes = locationRunning || totalFixes > 0
-            ? " · \(totalFixes) fixes, \(backgroundFixes) in background, longest gap \(Int(longestGap.rounded())) s"
-            : ""
-        return "Authorization: \(Self.describe(authorization))\(fixes)"
+        let counts = locationRunning || totalFixes > 0
+            ? (total: totalFixes, background: backgroundFixes, gap: Int(longestGap.rounded()))
+            : nil
+        return WalkingCheckTexts.locationStatus(authorization: authorization, counts: counts, language)
     }
 
     /// Nil while a run is still waiting for its first background fix.
     var locationResult: CheckResult? {
         if backgroundFixes >= Self.requiredBackgroundFixes {
-            return CheckResult(passed: true, detail: "\(backgroundFixes) fixes while in background, longest gap \(Int(longestGap.rounded())) s")
+            return CheckResult(passed: true, detail: WalkingCheckTexts.backgroundPassed(
+                fixes: backgroundFixes, gap: Int(longestGap.rounded()), language))
         }
         if locationRunning { return nil }
         if authorization == .denied || authorization == .restricted {
-            return CheckResult(passed: false, detail: "Location permission not granted")
+            return CheckResult(passed: false, detail: WalkingCheckTexts.locationNotGranted(language))
         }
         guard totalFixes > 0 else { return nil }
         let detail = backgroundFixes == 0
-            ? "No fixes arrived while in background"
-            : "Only \(backgroundFixes) fixes while in background (need \(Self.requiredBackgroundFixes))"
+            ? WalkingCheckTexts.noBackgroundFixes(language)
+            : WalkingCheckTexts.tooFewBackgroundFixes(backgroundFixes, needed: Self.requiredBackgroundFixes, language)
         return CheckResult(passed: false, detail: detail)
     }
 
@@ -143,33 +147,25 @@ final class WalkingCheckModel: NSObject {
         lastFixWasBackground = inBackground
     }
 
-    private static func describe(_ status: CLAuthorizationStatus) -> String {
-        switch status {
-        case .notDetermined: "not asked"
-        case .restricted: "restricted"
-        case .denied: "denied"
-        case .authorizedWhenInUse: "When In Use"
-        case .authorizedAlways: "Always"
-        @unknown default: "unknown"
-        }
-    }
-
     // MARK: - Buzz from the watch
 
     func startBuzz() async {
         guard !buzzPending else { return }
         buzzResult = nil
+        let language = language
         let center = UNUserNotificationCenter.current()
         do {
             let granted = try await center.requestAuthorization(options: [.alert, .sound])  // time-sensitive needs only the entitlement
             guard granted else {
-                buzzStatus = "Notification permission not granted"
-                buzzResult = CheckResult(passed: false, detail: "Notification permission not granted")
+                buzzStatus = WalkingCheckTexts.notificationsNotGranted(language)
+                buzzResult = CheckResult(passed: false, detail: WalkingCheckTexts.notificationsNotGranted(language))
                 return
             }
             // Merge, never replace: other features register their own categories.
-            let tell = UNNotificationAction(identifier: Self.tellAction, title: "Tell me", options: [])
-            let skip = UNNotificationAction(identifier: Self.skipAction, title: "Skip", options: [])
+            let tell = UNNotificationAction(identifier: Self.tellAction, title: WalkingCheckTexts.tellMe(language),
+                                            options: [])
+            let skip = UNNotificationAction(identifier: Self.skipAction, title: WalkingCheckTexts.skip(language),
+                                            options: [])
             let check = UNNotificationCategory(identifier: Self.category, actions: [tell, skip],
                                                intentIdentifiers: [], options: [])
             var categories = await center.notificationCategories().filter { $0.identifier != Self.category }
@@ -177,20 +173,21 @@ final class WalkingCheckModel: NSObject {
             center.setNotificationCategories(categories)
 
             let content = UNMutableNotificationContent()
-            content.title = "MyGuide test"
-            content.body = "Tap Tell me on your watch"
+            content.title = WalkingCheckTexts.testTitle(language)
+            content.body = WalkingCheckTexts.testBody(language)
             content.categoryIdentifier = Self.category
             content.interruptionLevel = .timeSensitive
             content.sound = .default
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: Self.buzzDelay, repeats: false)
             try await center.add(UNNotificationRequest(identifier: "check-buzz", content: content, trigger: trigger))
         } catch {
-            buzzStatus = "Could not schedule: \(error.localizedDescription)"
-            buzzResult = CheckResult(passed: false, detail: "Notification error: \(error.localizedDescription)")
+            buzzStatus = WalkingCheckTexts.scheduleFailed(error.localizedDescription, language)
+            buzzResult = CheckResult(passed: false,
+                                     detail: WalkingCheckTexts.notificationError(error.localizedDescription, language))
             return
         }
         buzzPending = true
-        buzzStatus = "Notification in \(Int(Self.buzzDelay)) s. Lock the phone and tap Tell me on the watch."
+        buzzStatus = WalkingCheckTexts.notificationScheduled(inS: Int(Self.buzzDelay), language)
         buzzTimer = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(Self.buzzDelay + 60)) } catch { return }
             self?.buzzTimedOut()
@@ -206,14 +203,15 @@ final class WalkingCheckModel: NSObject {
         player.stop()
         endBackgroundWork()
         buzzPending = false
-        buzzStatus = "Cancelled"
+        buzzStatus = WalkingCheckTexts.cancelled(language)
     }
 
     private func buzzTimedOut() {
         guard buzzPending else { return }
         buzzPending = false
-        buzzStatus = "No action received"
-        buzzResult = CheckResult(passed: false, detail: "No Tell me or Skip within 70 s")
+        buzzStatus = WalkingCheckTexts.noAction(language)
+        buzzResult = CheckResult(passed: false,
+                                 detail: WalkingCheckTexts.noActionWithin(Int(Self.buzzDelay + 60), language))
     }
 
     /// Handles a response to the CHECK notification. Takes its background task synchronously.
@@ -228,10 +226,10 @@ final class WalkingCheckModel: NSObject {
             buzzStatus = outcome.status
             buzzResult = outcome.result
         case Self.skipAction:
-            buzzStatus = "Skipped"
-            buzzResult = CheckResult(passed: false, detail: "Skipped — tap Tell me to test audio")
+            buzzStatus = WalkingCheckTexts.skipped(language)
+            buzzResult = CheckResult(passed: false, detail: WalkingCheckTexts.skippedDetail(language))
         default:
-            buzzStatus = "Notification opened without an action"
+            buzzStatus = WalkingCheckTexts.openedWithoutAction(language)
         }
     }
 
@@ -244,18 +242,19 @@ final class WalkingCheckModel: NSObject {
             try player.play(try Self.toneURL())
         } catch {
             endBackgroundWork()
-            return ("Playback failed", CheckResult(passed: false, detail: "Playback error: \(error.localizedDescription)"))
+            return (WalkingCheckTexts.playbackFailed(language),
+                    CheckResult(passed: false, detail: WalkingCheckTexts.playbackError(error.localizedDescription, language)))
         }
         let result = inBackground
-            ? CheckResult(passed: true, detail: "Played from background ✓")
-            : CheckResult(passed: false, detail: "Played, but the app was in the foreground — lock the phone and try again")
-        return ("Playing the tone", result)
+            ? CheckResult(passed: true, detail: WalkingCheckTexts.playedInBackground(language))
+            : CheckResult(passed: false, detail: WalkingCheckTexts.playedInForeground(language))
+        return (WalkingCheckTexts.playingTone(language), result)
     }
 
     /// The watch's Action button (or watch check screen) sent `check.tell`.
     func handleWatchTell() {
         let outcome = playTone()
-        watchTellStatus = "Tell me from the watch: \(outcome.status.lowercased())"
+        watchTellStatus = WalkingCheckTexts.watchTell(outcome.status, language)
         watchTellResult = outcome.result
     }
 
@@ -284,22 +283,25 @@ final class WalkingCheckModel: NSObject {
         }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             activityRunning = false
-            activityStatus = "Live Activities are turned off"
-            activityResult = CheckResult(passed: false, detail: "Live Activities are turned off in Settings")
+            activityStatus = WalkingCheckTexts.activitiesOff(language)
+            activityResult = CheckResult(passed: false, detail: WalkingCheckTexts.activitiesOffDetail(language))
             return
         }
-        let state = WalkingActivityAttributes.ContentState(headline: "Walking", body: "Live Activity check", updatedAt: .now)
+        let state = WalkingActivityAttributes.ContentState(headline: WalkingCheckTexts.activityHeadline(language),
+                                                           body: WalkingCheckTexts.activityBody(language),
+                                                           updatedAt: .now)
         do {
             activityID = try Activity.request(attributes: WalkingActivityAttributes(startedAt: .now),
                                               content: ActivityContent(state: state, staleDate: nil)).id
         } catch {
             activityRunning = false
-            activityStatus = "Could not start: \(error.localizedDescription)"
-            activityResult = CheckResult(passed: false, detail: "Live Activity error: \(error.localizedDescription)")
+            activityStatus = WalkingCheckTexts.activityStartFailed(error.localizedDescription, language)
+            activityResult = CheckResult(passed: false,
+                                         detail: WalkingCheckTexts.activityError(error.localizedDescription, language))
             return
         }
-        let hint = locationRunning ? "" : " Start Background location first, or the app may be suspended."
-        activityStatus = "Started. Lock the phone; it updates in \(Int(Self.activityUpdateDelay)) s.\(hint)"
+        activityStatus = WalkingCheckTexts.activityStarted(updateInS: Int(Self.activityUpdateDelay),
+                                                           locationRunning: locationRunning, language)
         activityTimer = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(Self.activityUpdateDelay)) } catch { return }
             await self?.updateActivityFromTimer()
@@ -312,7 +314,7 @@ final class WalkingCheckModel: NSObject {
         let id = activityID
         activityID = nil
         activityRunning = false
-        activityStatus = "Ended"
+        activityStatus = WalkingCheckTexts.ended(language)
         if let id { Task { await Self.endActivity(id: id) } }
     }
 
@@ -335,7 +337,7 @@ final class WalkingCheckModel: NSObject {
         guard let id = activityID else { return }
         let inBackground = UIApplication.shared.applicationState == .background
         let state = WalkingActivityAttributes.ContentState(
-            headline: "Updated from background",
+            headline: WalkingCheckTexts.updatedFromBackgroundHeadline(language),
             body: Date.now.formatted(date: .omitted, time: .standard),
             updatedAt: .now)
         let succeeded = await Self.updateActivity(id: id, to: state)
@@ -343,14 +345,14 @@ final class WalkingCheckModel: NSObject {
         activityTimer = nil
         switch (succeeded, inBackground) {
         case (true, true):
-            activityStatus = "Update sent from background"
-            activityResult = CheckResult(passed: true, detail: "Update sent from background ✓")
+            activityStatus = WalkingCheckTexts.updateSentFromBackground(language)
+            activityResult = CheckResult(passed: true, detail: WalkingCheckTexts.updateSentFromBackground(language) + " ✓")
         case (true, false):
-            activityStatus = "Updated, in the foreground"
-            activityResult = CheckResult(passed: false, detail: "Updated, but the app was in the foreground — lock the phone and try again")
+            activityStatus = WalkingCheckTexts.updatedInForeground(language)
+            activityResult = CheckResult(passed: false, detail: WalkingCheckTexts.updatedInForegroundDetail(language))
         case (false, _):
-            activityStatus = "Update failed"
-            activityResult = CheckResult(passed: false, detail: "The activity was no longer active at the update")
+            activityStatus = WalkingCheckTexts.updateFailed(language)
+            activityResult = CheckResult(passed: false, detail: WalkingCheckTexts.activityGone(language))
         }
     }
 

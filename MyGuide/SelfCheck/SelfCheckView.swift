@@ -37,7 +37,7 @@ final class LocationProbe: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBest
     }
 
-    func run() async -> CheckResult {
+    func run(language: StoryLanguage) async -> CheckResult {
         var status: CLAuthorizationStatus? = manager.authorizationStatus
         if status == .notDetermined {
             status = await withCheckedContinuation { continuation in
@@ -50,13 +50,13 @@ final class LocationProbe: NSObject, CLLocationManagerDelegate {
             }
         }
         guard let status else {
-            return CheckResult(passed: false, detail: "No answer to the location permission prompt within 60 s")
+            return CheckResult(passed: false, detail: SelfCheckTexts.noPermissionAnswer(language))
         }
         guard status == .authorizedWhenInUse || status == .authorizedAlways else {
-            return CheckResult(passed: false, detail: "Location permission not granted")
+            return CheckResult(passed: false, detail: SelfCheckTexts.locationNotGranted(language))
         }
         guard CLLocationManager.headingAvailable() else {
-            return CheckResult(passed: false, detail: "Heading (compass) not available")
+            return CheckResult(passed: false, detail: SelfCheckTexts.noHeading(language))
         }
         let outcome: Result<CLLocation, Error> = await withCheckedContinuation { continuation in
             fixContinuation = continuation
@@ -68,19 +68,20 @@ final class LocationProbe: NSObject, CLLocationManagerDelegate {
         }
         switch outcome {
         case .success(let fix):
-            return CheckResult(passed: true, detail: "Fix ±\(Int(fix.horizontalAccuracy)) m, heading available")
+            return CheckResult(passed: true, detail: SelfCheckTexts.fix(accuracyM: Int(fix.horizontalAccuracy), language))
         case .failure(let error):
-            return CheckResult(passed: false, detail: Self.describe(error))
+            return CheckResult(passed: false, detail: Self.describe(error, language))
         }
     }
 
-    private static func describe(_ error: Error) -> String {
-        if error is FixFailure { return "No location fix within 15 s" }
+    private static func describe(_ error: Error, _ language: StoryLanguage) -> String {
+        if error is FixFailure { return SelfCheckTexts.noFix(language) }
         let nsError = error as NSError
         if nsError.domain == kCLErrorDomain, nsError.code == CLError.denied.rawValue {
-            return "Location access denied (kCLErrorDenied)"
+            return SelfCheckTexts.locationDenied(language)
         }
-        return "Location error: \(nsError.domain) code \(nsError.code): \(nsError.localizedDescription)"
+        return SelfCheckTexts.locationError(domain: nsError.domain, code: nsError.code,
+                                            description: nsError.localizedDescription, language)
     }
 
     private func finishAuth(_ status: CLAuthorizationStatus?) {
@@ -129,41 +130,43 @@ final class SelfCheckModel {
     func run() async {
         guard !running else { return }
         running = true
+        // The results are worded in the story language as it is when the run starts.
+        let language = AppServices.currentStoryLanguage()
         camera = nil; location = nil; keychain = nil; swiftData = nil
         // Local checks first so they always run, even if a permission prompt never resolves.
-        keychain = checkKeychain()
-        swiftData = checkSwiftData()
-        camera = await checkCamera()
+        keychain = checkKeychain(language)
+        swiftData = checkSwiftData(language)
+        camera = await checkCamera(language)
         let probe = LocationProbe()
         locationProbe = probe
-        location = await probe.run()
+        location = await probe.run(language: language)
         locationProbe = nil
         running = false
     }
 
-    private func checkCamera() async -> CheckResult {
+    private func checkCamera(_ language: StoryLanguage) async -> CheckResult {
         let granted = await AVCaptureDevice.requestAccess(for: .video)
         return granted
-            ? CheckResult(passed: true, detail: "Camera access granted")
-            : CheckResult(passed: false, detail: "Camera permission not granted")
+            ? CheckResult(passed: true, detail: SelfCheckTexts.cameraGranted(language))
+            : CheckResult(passed: false, detail: SelfCheckTexts.cameraNotGranted(language))
     }
 
-    private func checkKeychain() -> CheckResult {
+    private func checkKeychain(_ language: StoryLanguage) -> CheckResult {
         let store = KeychainStore(service: AppServices.keychainService)
         do {
             try store.write("probe", account: "selfcheck")
             let value = try store.read("selfcheck")
             try store.delete("selfcheck")
             guard value == "probe" else {
-                return CheckResult(passed: false, detail: "Read back \(value ?? "nil"), expected probe")
+                return CheckResult(passed: false, detail: SelfCheckTexts.keychainMismatch(value ?? "nil", language))
             }
-            return CheckResult(passed: true, detail: "Write, read and delete succeeded")
+            return CheckResult(passed: true, detail: SelfCheckTexts.keychainPassed(language))
         } catch {
-            return CheckResult(passed: false, detail: "Keychain error: \(error)")
+            return CheckResult(passed: false, detail: SelfCheckTexts.keychainError(error, language))
         }
     }
 
-    private func checkSwiftData() -> CheckResult {
+    private func checkSwiftData(_ language: StoryLanguage) -> CheckResult {
         do {
             let support = try FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
@@ -175,32 +178,37 @@ final class SelfCheckModel {
             try context.save()
             let probes = try context.fetch(FetchDescriptor<SelfCheckProbe>())
             guard probes.count >= 1 else {
-                return CheckResult(passed: false, detail: "Saved probe not found on fetch")
+                return CheckResult(passed: false, detail: SelfCheckTexts.probeNotFound(language))
             }
             let count = probes.count
             probes.forEach { context.delete($0) }
             try context.save()
-            return CheckResult(passed: true, detail: "Saved and fetched \(count) probe(s), then deleted")
+            return CheckResult(passed: true, detail: SelfCheckTexts.swiftDataPassed(count: count, language))
         } catch {
-            return CheckResult(passed: false, detail: "SwiftData error: \(error)")
+            return CheckResult(passed: false, detail: SelfCheckTexts.swiftDataError(error, language))
         }
     }
 }
 
 struct SelfCheckView: View {
     @State private var model = SelfCheckModel()
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
 
     var body: some View {
         // Pushed from Settings, so it lives in the app's NavigationStack rather than its own.
         List {
-            row("Camera", model.camera)
-            row("Location", model.location)
-            row("Keychain", model.keychain)
-            row("SwiftData", model.swiftData)
+            Section {
+                row(SelfCheckTexts.camera(storyLanguage), model.camera)
+                row(SelfCheckTexts.location(storyLanguage), model.location)
+                row(SelfCheckTexts.keychain(storyLanguage), model.keychain)
+                row(SelfCheckTexts.swiftData(storyLanguage), model.swiftData)
+            }
+            .themedRows()
         }
-        .navigationTitle("Device check")
+        .themedList()
+        .themedTitle(SelfCheckTexts.title(storyLanguage))
         .toolbar {
-            Button("Run checks") { Task { await model.run() } }
+            Button(SelfCheckTexts.runChecks(storyLanguage)) { Task { await model.run() } }
                 .disabled(model.running)
         }
         .task { await model.run() }
@@ -208,14 +216,16 @@ struct SelfCheckView: View {
 
     @ViewBuilder
     private func row(_ title: String, _ result: CheckResult?) -> some View {
-        HStack(alignment: .top) {
-            Text(result == nil ? "…" : (result!.passed ? "✓" : "✗"))
-                .foregroundStyle(result?.passed == true ? .green : (result == nil ? .secondary : .red))
-                .frame(width: 24)
-            VStack(alignment: .leading) {
-                Text(title).font(.headline)
-                Text(result?.detail ?? "Waiting").font(.footnote).foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: Theme.Spacing.unit) {
+            CheckMark(passed: result?.passed, passedText: SelfCheckTexts.passed(storyLanguage),
+                      failedText: SelfCheckTexts.failed(storyLanguage), waitingText: SelfCheckTexts.waiting(storyLanguage))
+            VStack(alignment: .leading, spacing: Theme.Spacing.unit / 4) {
+                Text(title).font(Theme.Font.bodyMedium)
+                Text(result?.detail ?? SelfCheckTexts.waiting(storyLanguage))
+                    .font(Theme.Font.caption)
+                    .opacity(0.75)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 }

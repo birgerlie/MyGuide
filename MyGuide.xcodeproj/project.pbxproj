@@ -18,6 +18,7 @@
 		1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB5929240699451326DF1BD /* PhotoImport.swift */; };
 		171D6B09E744C5313C984C14 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
 		1863D99A6B97AEACDB45955B /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
+		1AA488AED0538EF578CB793B /* SelfCheckTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9EA5B6CE2569B186A8B07B5 /* SelfCheckTexts.swift */; };
 		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
 		1F38F439526191EA725269C7 /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		1F68E52117A68240EF842AD4 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
@@ -80,6 +81,7 @@
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
 		BC7EFBCFC2635F7B838E46A8 /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */; };
+		CAFCADF5204731FA803F3A6E /* WalkingCheckTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4CC90AED36E7BE9B9CF85E /* WalkingCheckTexts.swift */; };
 		CB892EAF08D652A33BE6AA47 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
 		CDFAD1A0883E09219D87E2AD /* BackgroundTaskHold.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB62877340E610053D66495A /* BackgroundTaskHold.swift */; };
 		CE4081054052B226778217DA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB976060B732B94CFFDBA0D /* AppDelegate.swift */; };
@@ -223,6 +225,7 @@
 		A1937BD8CD114DE987914DC8 /* WalkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLog.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitReverseGeocoder.swift; sourceTree = "<group>"; };
+		BB4CC90AED36E7BE9B9CF85E /* WalkingCheckTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckTexts.swift; sourceTree = "<group>"; };
 		C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitPointsOfInterest.swift; sourceTree = "<group>"; };
 		C1DDCA86FDC346959CC0CBB7 /* AroundModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AroundModel.swift; sourceTree = "<group>"; };
 		CEB5D94A78BCC8888CEB0790 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -244,6 +247,7 @@
 		F5C0F406D391D40364290743 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		F6D5A9F3266A7BD1AB592507 /* DiaryTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryTexts.swift; sourceTree = "<group>"; };
 		F878CC395772D74A4E843693 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F9EA5B6CE2569B186A8B07B5 /* SelfCheckTexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCheckTexts.swift; sourceTree = "<group>"; };
 		FA60F0A75E58FC553F167C80 /* MyGuideCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MyGuideCore; path = Packages/MyGuideCore; sourceTree = SOURCE_ROOT; };
 		FB1AA4452D008193B28208D2 /* ScreenChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenChrome.swift; sourceTree = "<group>"; };
 		FB62877340E610053D66495A /* BackgroundTaskHold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskHold.swift; sourceTree = "<group>"; };
@@ -299,6 +303,7 @@
 			isa = PBXGroup;
 			children = (
 				18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */,
+				BB4CC90AED36E7BE9B9CF85E /* WalkingCheckTexts.swift */,
 				4D718A718A1BAB633570C16E /* WalkingCheckView.swift */,
 			);
 			path = WalkingCheck;
@@ -421,6 +426,7 @@
 		9F2E0ADB1DC00FC77A2ED540 /* SelfCheck */ = {
 			isa = PBXGroup;
 			children = (
+				F9EA5B6CE2569B186A8B07B5 /* SelfCheckTexts.swift */,
 				11AC3F6758B70A451EA067EB /* SelfCheckView.swift */,
 			);
 			path = SelfCheck;
@@ -800,6 +806,7 @@
 				ECA8499C6DF9275A4004C77E /* PlaceSymbol.swift in Sources */,
 				80E49C95E15C877B7EEFF2D2 /* RootTabs.swift in Sources */,
 				418A9B486B3BE04C46C8A1ED /* ScreenChrome.swift in Sources */,
+				1AA488AED0538EF578CB793B /* SelfCheckTexts.swift in Sources */,
 				7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */,
 				F3AB1F3789ADC21AFBCE241F /* SettingsTexts.swift in Sources */,
 				905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */,
@@ -817,6 +824,7 @@
 				9ED662B8EF05078B2B6F1F94 /* WalkingActivityAttributes.swift in Sources */,
 				3D6FD2763F7064D414BC74C8 /* WalkingActivityController.swift in Sources */,
 				031FC67AC4F02F2C47A0EC45 /* WalkingCheckModel.swift in Sources */,
+				CAFCADF5204731FA803F3A6E /* WalkingCheckTexts.swift in Sources */,
 				D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */,
 				0D2B5B8D505B303F92B8CF04 /* WalkingController.swift in Sources */,
 				EC6DC3036B2DE3C3D1B8572F /* WalkingLocation.swift in Sources */,
