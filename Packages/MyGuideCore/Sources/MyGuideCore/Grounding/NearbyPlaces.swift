@@ -18,7 +18,8 @@ public protocol NearbyFetching: Sendable {
 extension WalkingPlaceSource: NearbyFetching {}
 
 /// Owns the nearby list, one per story language: decides when to refresh, merges simultaneous refreshes into one
-/// fetch, and keeps the latest list in memory and on disk.
+/// fetch, and keeps the latest list in memory and on disk. A refreshed list is kept as soon as its candidates arrive;
+/// the article texts follow in a separate step that updates (and saves) the list again.
 public actor NearbyPlaces {
     /// Foreground: refresh once the position is at least this far (metres) from the list's centre.
     public static let foregroundDistance = 150.0
@@ -28,7 +29,8 @@ public actor NearbyPlaces {
     public static let walkingDistance = 250.0
     /// Background: never refresh above this speed (m/s); it is a drive, not a walk.
     public static let backgroundMaxSpeed = 8.0
-    /// Background: no refresh within this many seconds of the last successful refresh.
+    /// Background: no refresh within this many seconds of the last successful refresh, and never while the position
+    /// is less than `foregroundDistance` from the list's centre, however old the list is.
     public static let backgroundInterval: TimeInterval = 600
     /// Article texts are fetched for at most this many of the nearest tier-top or tier-good candidates.
     public static let articleCount = 5
@@ -50,6 +52,13 @@ public actor NearbyPlaces {
     private var lastRefresh: [StoryLanguage: Date] = [:]
     /// The fetch under way per language; simultaneous callers await it.
     private var inFlight: [StoryLanguage: Task<NearbyList, Error>] = [:]
+    /// How the last fetch per language ended; a refresh asked for within `foregroundInterval` of that fetch's start
+    /// gets this instead of a new fetch.
+    private var lastOutcome: [StoryLanguage: Result<NearbyList, Error>] = [:]
+    /// Counts the fetched lists per language, so an article step finishing after a newer list arrived is dropped.
+    private var generation: [StoryLanguage: Int] = [:]
+    /// The article step of the newest list per language, while it runs.
+    private var articleSteps: [StoryLanguage: Task<Void, Never>] = [:]
     /// Callers currently awaiting a fetch, per language (the starter included).
     private var waitingCallers: [StoryLanguage: Int] = [:]
 
@@ -73,8 +82,9 @@ public actor NearbyPlaces {
     /// - walking: no list, or the list is ≥ `walkingDistance` away or older than `NearbyList.freshAge` (a list
     ///   loaded from disk days ago must not drive a walk); never within `foregroundInterval` of the last fetch
     ///   attempt, so a failing source is not retried on every fix;
-    /// - background: never above `backgroundMaxSpeed` or within `backgroundInterval` of the last refresh;
-    ///   otherwise as foreground.
+    /// - background: never above `backgroundMaxSpeed`, within `backgroundInterval` of the last refresh, or within
+    ///   `foregroundInterval` of the last fetch attempt; then no list, or the list is ≥ `foregroundDistance` away.
+    ///   Age alone never refreshes in the background: a phone lying at home must not fetch every 10 minutes.
     public func shouldRefresh(at position: Coordinate, trigger: RefreshTrigger, language: StoryLanguage) -> Bool {
         let now = now()
         let list = list(for: language)
@@ -87,7 +97,8 @@ public actor NearbyPlaces {
             return !list.serves(walkerAt: position, now: now)
         case .background(let speed):
             guard backgroundGates(speed: speed, language: language, now: now) else { return false }
-            return foregroundRule(list, position: position, language: language, now: now)
+            guard let list else { return true }
+            return GeoMath.distance(list.centre, position) >= Self.foregroundDistance
         }
     }
 
@@ -99,10 +110,13 @@ public actor NearbyPlaces {
         backgroundGates(speed: speed, language: language, now: now())
     }
 
-    /// Fetches a new list centred on `position` and keeps it, in memory and in the store.
+    /// Fetches a new list centred on `position` and keeps it, in memory and in the store, as soon as the candidates
+    /// arrive; the article texts follow (see `articleTextsSettled`) without holding the caller.
     /// One fetch runs per language: a caller arriving while one is under way awaits that fetch (and gets a list
-    /// centred where it started). A failure keeps the old list and is thrown. A cancelled caller stops waiting with
-    /// CancellationError; the fetch carries on for the others and is still kept.
+    /// centred where it started). A caller arriving within `foregroundInterval` of the start of a fetch that has
+    /// already ended gets that fetch's result (the current list, or its error) instead of a new fetch, so two
+    /// callers that both decided to refresh never fetch twice in a row. A failure keeps the old list and is thrown.
+    /// A cancelled caller stops waiting with CancellationError; the fetch carries on for the others and is still kept.
     @discardableResult
     public func refresh(at position: Coordinate, language: StoryLanguage) async throws -> NearbyList {
         let task: Task<NearbyList, Error>
@@ -110,25 +124,50 @@ public actor NearbyPlaces {
             task = running
         } else {
             try Task.checkCancellation()
-            lastFetchAttempt[language] = now()
+            let now = now()
+            // Checked and recorded with no suspension in between, so the spacing holds for every caller.
+            if Self.isWithin(Self.foregroundInterval, of: lastFetchAttempt[language], now: now),
+               let last = lastOutcome[language] {
+                switch last {
+                case .success(let fetched): return lists[language] ?? fetched
+                case .failure(let error): throw error
+                }
+            }
+            lastFetchAttempt[language] = now
             let fetcher = fetcher
-            let articles = articles
             // Unstructured on purpose: one caller's cancellation must not fail the others waiting on the same fetch.
             // It runs on this actor, so it cannot start before `inFlight` is set below.
             task = Task {
                 defer { inFlight[language] = nil }
-                let candidates = try await fetcher.candidates(around: position, language: language)
-                let texts = await Self.articleTexts(for: candidates, around: position, from: articles)
-                let list = NearbyList(centre: position, fetchedAt: now(), language: language,
-                                      candidates: candidates, articleTexts: texts)
-                keep(list)
-                return list
+                do {
+                    let candidates = try await fetcher.candidates(around: position, language: language)
+                    let list = NearbyList(centre: position, fetchedAt: self.now(), language: language,
+                                          candidates: candidates,
+                                          articleTexts: carriedArticleTexts(for: candidates, around: position,
+                                                                            language: language))
+                    generation[language, default: 0] += 1
+                    keep(list)
+                    lastOutcome[language] = .success(list)
+                    startArticleStep(for: list)
+                    return list
+                } catch {
+                    lastOutcome[language] = .failure(error)
+                    throw error
+                }
             }
             inFlight[language] = task
         }
         waitingCallers[language, default: 0] += 1
         defer { waitingCallers[language, default: 1] -= 1 }
         return try await GroundingService.abandoningOnCancel { try await task.value }
+    }
+
+    /// Returns once the newest list's article step for `language` has ended (at once when none runs), or when the
+    /// caller is cancelled: a background wake waits for it within its time cap. The texts are in `current(language:)`
+    /// and the store by then, unless a newer list replaced the one they were for.
+    public func articleTextsSettled(language: StoryLanguage) async {
+        guard let step = articleSteps[language] else { return }
+        _ = try? await GroundingService.abandoningOnCancel { await step.value }
     }
 
     /// Callers currently awaiting a fetch for `language`; lets tests see a second caller join.
@@ -155,6 +194,35 @@ public actor NearbyPlaces {
             }
         }
         return lists[language]
+    }
+
+    /// The previous list's texts for the titles the new candidates need, so a refresh nearby does not lose them while
+    /// its article step runs.
+    private func carriedArticleTexts(for candidates: [Candidate], around position: Coordinate,
+                                     language: StoryLanguage) -> [String: String] {
+        guard let previous = list(for: language)?.articleTexts, !previous.isEmpty else { return [:] }
+        let titles = Set(Self.articleTitles(for: candidates, around: position))
+        return previous.filter { titles.contains($0.key) }
+    }
+
+    /// Fetches the texts `list` still lacks and adds them to it, unless a newer list has arrived meanwhile.
+    private func startArticleStep(for list: NearbyList) {
+        let language = list.language
+        let titles = Self.articleTitles(for: list.candidates, around: list.centre).filter { list.articleTexts[$0] == nil }
+        guard let articles, !titles.isEmpty else {
+            articleSteps[language] = nil
+            return
+        }
+        let fetched = generation[language, default: 0]
+        // Unstructured, like the fetch: no caller waits for it unless it asks (`articleTextsSettled`).
+        articleSteps[language] = Task {
+            let texts = await Self.articleTexts(for: titles, from: articles)
+            guard generation[language, default: 0] == fetched else { return }
+            articleSteps[language] = nil
+            guard !texts.isEmpty, var current = lists[language] else { return }
+            current.articleTexts.merge(texts) { _, new in new }
+            keep(current)
+        }
     }
 
     private func keep(_ list: NearbyList) {
@@ -193,13 +261,9 @@ public actor NearbyPlaces {
         return elapsed >= 0 && elapsed < interval
     }
 
-    /// Texts for the `articleCount` nearest distinct titles among tier-top and tier-good candidates, fetched
-    /// concurrently; titles without a text are left out.
-    static func articleTexts(for candidates: [Candidate], around position: Coordinate,
-                             from source: ArticleTextSource?) async -> [String: String] {
-        guard let source else { return [:] }
-        let titles = articleTitles(for: candidates, around: position)
-        return await withTaskGroup(of: (String, String?).self) { group in
+    /// Texts for `titles`, fetched concurrently; titles without a text are left out.
+    static func articleTexts(for titles: [String], from source: ArticleTextSource) async -> [String: String] {
+        await withTaskGroup(of: (String, String?).self) { group in
             for title in titles {
                 group.addTask { (title, await source.text(wikipediaTitle: title)) }
             }

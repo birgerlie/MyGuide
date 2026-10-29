@@ -6,8 +6,9 @@ import UIKit
 
 /// Prepares the nearby list while the app is closed (spec 7, 14.5–14.7): the significant-location-change service
 /// wakes (or relaunches) the app roughly every 500 m; each wake asks for one accurate fix, and with it the shared
-/// `NearbyPlaces` refreshes when its background rule allows (not above 8 m/s, not within 600 s of the last refresh),
-/// under a background task capped at 25 s (less when iOS gives less time). Runs only with the setting on and location
+/// `NearbyPlaces` refreshes when its background rule allows (not above 8 m/s, not within 600 s of the last refresh,
+/// and only at least 150 m from the list's centre), under a background task capped at 25 s (less when iOS gives less
+/// time) that covers the candidates and then the article texts. Runs only with the setting on and location
 /// access Always. A wake that the cheap gates already rule out (too fast, too soon) never asks for a fix, so most
 /// wakes while driving do not power GPS.
 ///
@@ -257,13 +258,24 @@ final class BackgroundPlaces: NSObject {
                 Self.log.notice("background refresh skipped: too little background time")
                 return
             }
-            switch await Self.refresh(nearby, at: position, language: language, cap: cap) {
-            case .done:
-                Self.log.info("background refresh done")
+            let deadline = ContinuousClock.now + .seconds(cap)
+            switch await Self.race(until: deadline, { try await nearby.refresh(at: position, language: language) }) {
+            case .finished:
+                Self.log.info("background refresh: list kept")
             case .failed(let error):
                 AppServices.logNearbyFailure("background refresh failed", error)
+                return
             case .timedOut:
                 Self.log.notice("background refresh dropped after \(Int(cap.rounded()), privacy: .public) s")
+                return
+            }
+            // The list is kept; its article texts follow in their own step, which the same cap covers so iOS does not
+            // suspend the app halfway. Texts not in by then are fetched when the app next runs, if it still needs them.
+            switch await Self.race(until: deadline, { await nearby.articleTextsSettled(language: language) }) {
+            case .finished, .failed:
+                Self.log.info("background refresh done")
+            case .timedOut:
+                Self.log.notice("background article texts dropped after \(Int(cap.rounded()), privacy: .public) s")
             }
         }
     }
@@ -274,21 +286,21 @@ final class BackgroundPlaces: NSObject {
         return cap > 0 ? cap : nil
     }
 
-    private enum RefreshOutcome: Sendable {
-        case done
+    private enum RaceOutcome: Sendable {
+        case finished
         case failed(any Error)
         case timedOut
     }
 
-    /// Races the refresh against `cap` seconds; the loser is cancelled. A cancelled refresh caller stops waiting at
-    /// once (`NearbyPlaces.refresh`), so this returns by the cap.
-    nonisolated private static func refresh(_ nearby: NearbyPlaces, at position: Coordinate,
-                                            language: StoryLanguage, cap: TimeInterval) async -> RefreshOutcome {
-        await withTaskGroup(of: RefreshOutcome?.self) { group in
+    /// Races `work` against `deadline`; the loser is cancelled. `work` must stop waiting at once when cancelled
+    /// (`NearbyPlaces.refresh` and `articleTextsSettled` do), so this returns by the deadline.
+    nonisolated private static func race(until deadline: ContinuousClock.Instant,
+                                         _ work: @escaping @Sendable () async throws -> Void) async -> RaceOutcome {
+        await withTaskGroup(of: RaceOutcome?.self) { group in
             group.addTask {
                 do {
-                    try await nearby.refresh(at: position, language: language)
-                    return .done
+                    try await work()
+                    return .finished
                 } catch is CancellationError {
                     return nil
                 } catch {
@@ -296,11 +308,11 @@ final class BackgroundPlaces: NSObject {
                 }
             }
             group.addTask {
-                // Cancelled (the refresh won): nil, so it never counts as a timeout.
-                guard (try? await Task.sleep(for: .seconds(cap))) != nil else { return nil }
+                // Cancelled (the work won): nil, so it never counts as a timeout.
+                guard (try? await Task.sleep(until: deadline, clock: .continuous)) != nil else { return nil }
                 return .timedOut
             }
-            var outcome: RefreshOutcome = .timedOut
+            var outcome: RaceOutcome = .timedOut
             for await result in group {
                 if let result {
                     outcome = result

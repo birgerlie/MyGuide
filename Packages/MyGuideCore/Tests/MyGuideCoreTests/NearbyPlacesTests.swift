@@ -61,6 +61,45 @@ private final class StubArticles: ArticleTextSource, @unchecked Sendable {
     }
 }
 
+/// Answers "Text of <title>" only once `release()` is called; every call before that waits. Calls after the release
+/// answer at once.
+private final class GatedArticles: ArticleTextSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+    private var asked: [String] = []
+
+    var titles: [String] { lock.withLock { asked } }
+    var waiting: Int { lock.withLock { waiters.count } }
+
+    func release() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            released = true
+            defer { self.waiters = [] }
+            return self.waiters
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func text(wikipediaTitle: String) async -> String? {
+        let open = lock.withLock { () -> Bool in
+            asked.append(wikipediaTitle)
+            return released
+        }
+        if !open {
+            await withCheckedContinuation { continuation in
+                let resumeNow = lock.withLock { () -> Bool in
+                    if released { return true }
+                    waiters.append(continuation)
+                    return false
+                }
+                if resumeNow { continuation.resume() }
+            }
+        }
+        return "Text of \(wikipediaTitle)"
+    }
+}
+
 private struct Boom: Error {}
 
 @Suite struct NearbyPlacesTests {
@@ -309,6 +348,24 @@ private struct Boom: Error {}
         #expect(await !places.shouldRefresh(at: .at(north: 200), trigger: .background(speed: 8.0), language: .english))
     }
 
+    @Test func backgroundNeedsDistanceNotAgeAlone() async throws {
+        let clock = LockedBox(Self.t0)
+        let places = Self.places(StubFetcher(.success([Self.castle("Burg", north: 30)])), clock: clock)
+        try await places.refresh(at: .at(), language: .english)   // list centred at (0, 0), refreshed at t0
+        // t0+601: 601 ≥ 600 since the refresh and 601 ≥ 60 since the attempt, and the list is old (601 > 600 s).
+        clock.set(Self.t0.addingTimeInterval(601))
+        // At the centre (0 m < 150) → false: age alone does not refresh in the background.
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .background(speed: 1), language: .english))
+        // 149 m < 150 → false; 151 m ≥ 150 → true.
+        #expect(await !places.shouldRefresh(at: .at(north: 149), trigger: .background(speed: 1), language: .english))
+        #expect(await places.shouldRefresh(at: .at(north: 151), trigger: .background(speed: 1), language: .english))
+        // Days later (t0 + 86 400 s), still at the centre → false.
+        clock.set(Self.t0.addingTimeInterval(86_400))
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .background(speed: 1), language: .english))
+        // The foreground rule still refreshes an old list at the centre (86 400 > 600 s).
+        #expect(await places.shouldRefresh(at: .at(), trigger: .foreground, language: .english))
+    }
+
     @Test func backgroundIntervalSurvivesARestart() async throws {
         let directory = Self.tempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -336,8 +393,11 @@ private struct Boom: Error {}
         #expect(list.language == .norwegian)
         // Every candidate is kept, the untiered café included.
         #expect(list.candidates.map(\.name) == ["Burg", "Kaffe"])
-        #expect(list.articleTexts == ["en:Burg": "Text of en:Burg"])
-        #expect(await places.current(language: .norwegian) == list)
+        // The article texts follow the list.
+        await places.articleTextsSettled(language: .norwegian)
+        var withTexts = list
+        withTexts.articleTexts = ["en:Burg": "Text of en:Burg"]
+        #expect(await places.current(language: .norwegian) == withTexts)
         #expect(await places.current(language: .english) == nil)
     }
 
@@ -397,7 +457,9 @@ private struct Boom: Error {}
         let articles = StubArticles()
         let places = Self.places(StubFetcher(.success(castles + extras)), articles: articles, clock: clock)
 
-        let list = try await places.refresh(at: .at(), language: .english)
+        try await places.refresh(at: .at(), language: .english)
+        await places.articleTextsSettled(language: .english)
+        let list = try #require(await places.current(language: .english))
         let expected = ["en:P10", "en:P20", "en:P30", "en:P40", "en:P50"]
         #expect(list.articleTexts.count == 5)
         #expect(list.articleTexts.keys.sorted() == expected)
@@ -410,7 +472,9 @@ private struct Boom: Error {}
         let castles = [10.0, 20, 30].map { Self.castle("P\(Int($0))", north: $0, title: "en:P\(Int($0))") }
         let articles = StubArticles(missing: ["en:P20"])
         let places = Self.places(StubFetcher(.success(castles)), articles: articles, clock: clock)
-        let list = try await places.refresh(at: .at(), language: .english)
+        try await places.refresh(at: .at(), language: .english)
+        await places.articleTextsSettled(language: .english)
+        let list = try #require(await places.current(language: .english))
         // 3 asked, 1 missing → 2 texts, and the missing one does not take a sixth candidate's place.
         #expect(articles.titles.count == 3)
         #expect(list.articleTexts.keys.sorted() == ["en:P10", "en:P30"])
@@ -421,6 +485,143 @@ private struct Boom: Error {}
         let places = Self.places(StubFetcher(.success([Self.castle("Burg", north: 30, title: "en:Burg")])), clock: clock)
         let list = try await places.refresh(at: .at(), language: .english)
         #expect(list.articleTexts.isEmpty)
+        await places.articleTextsSettled(language: .english)
+        #expect(await places.current(language: .english)?.articleTexts.isEmpty == true)
+    }
+
+    @Test func refreshReturnsBeforeTheArticleTexts() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = NearbyListStore(directory: directory)
+        let clock = LockedBox(Self.t0)
+        let articles = GatedArticles()
+        let places = Self.places(StubFetcher(.success([Self.castle("Burg", north: 30, title: "en:Burg")])),
+                                 articles: articles, store: store, clock: clock)
+        // The article source has not answered (and will not until released), yet the refresh returns with the list,
+        // which is already current and stored, without texts.
+        let list = try await places.refresh(at: .at(), language: .english)
+        #expect(list.candidates.map(\.name) == ["Burg"])
+        #expect(list.articleTexts.isEmpty)
+        #expect(await places.current(language: .english) == list)
+        #expect(store.load(language: .english) == list)
+        await Self.waitUntil { articles.waiting == 1 }
+        #expect(articles.titles == ["en:Burg"])
+
+        articles.release()
+        await places.articleTextsSettled(language: .english)
+        var withTexts = list
+        withTexts.articleTexts = ["en:Burg": "Text of en:Burg"]
+        #expect(await places.current(language: .english) == withTexts)
+        // Saved again with the texts.
+        #expect(store.load(language: .english) == withTexts)
+    }
+
+    @Test func articleTextsForAnOlderListAreDropped() async throws {
+        let clock = LockedBox(Self.t0)
+        let articles = GatedArticles()
+        let fetcher = StubFetcher(.success([Self.castle("Old", north: 30, title: "en:Old")]))
+        let places = Self.places(fetcher, articles: articles, clock: clock)
+        try await places.refresh(at: .at(), language: .english)   // its article step waits for "en:Old"
+        await Self.waitUntil { articles.waiting == 1 }
+
+        // t0+61: 61 ≥ 60 since the first attempt, so a second fetch runs, with another place.
+        clock.set(Self.t0.addingTimeInterval(61))
+        fetcher.set(.success([Self.castle("New", north: 30, title: "en:New")]))
+        let newer = try await places.refresh(at: .at(north: 200), language: .english)
+        await Self.waitUntil { articles.waiting == 2 }
+
+        articles.release()
+        await places.articleTextsSettled(language: .english)
+        // Both steps answered; only the newer list's text is kept, and the list stays the newer one.
+        let current = try #require(await places.current(language: .english))
+        #expect(current.candidates == newer.candidates)
+        #expect(current.centre == .at(north: 200))
+        #expect(current.articleTexts == ["en:New": "Text of en:New"])
+    }
+
+    @Test func aRefreshNearbyKeepsTheTextsItStillNeeds() async throws {
+        let clock = LockedBox(Self.t0)
+        let burg = Self.castle("Burg", north: 30, title: "en:Burg")
+        let fort = Self.castle("Fort", north: 40, title: "en:Fort")
+        let fetcher = StubFetcher(.success([burg, fort]))
+        let first = StubArticles()
+        let places = Self.places(fetcher, articles: first, clock: clock)
+        try await places.refresh(at: .at(), language: .english)
+        await places.articleTextsSettled(language: .english)
+        #expect(await places.current(language: .english)?.articleTexts.count == 2)
+
+        // t0+61 (61 ≥ 60): the next fetch has Burg and a new tower but no longer Fort. Burg's text comes with the list
+        // at once; Fort's is dropped; only the tower's is fetched.
+        clock.set(Self.t0.addingTimeInterval(61))
+        let tower = Self.castle("Tower", north: 50, title: "en:Tower")
+        fetcher.set(.success([burg, tower]))
+        let list = try await places.refresh(at: .at(), language: .english)
+        #expect(list.articleTexts == ["en:Burg": "Text of en:Burg"])
+        await places.articleTextsSettled(language: .english)
+        #expect(await places.current(language: .english)?.articleTexts
+                == ["en:Burg": "Text of en:Burg", "en:Tower": "Text of en:Tower"])
+        // First refresh asked Burg and Fort; the second only Tower: 2 + 1 = 3 asks.
+        #expect(first.titles.sorted() == ["en:Burg", "en:Fort", "en:Tower"])
+    }
+
+    @Test func articleTextsSettledReturnsWhenTheCallerIsCancelled() async throws {
+        let clock = LockedBox(Self.t0)
+        let articles = GatedArticles()
+        let places = Self.places(StubFetcher(.success([Self.castle("Burg", north: 30, title: "en:Burg")])),
+                                 articles: articles, clock: clock)
+        try await places.refresh(at: .at(), language: .english)
+        await Self.waitUntil { articles.waiting == 1 }
+        let waiting = Task { await places.articleTextsSettled(language: .english) }
+        try await Task.sleep(for: .milliseconds(50))
+        waiting.cancel()
+        // Returns although the source never answered; the step itself is left running.
+        await waiting.value
+        #expect(await places.current(language: .english)?.articleTexts.isEmpty == true)
+        articles.release()
+        await places.articleTextsSettled(language: .english)
+        #expect(await places.current(language: .english)?.articleTexts == ["en:Burg": "Text of en:Burg"])
+    }
+
+    // MARK: - Refresh spacing
+
+    @Test func refreshWithinSixtySecondsOfAFinishedFetchReusesIt() async throws {
+        let clock = LockedBox(Self.t0)
+        let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30)]))
+        let places = Self.places(fetcher, clock: clock)
+        // Two callers that both decided to refresh, one after the other: the first fetches at t0.
+        let first = try await places.refresh(at: .at(), language: .english)
+        #expect(fetcher.count == 1)
+        // The second asks at t0+59 (59 < 60 since the attempt): no new fetch; it gets the current list, centred
+        // where the first fetch was.
+        clock.set(Self.t0.addingTimeInterval(59))
+        let second = try await places.refresh(at: .at(north: 300), language: .english)
+        #expect(fetcher.count == 1)
+        #expect(second == first)
+        #expect(second.centre == .at())
+        // t0+60: 60 is not < 60 → a new fetch, centred where asked.
+        clock.set(Self.t0.addingTimeInterval(60))
+        let third = try await places.refresh(at: .at(north: 300), language: .english)
+        #expect(fetcher.count == 2)
+        #expect(third.centre == .at(north: 300))
+    }
+
+    @Test func refreshWithinSixtySecondsOfAFailedFetchRethrowsIt() async throws {
+        let clock = LockedBox(Self.t0)
+        let fetcher = StubFetcher(.failure(Boom()))
+        let places = Self.places(fetcher, clock: clock)
+        await #expect(throws: Boom.self) { try await places.refresh(at: .at(), language: .english) }
+        #expect(fetcher.count == 1)
+        // t0+30: 30 < 60 since the failed attempt → the same failure, no fetch, even though the source works now.
+        fetcher.set(.success([Self.castle("Burg", north: 30)]))
+        clock.set(Self.t0.addingTimeInterval(30))
+        await #expect(throws: Boom.self) { try await places.refresh(at: .at(), language: .english) }
+        #expect(fetcher.count == 1)
+        #expect(await places.current(language: .english) == nil)
+        // t0+60: 60 ≥ 60 → fetched.
+        clock.set(Self.t0.addingTimeInterval(60))
+        let list = try await places.refresh(at: .at(), language: .english)
+        #expect(fetcher.count == 2)
+        #expect(list.candidates.map(\.name) == ["Burg"])
     }
 
     @Test func failedFetchKeepsOldList() async throws {
