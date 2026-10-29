@@ -42,11 +42,13 @@ final class WalkingController {
     private(set) var lastQuietReason: QuietReason?
     /// True while walking mode is on, not paused, and the engine is quiet because every due place is used (spec 13.7).
     var heardEverythingNearby: Bool { isOn && !isPaused && lastQuietReason == .allExcluded }
+    /// The run's pause bookkeeping: the pause in progress, since when, and the finished pauses' length.
+    private var pauseState = WalkPauseState()
     /// The pause in progress: `auto` from the pause detector, `manual` from the owner's Pause (phone or watch), which
     /// holds until Resume. Nil while active. While paused: no buzzes, fetches, stop detection, track or route (spec 5.4).
-    private(set) var pauseKind: WalkingPauseKind?
+    var pauseKind: WalkingPauseKind? { pauseState.kind }
     /// True while walking mode is paused, by either kind.
-    var isPaused: Bool { pauseKind != nil }
+    var isPaused: Bool { pauseState.isPaused }
     /// True from a start's first line until it returns (or `stop()` cancels it).
     var isStarting: Bool { startToken != nil }
     /// Called with the walk state after every change to it other than `sentAt` (spec 5.1); the watch link sends it on.
@@ -73,12 +75,6 @@ final class WalkingController {
     @ObservationIgnored private let motion = WalkingMotion()
     /// One per run, made at start and never rebuilt: it holds the pause position and the walking streak.
     @ObservationIgnored private var pauseDetector: PauseDetector?
-    /// When the pause in progress began; nil while active.
-    @ObservationIgnored private var pausedSince: Date?
-    /// The length of this run's finished pauses, which do not count toward the 4-hour limit.
-    @ObservationIgnored private var pausedTotal: TimeInterval = 0
-    /// What started the auto-pause in progress, for the `resumed` line of a resume by command; nil otherwise.
-    @ObservationIgnored private var autoPauseTrigger: PauseTrigger?
     /// Why the last start without prompts did not start; on the walk state until the next start (spec 5.3).
     @ObservationIgnored private var startProblem: WalkingProblem?
     /// The last walk state handed to `onStateChange`, with `sentAt` blanked, so only real changes are sent.
@@ -268,10 +264,7 @@ final class WalkingController {
         do { stopSpots = try memory.stopSpots(tripID: trip) } catch { fail("stop spots failed", error) }
         stopDetector = StopDetector(previousStops: stopSpots)
         pauseDetector = PauseDetector(now: now, motionAvailable: WalkingMotion.permission == .authorized)
-        pausedTotal = 0
-        pausedSince = nil
-        pauseKind = nil
-        autoPauseTrigger = nil
+        pauseState = WalkPauseState()
         lastMotion = nil
 
         appliedPerHour = Self.configuredPerHour()
@@ -331,10 +324,7 @@ final class WalkingController {
         motion.stop()
         location.setPaused(false)
         location.stop()
-        pauseKind = nil
-        autoPauseTrigger = nil
-        pausedSince = nil
-        pausedTotal = 0
+        pauseState = WalkPauseState()
         pauseDetector = nil
         lastMotion = nil
         stopSpots = []
@@ -493,9 +483,10 @@ final class WalkingController {
     /// battery runs low, and says why in a notification.
     private func checkAutoOff(now: Date) {
         guard isOn, let startedAt,
-              let reason = AutoOff.reason(activeTime: AutoOff.activeTime(startedAt: startedAt, now: now, pausedTotal: pausedTotal,
-                                                                         pausedSince: pausedSince),
-                                          pausedFor: pausedSince.map { now.timeIntervalSince($0) },
+              let reason = AutoOff.reason(activeTime: AutoOff.activeTime(startedAt: startedAt, now: now,
+                                                                         pausedTotal: pauseState.pausedTotal,
+                                                                         pausedSince: pauseState.pausedSince),
+                                          pausedFor: pauseState.pausedSince.map { now.timeIntervalSince($0) },
                                           batteryLevel: UIDevice.current.batteryLevel)
         else { return }
         let stopReason: WalkStopReason = switch reason {
@@ -518,20 +509,10 @@ final class WalkingController {
         applyPause(pauseDetector?.motion(isWalking: reading.isWalking, at: reading.at), now: reading.at)
     }
 
-    /// The pause detector's output. Ignored during a manual pause (the held detector gives none anyway): only Resume
-    /// ends it. A detector pause applies only while active, a detector resume only to an auto-pause.
+    /// The pause detector's output, to the pause rules (`WalkPauseState.apply`). Nothing while off.
     private func applyPause(_ change: PauseChange?, now: Date) {
-        guard isOn, pauseKind != .manual else { return }
-        switch change {
-        case .pause(let trigger, let anchor):
-            guard pauseKind == nil else { return }
-            autoPauseTrigger = trigger
-            enterPause(.auto, reason: WalkPauseReason(trigger), anchor: anchor, source: nil, now: now)
-        case .resume(let trigger):
-            guard pauseKind == .auto else { return }
-            leavePause(reason: WalkPauseReason(trigger), source: nil, now: now)
-        case nil: break
-        }
+        guard isOn else { return }
+        apply(pauseState.apply(change, now: now), now: now)
     }
 
     /// The owner's Pause, from the phone or the watch (spec 4, 10.4). From walking it enters a manual pause; from an
@@ -540,29 +521,16 @@ final class WalkingController {
     func pause(source: WalkSource) {
         guard isOn, pauseKind != .manual else { return }
         let now = Date.now
-        if pauseKind == .auto {
-            pauseKind = .manual
-            autoPauseTrigger = nil
-            pauseDetector?.hold()
-            walkLog.log(.paused(.manual, at: currentAnchor(now: now), source: source), at: now)
-            walkLog.resetQuiet()
-            refreshActivity(now: now)
-            publishState()
-        } else {
-            enterPause(.manual, reason: .manual, anchor: currentAnchor(now: now), source: source, now: now)
-            pauseDetector?.hold()
-        }
+        apply(pauseState.pause(source: source, anchor: currentAnchor(now: now), now: now), now: now)
     }
 
     /// The owner's Resume, from the phone or the watch: ends either kind of pause as if the walker had moved. The
     /// detector is released and starts a fresh still stretch from now. The `resumed` reason is `manual` after a manual
     /// pause, else the trigger of the auto-pause. Not paused or off: nothing.
     func resume(source: WalkSource) {
-        guard isOn, let kind = pauseKind else { return }
+        guard isOn, isPaused else { return }
         let now = Date.now
-        let reason: WalkPauseReason = kind == .manual ? .manual : autoPauseTrigger.map(WalkPauseReason.init) ?? .motion
-        leavePause(reason: reason, source: source, now: now)
-        pauseDetector?.release(now: now)
+        apply(pauseState.resume(source: source, now: now), now: now)
     }
 
     /// Where the walker is for a manual `paused` line: the last position CoreLocation knows, when it is fresh and
@@ -574,44 +542,36 @@ final class WalkingController {
         return Coordinate(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
     }
 
-    /// The one way into a pause: coarse location, the track saved (nothing is held through a pause of up to an
-    /// hour), the `paused` line, and the pause text on the Live Activity (also over a stop story) with a stale date the
-    /// 60 s push keeps moving on. A story playing or preparing goes on.
-    private func enterPause(_ kind: WalkingPauseKind, reason: WalkPauseReason, anchor: Coordinate?, source: WalkSource?,
-                            now: Date) {
-        guard pauseKind == nil else { return }
-        pauseKind = kind
-        pausedSince = now
-        location.setPaused(true)
-        flushTrack()
-        walkLog.log(.paused(reason, at: anchor, source: source), at: now)
-        walkLog.resetQuiet()
-        activity.clearStop()
-        refreshActivity(now: now)
-        publishState()
-    }
-
-    /// The one way out of a pause: best location again, and the route, stop detector (with the run's stop spots),
-    /// track thinning and GPS state start afresh, so the next fix is judged as usual (spec 5.4). The Live Activity
-    /// shows the walking status again, with a stale date counted from now.
-    private func leavePause(reason: WalkPauseReason, source: WalkSource?, now: Date) {
-        guard pauseKind != nil else { return }
-        let paused = pausedSince.map { max(0, now.timeIntervalSince($0)) } ?? 0
-        pausedTotal += paused
-        pausedSince = nil
-        pauseKind = nil
-        autoPauseTrigger = nil
-        location.setPaused(false)
-        resetRoute()
-        stopDetector = StopDetector(previousStops: stopSpots)
-        lastTrackSample = nil
-        loggedGPS = nil
-        resumedAt = now
-        walkLog.log(.resumed(reason, pausedSeconds: paused, source: source), at: now)
-        walkLog.resetQuiet()
-        activity.clearStop()
-        refreshActivity(now: now)
-        publishState()
+    /// Carries out a pause change's effects, in order. Into a pause the track is saved and the Live Activity shows the
+    /// pause text (also over a stop story) with a stale date the 60 s push keeps moving on; a story playing or
+    /// preparing goes on. Out of a pause the next fix is judged as usual (spec 5.4) and the Live Activity shows the
+    /// walking status again, with a stale date counted from now.
+    private func apply(_ effects: [WalkPauseEffect], now: Date) {
+        for effect in effects {
+            switch effect {
+            case .suspendTracking:
+                location.setPaused(true)
+                flushTrack()
+            case .resetRoute:
+                location.setPaused(false)
+                resetRoute()
+                stopDetector = StopDetector(previousStops: stopSpots)
+                lastTrackSample = nil
+                loggedGPS = nil
+                resumedAt = now
+            case .holdDetector:
+                pauseDetector?.hold()
+            case .releaseDetector:
+                pauseDetector?.release(now: now)
+            case .log(let kind):
+                walkLog.log(kind, at: now)
+            case .refreshActivity(let clearStop):
+                walkLog.resetQuiet()
+                if clearStop { activity.clearStop() }
+                refreshActivity(now: now)
+                publishState()
+            }
+        }
     }
 
     // MARK: - Walk state
@@ -631,8 +591,8 @@ final class WalkingController {
         case .auto: .pausedAuto
         case .manual: .pausedManual
         }
-        return GuidedWalkState(phase: phase, buzzCount: buzzCount, startedAt: startedAt, pausedTotal: pausedTotal,
-                               pausedSince: pausedSince, problem: startProblem?.rawValue, sentAt: now)
+        return GuidedWalkState(phase: phase, buzzCount: buzzCount, startedAt: startedAt,
+                               pausedTotal: pauseState.pausedTotal, pausedSince: pauseState.pausedSince, problem: startProblem?.rawValue, sentAt: now)
     }
 
     /// Hands the walk state to `onStateChange` when it differs from the last one handed over, `sentAt` aside. Called
