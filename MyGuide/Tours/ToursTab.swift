@@ -380,14 +380,14 @@ private struct FailureStatus: View {
             .accessibilityElement(children: .combine)
             switch failure {
             case .locationDenied:
-                // Forest, not the stone secondary style, which would vanish on this stone card.
+                // Coral with forest text (the main-button rule); the stone secondary style would vanish on this stone card.
                 Button(ToursTexts.openSettings(language)) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
-                .buttonStyle(.themePrimary(.forest))
+                .buttonStyle(.themePrimary())
             case .noPosition, .placesFailed:
                 Button(ToursTexts.tryAgain(language), action: retry)
-                    .buttonStyle(.themePrimary(.forest))
+                    .buttonStyle(.themePrimary())
             case .destinationTooFar:
                 // Trying again cannot help; the text says to pick a nearer destination.
                 EmptyView()
