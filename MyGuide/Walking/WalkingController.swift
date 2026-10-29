@@ -840,7 +840,7 @@ final class WalkingController {
                 return
             }
             guard refreshes else {
-                if let list = await nearby.current(language: language), Self.covers(list, position, now: .now),
+                if let list = await nearby.current(language: language), list.serves(walkerAt: position, now: .now),
                    self.runToken == run, !Task.isCancelled {
                     let places = list.walkingPlaces
                     self.feed.fetchSucceeded(places, at: list.centre, now: .now)
@@ -874,16 +874,6 @@ final class WalkingController {
                 self.feed.fetchCancelled()
             }
         }
-    }
-
-    /// Whether `list` can serve a walker at `position` without a refresh: centred less than
-    /// `NearbyPlaces.walkingDistance` away, and not older than `NearbyList.freshAge` (nor dated in the future). The same
-    /// limits `shouldRefresh(.walking)` refreshes beyond, so a list it declines for distance or age is never
-    /// used here.
-    private static func covers(_ list: NearbyList, _ position: Coordinate, now: Date) -> Bool {
-        let age = now.timeIntervalSince(list.fetchedAt)
-        return age >= 0 && age <= NearbyList.freshAge
-            && GeoMath.distance(list.centre, position) < NearbyPlaces.walkingDistance
     }
 
     private func flushTrack() {

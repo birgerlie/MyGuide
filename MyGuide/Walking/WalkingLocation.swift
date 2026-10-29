@@ -44,7 +44,10 @@ final class WalkingLocation: NSObject {
     /// Asks to upgrade When In Use to Always. The prompt is answered later, so this does not wait; a refusal
     /// leaves walking mode running with a reminder.
     func requestAlways() {
-        if manager.authorizationStatus == .authorizedWhenInUse { manager.requestAlwaysAuthorization() }
+        guard manager.authorizationStatus == .authorizedWhenInUse else { return }
+        // iOS shows the Always prompt once; the background-places setting opens Settings after that.
+        BackgroundPlaces.noteAlwaysRequested()
+        manager.requestAlwaysAuthorization()
     }
 
     func start() {

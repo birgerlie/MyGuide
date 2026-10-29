@@ -9,23 +9,25 @@ final class BackgroundTaskHold: @unchecked Sendable {
         var ended = false
     }
 
-    private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "walking")
-
     /// Only used for `endBackgroundTask`, which UIKit declares callable from any thread (`NS_SWIFT_NONISOLATED`).
     /// That is what makes the `@unchecked Sendable` sound.
     private let application: UIApplication
     private let name: String
+    /// Where running out of background time is logged.
+    private let log: Logger
     private let slot = OSAllocatedUnfairLock(initialState: Slot())
 
-    private init(application: UIApplication, name: String) {
+    private init(application: UIApplication, name: String, category: String) {
         self.application = application
         self.name = name
+        log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: category)
     }
 
-    /// Begins a background task. When UIKit gives no background time (`.invalid`) the hold does nothing.
+    /// Begins a background task. When UIKit gives no background time (`.invalid`) the hold does nothing. Running out
+    /// of time is logged under `category`.
     @MainActor
-    static func begin(name: String) -> BackgroundTaskHold {
-        let hold = BackgroundTaskHold(application: .shared, name: name)
+    static func begin(name: String, category: String = "walking") -> BackgroundTaskHold {
+        let hold = BackgroundTaskHold(application: .shared, name: name, category: category)
         let identifier = hold.application.beginBackgroundTask(withName: name,
                                                               expirationHandler: expirationHandler(for: hold))
         let endAtOnce = hold.slot.withLock { slot in
@@ -42,7 +44,7 @@ final class BackgroundTaskHold: @unchecked Sendable {
     /// returns, as UIKit requires.
     private nonisolated static func expirationHandler(for hold: BackgroundTaskHold) -> @Sendable () -> Void {
         { @Sendable in
-            log.notice("background time ran out: \(hold.name, privacy: .public)")
+            hold.log.notice("background time ran out: \(hold.name, privacy: .public)")
             hold.end()
         }
     }

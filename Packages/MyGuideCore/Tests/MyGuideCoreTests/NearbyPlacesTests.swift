@@ -140,6 +140,75 @@ private struct Boom: Error {}
         #expect(!list.isFresh(for: .at(), now: t0.addingTimeInterval(-1)))
     }
 
+    @Test func servesWalkerBoundaries() {
+        let list = Self.list()   // centre (0, 0), fetched at t0
+        let t0 = Self.t0
+        // Distance: `.at(north: d)` is d metres up to floating point, so probe either side of 250:
+        // 249.9 < 250 → serves; 250.1 ≥ 250 → does not.
+        #expect(list.serves(walkerAt: .at(north: 249.9), now: t0))
+        #expect(!list.serves(walkerAt: .at(north: 250.1), now: t0))
+        // Age: t0+600 − t0 = 600 ≤ 600 → serves; t0+601 − t0 = 601 > 600 → does not.
+        #expect(list.serves(walkerAt: .at(), now: t0.addingTimeInterval(600)))
+        #expect(!list.serves(walkerAt: .at(), now: t0.addingTimeInterval(601)))
+        // Both limits at once: 249.9 m and 600 s → serves; 249.9 m and 601 s → does not.
+        #expect(list.serves(walkerAt: .at(north: 249.9), now: t0.addingTimeInterval(600)))
+        #expect(!list.serves(walkerAt: .at(north: 249.9), now: t0.addingTimeInterval(601)))
+        // A list from the future (clock set back): age t0−1 − t0 = −1 → does not serve.
+        #expect(!list.serves(walkerAt: .at(), now: t0.addingTimeInterval(-1)))
+    }
+
+    @Test func walkingRefreshesExactlyWhenTheListDoesNotServe() async throws {
+        let clock = LockedBox(Self.t0)
+        let places = Self.places(StubFetcher(.success([Self.castle("Burg", north: 30)])), clock: clock)
+        let list = try await places.refresh(at: .at(), language: .english)   // list and attempt at t0, centre (0, 0)
+        // t0+61: past the 60 s attempt interval (61 ≥ 60), so only the list decides.
+        let now = Self.t0.addingTimeInterval(61)
+        clock.set(now)
+        for north in [0.0, 249.9, 250.1, 400] {
+            let position = Coordinate.at(north: north)
+            #expect(await places.shouldRefresh(at: position, trigger: .walking, language: .english)
+                    == !list.serves(walkerAt: position, now: now))
+        }
+    }
+
+    @Test func backgroundMayRefreshGates() async throws {
+        let clock = LockedBox(Self.t0)
+        let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30)]))
+        let places = Self.places(fetcher, clock: clock)
+        // Nothing fetched yet: slow or unknown speed → true; 8.1 > 8 → false; 8.0 is not above 8 → true.
+        #expect(await places.backgroundMayRefresh(speed: 1, language: .english))
+        #expect(await places.backgroundMayRefresh(speed: nil, language: .english))
+        #expect(await !places.backgroundMayRefresh(speed: 8.1, language: .english))
+        #expect(await places.backgroundMayRefresh(speed: 8.0, language: .english))
+
+        try await places.refresh(at: .at(), language: .english)   // refresh and attempt at t0
+        // t0+599: 599 < 600 since the last refresh → false.
+        clock.set(Self.t0.addingTimeInterval(599))
+        #expect(await !places.backgroundMayRefresh(speed: 1, language: .english))
+        // t0+600: 600 is not < 600 → true (and 600 ≥ 60 since the attempt).
+        clock.set(Self.t0.addingTimeInterval(600))
+        #expect(await places.backgroundMayRefresh(speed: 1, language: .english))
+
+        // A failed attempt at t0+600 holds the gate for 60 s: t0+659 → 59 < 60 → false; t0+660 → 60 → true.
+        fetcher.set(.failure(URLError(.notConnectedToInternet)))
+        _ = try? await places.refresh(at: .at(), language: .english)
+        clock.set(Self.t0.addingTimeInterval(659))
+        #expect(await !places.backgroundMayRefresh(speed: 1, language: .english))
+        clock.set(Self.t0.addingTimeInterval(660))
+        #expect(await places.backgroundMayRefresh(speed: 1, language: .english))
+    }
+
+    @Test func backgroundMayRefreshUsesTheStoredRefreshTime() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = NearbyListStore(directory: directory)
+        try store.save(Self.list(fetchedAt: Self.t0))
+        // A new process at t0+300: 300 < 600 since the stored list's refresh → false, before anything else is asked.
+        let clock = LockedBox(Self.t0.addingTimeInterval(300))
+        let places = Self.places(StubFetcher(.success([])), store: store, clock: clock)
+        #expect(await !places.backgroundMayRefresh(speed: 1, language: .english))
+    }
+
     @Test func walkingPlacesUseTiers() {
         let church = Candidate(id: "osm:node/c", name: "Kirke", coordinate: .at(north: 10), kind: "amenity=place_of_worship",
                                tags: ["name": "Kirke", "amenity": "place_of_worship"])

@@ -32,6 +32,14 @@ public struct NearbyList: Sendable, Equatable, Codable {
         return age >= 0 && age <= Self.freshAge && GeoMath.distance(centre, position) <= Self.freshDistance
     }
 
+    /// Whether this list can serve a walker at `position` without a refresh: centred less than
+    /// `NearbyPlaces.walkingDistance` away and at most `freshAge` old. A list dated after `now` (the clock was set
+    /// back) never serves: its age is unknown. `NearbyPlaces` refreshes for walking exactly when this is false.
+    public func serves(walkerAt position: Coordinate, now: Date) -> Bool {
+        let age = now.timeIntervalSince(fetchedAt)
+        return age >= 0 && age <= Self.freshAge && GeoMath.distance(centre, position) < NearbyPlaces.walkingDistance
+    }
+
     /// The candidates that can buzz while walking, in list order, with their tiers; nil tiers are dropped.
     public var walkingPlaces: [WalkingPlace] {
         candidates.compactMap { candidate in

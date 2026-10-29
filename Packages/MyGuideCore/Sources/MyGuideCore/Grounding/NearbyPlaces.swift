@@ -84,12 +84,19 @@ public actor NearbyPlaces {
         case .walking:
             if Self.isWithin(Self.foregroundInterval, of: lastFetchAttempt[language], now: now) { return false }
             guard let list else { return true }
-            return GeoMath.distance(list.centre, position) >= Self.walkingDistance || Self.isOld(list, now: now)
+            return !list.serves(walkerAt: position, now: now)
         case .background(let speed):
-            if let speed, speed > Self.backgroundMaxSpeed { return false }
-            if Self.isWithin(Self.backgroundInterval, of: lastRefresh[language], now: now) { return false }
+            guard backgroundGates(speed: speed, language: language, now: now) else { return false }
             return foregroundRule(list, position: position, language: language, now: now)
         }
+    }
+
+    /// The background rule's gates that need no accurate position: false above `backgroundMaxSpeed` (when `speed` is
+    /// known), within `backgroundInterval` of the last refresh, or within `foregroundInterval` of the last fetch
+    /// attempt. A significant-change wake checks this before powering GPS for an accurate fix; `shouldRefresh`
+    /// applies the same gates (and the distance rule) to that fix.
+    public func backgroundMayRefresh(speed: Double?, language: StoryLanguage) -> Bool {
+        backgroundGates(speed: speed, language: language, now: now())
     }
 
     /// Fetches a new list centred on `position` and keeps it, in memory and in the store.
@@ -130,6 +137,14 @@ public actor NearbyPlaces {
     }
 
     // MARK: - Private
+
+    private func backgroundGates(speed: Double?, language: StoryLanguage, now: Date) -> Bool {
+        // Read through `list(for:)` first, so a stored list seeds `lastRefresh` before the interval is judged.
+        _ = list(for: language)
+        if let speed, speed > Self.backgroundMaxSpeed { return false }
+        if Self.isWithin(Self.backgroundInterval, of: lastRefresh[language], now: now) { return false }
+        return !Self.isWithin(Self.foregroundInterval, of: lastFetchAttempt[language], now: now)
+    }
 
     private func list(for language: StoryLanguage) -> NearbyList? {
         if !loadedLanguages.contains(language) {

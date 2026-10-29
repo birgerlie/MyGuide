@@ -229,11 +229,7 @@ final class AppServices {
         Bundle.main.object(forInfoDictionaryKey: "MGBundledOpenAIKey") as? String
     }
 
-    /// The place source for walking mode: the same shared OSM and Wikipedia clients as phase 1.
-    func makeWalkingSource() -> WalkingPlaceSource {
-        Self.walkingSource(http: http)
-    }
-
+    /// The place source of the nearby list: the same shared OSM and Wikipedia clients as phase 1.
     nonisolated private static func walkingSource(http: HTTPClient) -> WalkingPlaceSource {
         WalkingPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http))
     }

@@ -54,10 +54,8 @@ struct SettingsView: View {
             }
             Section {
                 Toggle(storyLanguage == .norwegian ? "Forbered steder i bakgrunnen" : "Prepare places in the background",
-                       isOn: $prepareBackgroundPlaces)
-                    .onChange(of: prepareBackgroundPlaces) { _, on in
-                        if on { BackgroundPlaces.shared.settingTurnedOn() } else { BackgroundPlaces.shared.stop() }
-                    }
+                       isOn: backgroundPlacesToggle(
+                           alwaysGranted: BackgroundPlaces.shared.authorization == .authorizedAlways))
             } footer: {
                 Text(storyLanguage == .norwegian
                      ? "Henter stedene rundt deg når du har flyttet deg, også med appen lukket, så kameraet svarer raskere. Krever posisjon «Alltid»."
@@ -96,6 +94,18 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .onAppear { refresh() }
+    }
+
+    /// On only when the setting is on and access is Always (spec 7: on by default when Always is granted), so without
+    /// Always it reads off and turning it on asks for Always. `alwaysGranted` is read in `body`, so the observed
+    /// authorization redraws the toggle when it changes, also after the prompt or a trip to the Settings app.
+    private func backgroundPlacesToggle(alwaysGranted: Bool) -> Binding<Bool> {
+        Binding(
+            get: { prepareBackgroundPlaces && alwaysGranted },
+            set: { on in
+                prepareBackgroundPlaces = on
+                if on { BackgroundPlaces.shared.settingTurnedOn() } else { BackgroundPlaces.shared.stop() }
+            })
     }
 
     private var trimmedDraft: String {

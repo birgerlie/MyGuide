@@ -1,22 +1,32 @@
 import CoreLocation
 import MyGuideCore
+import Observation
 import os
+import UIKit
 
 /// Prepares the nearby list while the app is closed (spec 7, 14.5–14.7): the significant-location-change service
 /// wakes (or relaunches) the app roughly every 500 m; each wake asks for one accurate fix, and with it the shared
 /// `NearbyPlaces` refreshes when its background rule allows (not above 8 m/s, not within 600 s of the last refresh),
-/// under a background task capped at 25 s. Runs only with the setting on and location access Always.
+/// under a background task capped at 25 s (less when iOS gives less time). Runs only with the setting on and location
+/// access Always. A wake that the cheap gates already rule out (too fast, too soon) never asks for a fix, so most
+/// wakes while driving do not power GPS.
 ///
 /// Depends on no screen and no `AppServices` instance: the app delegate starts it at launch, also on a relaunch for a
 /// location event, and it reaches the list through `AppServices.sharedNearby`.
 @MainActor
+@Observable
 final class BackgroundPlaces: NSObject {
     static let shared = BackgroundPlaces()
 
     /// The `UserDefaults` / `@AppStorage` key of the "Prepare places in the background" setting (Bool, default true).
     nonisolated static let settingKey = "prepareBackgroundPlaces"
     /// A background refresh not done in this time is dropped.
-    nonisolated static let refreshCap: Duration = .seconds(25)
+    nonisolated static let refreshCap: TimeInterval = 25
+    /// Kept back from iOS's remaining background time, so the task ends before the system's deadline.
+    nonisolated static let backgroundTimeMargin: TimeInterval = 3
+    /// The `UserDefaults` key set once this app has asked for Always (here or in walking mode). iOS shows that prompt
+    /// only once; after it the setting can only be changed in the Settings app.
+    nonisolated static let alwaysRequestedKey = "alwaysAuthorizationRequested"
     /// The wake's fix request is given up after this long. `requestLocation` itself reports a failure after about
     /// 10 s; this only guards against a delivery this class declined (too coarse) leaving the request open.
     nonisolated static let fixTimeout: Duration = .seconds(15)
@@ -51,15 +61,21 @@ final class BackgroundPlaces: NSObject {
         var timeout: Task<Void, Never>
     }
 
-    private let manager = CLLocationManager()
-    private var monitoring = false
-    private var fixRequest: FixRequest?
-    private var refreshing = false
+    /// The location authorization as last reported; observed by Settings, whose toggle reads on only with Always.
+    private(set) var authorization: CLAuthorizationStatus = .notDetermined
+
+    @ObservationIgnored private let manager = CLLocationManager()
+    @ObservationIgnored private var monitoring = false
+    @ObservationIgnored private var fixRequest: FixRequest?
+    @ObservationIgnored private var refreshing = false
+    /// True while a significant-change wake's cheap gates are being checked, so a burst of wakes asks once.
+    @ObservationIgnored private var wakeCheckRunning = false
     /// Set when the setting was turned on while access was undetermined: once When In Use is granted, Always is asked.
-    private var upgradeToAlwaysPending = false
+    @ObservationIgnored private var upgradeToAlwaysPending = false
 
     private override init() {
         super.init()
+        authorization = manager.authorizationStatus
         manager.delegate = self
         // Only for `requestLocation`: the significant-change service ignores it.
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
@@ -87,25 +103,48 @@ final class BackgroundPlaces: NSObject {
 
     /// The setting was turned on: asks for Always when it is missing (When In Use first when undetermined), and
     /// starts at once when it is already there. A grant later starts monitoring from the authorization callback.
+    /// When the prompt can no longer appear (denied, restricted, or When In Use after Always was already asked), it
+    /// opens this app's page in the Settings app instead.
     func settingTurnedOn() {
         switch manager.authorizationStatus {
         case .notDetermined:
             upgradeToAlwaysPending = true
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse:
-            manager.requestAlwaysAuthorization()
+            if UserDefaults.standard.bool(forKey: Self.alwaysRequestedKey) {
+                Self.openAppSettings()
+            } else {
+                requestAlways()
+            }
         case .authorizedAlways:
             start()
         case .denied, .restricted:
-            break
+            Self.openAppSettings()
         @unknown default:
             break
         }
     }
 
+    /// Asks for Always and remembers that it was asked.
+    private func requestAlways() {
+        Self.noteAlwaysRequested()
+        manager.requestAlwaysAuthorization()
+    }
+
+    /// Records that the Always prompt has been asked for; walking mode calls it too.
+    nonisolated static func noteAlwaysRequested() {
+        UserDefaults.standard.set(true, forKey: alwaysRequestedKey)
+    }
+
+    private static func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
     // MARK: - Wakes
 
     private func authorizationChanged(_ status: CLAuthorizationStatus) {
+        authorization = status
         switch status {
         case .authorizedAlways:
             upgradeToAlwaysPending = false
@@ -113,7 +152,7 @@ final class BackgroundPlaces: NSObject {
         case .authorizedWhenInUse:
             if upgradeToAlwaysPending {
                 upgradeToAlwaysPending = false
-                manager.requestAlwaysAuthorization()
+                requestAlways()
             }
             // Without Always the service cannot wake a closed app; do not leave it running in the foreground only.
             if monitoring { stop() }
@@ -141,9 +180,21 @@ final class BackgroundPlaces: NSObject {
             endFixRequest()
             refreshIfNeeded(with: last)
         } else {
-            // A significant-change wake: ask for one accurate fix before deciding anything.
-            guard monitoring else { return }
-            requestFix()
+            // A significant-change wake. The gates that need no accurate position (speed when the update has one, the
+            // 600 s since the last refresh, the 60 s since the last attempt) are checked first; only a wake they allow
+            // asks for one accurate fix, which then goes through the whole rule.
+            guard monitoring, !wakeCheckRunning, !refreshing else { return }
+            wakeCheckRunning = true
+            let nearby = AppServices.sharedNearby
+            let language = AppServices.currentStoryLanguage()
+            let speed = last.speed
+            Task { @MainActor [weak self] in
+                let allowed = await nearby.backgroundMayRefresh(speed: speed, language: language)
+                guard let self else { return }
+                self.wakeCheckRunning = false
+                guard allowed, self.monitoring else { return }
+                self.requestFix()
+            }
         }
     }
 
@@ -160,7 +211,7 @@ final class BackgroundPlaces: NSObject {
     /// One `requestLocation`, held under background time so the app is not suspended while it waits.
     private func requestFix() {
         guard fixRequest == nil, !refreshing else { return }
-        let hold = BackgroundTaskHold.begin(name: "nearby fix")
+        let hold = BackgroundTaskHold.begin(name: "nearby fix", category: "nearby")
         let timeout = Task { @MainActor [weak self] in
             guard (try? await Task.sleep(for: Self.fixTimeout)) != nil, let self, self.fixRequest != nil else { return }
             Self.log.notice("background fix timed out")
@@ -178,12 +229,15 @@ final class BackgroundPlaces: NSObject {
     }
 
     /// With the wake's fix: refreshes when the background rule allows, under a background task, dropped after
-    /// `refreshCap`. The task is ended exactly once (`BackgroundTaskHold`), whether the refresh finishes, fails, is
-    /// dropped, or background time runs out first.
+    /// `refreshCap` or iOS's remaining background time less `backgroundTimeMargin`, whichever is shorter. The task is
+    /// ended exactly once (`BackgroundTaskHold`), whether the refresh finishes, fails, is dropped, or background time
+    /// runs out first.
     private func refreshIfNeeded(with fix: Fix) {
         guard !refreshing else { return }
         refreshing = true
-        let hold = BackgroundTaskHold.begin(name: "nearby refresh")
+        let hold = BackgroundTaskHold.begin(name: "nearby refresh", category: "nearby")
+        let remaining = UIApplication.shared.backgroundTimeRemaining
+        let cap = Self.cap(backgroundTimeRemaining: remaining)
         let nearby = AppServices.sharedNearby
         let language = AppServices.currentStoryLanguage()
         let position = fix.coordinate
@@ -196,15 +250,28 @@ final class BackgroundPlaces: NSObject {
             guard await nearby.shouldRefresh(at: position, trigger: .background(speed: speed), language: language) else {
                 return
             }
-            switch await Self.refresh(nearby, at: position, language: language) {
+            // In the foreground iOS reports an unbounded remaining time (DBL_MAX).
+            let remainingText = remaining > 1_000_000 ? "unbounded" : "\(Int(remaining.rounded())) s"
+            Self.log.info("background refresh starting, background time \(remainingText, privacy: .public)")
+            guard let cap else {
+                Self.log.notice("background refresh skipped: too little background time")
+                return
+            }
+            switch await Self.refresh(nearby, at: position, language: language, cap: cap) {
             case .done:
                 Self.log.info("background refresh done")
             case .failed(let error):
                 AppServices.logNearbyFailure("background refresh failed", error)
             case .timedOut:
-                Self.log.notice("background refresh dropped after \(Self.refreshCap.components.seconds, privacy: .public) s")
+                Self.log.notice("background refresh dropped after \(Int(cap.rounded()), privacy: .public) s")
             }
         }
+    }
+
+    /// min(`refreshCap`, remaining − `backgroundTimeMargin`); nil when that leaves no time at all.
+    nonisolated static func cap(backgroundTimeRemaining remaining: TimeInterval) -> TimeInterval? {
+        let cap = min(refreshCap, remaining - backgroundTimeMargin)
+        return cap > 0 ? cap : nil
     }
 
     private enum RefreshOutcome: Sendable {
@@ -213,10 +280,10 @@ final class BackgroundPlaces: NSObject {
         case timedOut
     }
 
-    /// Races the refresh against `refreshCap`; the loser is cancelled. A cancelled refresh caller stops waiting at
+    /// Races the refresh against `cap` seconds; the loser is cancelled. A cancelled refresh caller stops waiting at
     /// once (`NearbyPlaces.refresh`), so this returns by the cap.
     nonisolated private static func refresh(_ nearby: NearbyPlaces, at position: Coordinate,
-                                            language: StoryLanguage) async -> RefreshOutcome {
+                                            language: StoryLanguage, cap: TimeInterval) async -> RefreshOutcome {
         await withTaskGroup(of: RefreshOutcome?.self) { group in
             group.addTask {
                 do {
@@ -230,7 +297,7 @@ final class BackgroundPlaces: NSObject {
             }
             group.addTask {
                 // Cancelled (the refresh won): nil, so it never counts as a timeout.
-                guard (try? await Task.sleep(for: refreshCap)) != nil else { return nil }
+                guard (try? await Task.sleep(for: .seconds(cap))) != nil else { return nil }
                 return .timedOut
             }
             var outcome: RefreshOutcome = .timedOut
