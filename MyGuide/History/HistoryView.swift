@@ -17,7 +17,7 @@ struct HistoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !services.memoryIsPersistent { MemoryUnavailableNotice() }
+            if let fallback = services.memoryFallback { MemoryUnavailableNotice(fallback: fallback) }
             content
         }
         .navigationTitle("History")
@@ -124,10 +124,13 @@ private struct HistoryRow: View {
     }
 }
 
-/// Shown when the persistent store could not be opened and memory lives in RAM only.
+/// Shown when the persistent store could not be opened and memory lives in RAM only, worded by why.
 struct MemoryUnavailableNotice: View {
+    let fallback: MemoryFallback
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+
     var body: some View {
-        Text("Memory is unavailable — stories won't be kept after you close the app.")
+        Text(fallback.notice(language: storyLanguage))
             .font(.footnote)
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)

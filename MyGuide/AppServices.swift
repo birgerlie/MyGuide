@@ -42,14 +42,16 @@ final class AppServices {
     /// The walk log of walking mode: the run in progress and where the run files live.
     let walkLog = WalkLog()
 
-    /// False when the persistent store could not be opened and memory is held in RAM only.
-    let memoryIsPersistent: Bool
+    /// Why memory is held in RAM only this run; nil when the persistent store opened.
+    let memoryFallback: MemoryFallback?
+    /// Set once the app has become active with a store that fell back because of a background launch.
+    private var loggedActiveWithLockedStore = false
 
-    init(memory: MemoryStore, memoryIsPersistent: Bool = true) {
+    init(memory: MemoryStore, memoryFallback: MemoryFallback? = nil) {
         // First, before anything can append: every append goes through the same serial queue, after this.
         Self.trimPhotoTimings()
         self.memory = memory
-        self.memoryIsPersistent = memoryIsPersistent
+        self.memoryFallback = memoryFallback
         let http = http
         let keychain = keychain
         let walkLog = walkLog
@@ -247,6 +249,14 @@ final class AppServices {
 
     /// Foreground fixes less accurate than this (metres) never start a refresh.
     nonisolated static let foregroundAccuracy = 50.0
+
+    /// The app became active. With a store that fell back at a background launch, logs (once) that the owner now
+    /// sees the banner asking to relaunch; the store itself is not reopened in this process.
+    func noteBecameActive() {
+        guard memoryFallback == .lockedAtBackgroundLaunch, !loggedActiveWithLockedStore else { return }
+        loggedActiveWithLockedStore = true
+        Self.memoryLog.notice("app active with the in-memory store from a background launch; relaunch banner shown")
+    }
 
     /// Logs a memory failure without any story text: only the error's type, and domain and code when it has them.
     nonisolated static func logMemoryFailure(_ what: String, _ error: Error) {

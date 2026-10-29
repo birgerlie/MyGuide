@@ -33,7 +33,7 @@ struct DiaryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !services.memoryIsPersistent { MemoryUnavailableNotice() }
+            if let fallback = services.memoryFallback { MemoryUnavailableNotice(fallback: fallback) }
             content
         }
         .navigationTitle("Diary")

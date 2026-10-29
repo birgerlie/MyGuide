@@ -12,22 +12,27 @@ struct MyGuideApp: App {
 
     init() {
         let container: ModelContainer
-        var persistent = true
+        var fallback: MemoryFallback?
         do {
             container = try ModelContainer(for: Schema(versionedSchema: MemorySchemaV3.self),
                                            migrationPlan: MemoryMigrationPlan.self)
         } catch {
             // Stories still work without a store; they just won't be remembered this run.
             AppServices.logMemoryFailure("persistent store unavailable, using in-memory", error)
-            persistent = false
+            // A location wake can launch the app before the phone's first unlock, when the store file is still
+            // protected. The store is not reopened later in this process; the banner asks the owner to relaunch.
+            let reason = MemoryFallback.reason(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable)
+            if reason == .lockedAtBackgroundLaunch {
+                AppServices.memoryLog.error("persistent store unavailable: protected data unavailable at launch (launched in the background before first unlock)")
+            }
+            fallback = reason
             let config = ModelConfiguration(isStoredInMemoryOnly: true)
             // An in-memory store failing means the schema itself is broken: a programmer error.
             container = try! ModelContainer(for: Schema(versionedSchema: MemorySchemaV3.self),
                                             migrationPlan: MemoryMigrationPlan.self, configurations: config)
         }
         self.container = container
-        let services = AppServices(memory: MemoryStore(context: container.mainContext),
-                                   memoryIsPersistent: persistent)
+        let services = AppServices(memory: MemoryStore(context: container.mainContext), memoryFallback: fallback)
         _services = State(initialValue: services)
         // Set before the app finishes launching, so an action that cold-launches the app is not dropped.
         AppDelegate.responseHandler = { response in
@@ -51,7 +56,10 @@ struct MyGuideApp: App {
             .tint(Theme.Colour.accent)
             .background(Theme.Colour.background.ignoresSafeArea())
             // Foreground and background during a walk go into the walk log.
-            .onChange(of: scenePhase) { services.walking.noteScenePhase($1) }
+            .onChange(of: scenePhase) {
+                services.walking.noteScenePhase($1)
+                if $1 == .active { services.noteBecameActive() }
+            }
             // myguide://walk/<id>, from the Live Activity: open that walk story.
             .onOpenURL { url in
                 if let id = WalkLink.storyID(from: url) { services.walking.stories.open(id) }

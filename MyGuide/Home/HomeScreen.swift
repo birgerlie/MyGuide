@@ -65,7 +65,10 @@ struct HomeScreen: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 16) {
-                    if !services.memoryIsPersistent { MemoryUnavailableNotice().clipShape(Capsule()) }
+                    if let fallback = services.memoryFallback {
+                        // Rounded, not a capsule: the background-launch text wraps over two or three lines.
+                        MemoryUnavailableNotice(fallback: fallback).clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
                     WalkingStatusPill(controller: services.walking)
                     if services.walking.isOn { WalkingPanel(stories: services.walking.stories) }
                     content
