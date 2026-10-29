@@ -33,19 +33,26 @@ public struct StoredPlaceImage: Sendable, Equatable {
 /// Disk cache of place pictures, keyed by the language-prefixed article title.
 /// Each title is stored as `<SHA-256 hex of title>.jpg` plus `.json` holding the `PlaceImageInfo` and the fetch time.
 /// A picture is kept for good; a "no image" answer is a `.json` without info and is trusted for 7 days.
-/// Failures (network, HTTP, API, malformed replies) are not stored, so the next call tries again.
+/// Failures (network, HTTP, API, malformed replies, a picture without credit) are not stored on disk; in memory they
+/// hold the title back for 5 minutes, after which the next call tries again.
 public actor PlaceImages {
     public static let notificationCap: Duration = .milliseconds(1500)
     /// How long a "no image" answer is trusted: 7 × 86 400 s.
     static let noImageLifetime: TimeInterval = 7 * 86_400
+    /// How long a failed title is left alone: 5 × 60 s.
+    static let failureCooldown: TimeInterval = 5 * 60
 
     private let directory: URL
     private let client: WikipediaClient
     private let now: @Sendable () -> Date
     /// Fetches under way, so concurrent callers for one title share a single fetch.
     private var inFlight: [String: Task<StoredPlaceImage?, Never>] = [:]
-    /// How many callers joined a fetch already under way (lets tests see that a second caller is waiting).
+    /// When each title last failed (in memory only).
+    private var failedAt: [String: Date] = [:]
+    /// How many callers joined a fetch already under way, and who waits for that count (lets tests see that a
+    /// second caller is waiting).
     private(set) var joinedFetches = 0
+    private var joinWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     public init(directory: URL, client: WikipediaClient, now: @escaping @Sendable () -> Date = Date.init) {
         self.directory = directory
@@ -61,11 +68,12 @@ public actor PlaceImages {
     }
 
     /// Fetch once (in-flight requests merged per title); a "no image" answer is remembered for 7 days.
-    /// nil for no image, a malformed title, or any failure.
+    /// nil for no image, a malformed title, any failure (and for 5 minutes after one), or when the caller is
+    /// cancelled: the caller stops waiting, the fetch continues and fills the cache.
     public func image(wikipediaTitle: String) async -> StoredPlaceImage? {
         switch lookup(wikipediaTitle) {
         case .done(let image): return image
-        case .running(let fetch): return await fetch.value
+        case .running(let fetch): return await Self.waitAbandoningOnCancel(fetch)
         }
     }
 
@@ -81,14 +89,29 @@ public actor PlaceImages {
         }
     }
 
-    /// Starts the fetches for all titles not yet cached (each title once) and waits for them.
+    /// Starts the fetches for all titles not yet cached (each title once) and waits for them. A cancelled caller
+    /// stops waiting at once; the fetches continue and fill the cache.
     public func prefetch(_ titles: [String]) async {
         var seen: Set<String> = []
         var fetches: [Task<StoredPlaceImage?, Never>] = []
         for title in titles where seen.insert(title).inserted {
             if case .running(let fetch) = lookup(title) { fetches.append(fetch) }
         }
-        for fetch in fetches { _ = await fetch.value }
+        for fetch in fetches {
+            _ = await Self.waitAbandoningOnCancel(fetch)
+            if Task.isCancelled { return }
+        }
+    }
+
+    /// Waits for `fetch` until the caller is cancelled (then nil); waiting on `fetch.value` alone ignores cancellation.
+    private static func waitAbandoningOnCancel(_ fetch: Task<StoredPlaceImage?, Never>) async -> StoredPlaceImage? {
+        (try? await GroundingService.abandoningOnCancel { await fetch.value }) ?? nil
+    }
+
+    /// Returns once at least `count` callers have joined a fetch under way.
+    func waitForJoinedFetches(_ count: Int) async {
+        guard joinedFetches < count else { return }
+        await withCheckedContinuation { joinWaiters.append((count, $0)) }
     }
 
     /// The title to use for a candidate: its wikipediaTitle, or "code:" + name for a "wiki:code/…" id; nil otherwise.
@@ -114,9 +137,12 @@ public actor PlaceImages {
         if let hit = cached(wikipediaTitle: title) { return .done(hit) }
         if let running = inFlight[title] {
             joinedFetches += 1
+            let ready = joinWaiters.filter { $0.count <= joinedFetches }
+            joinWaiters.removeAll { $0.count <= joinedFetches }
+            ready.forEach { $0.continuation.resume() }
             return .running(running)
         }
-        if remembersNoImage(for: title) { return .done(nil) }
+        if remembersNoImage(for: title) || isCoolingDown(title) { return .done(nil) }
         // Unstructured on purpose: it outlives a capped or cancelled caller, so the cache is still filled.
         let fetch = Task<StoredPlaceImage?, Never> {
             let result = await self.fetch(title)
@@ -127,11 +153,13 @@ public actor PlaceImages {
         return .running(fetch)
     }
 
+    /// nil for "no image" (remembered on disk) and for a failure (held back in memory by `failureCooldown`).
     private func fetch(_ title: String) async -> StoredPlaceImage? {
         do {
             guard let info = try await client.pageImage(wikipediaTitle: title) else {
                 try? FileManager.default.removeItem(at: pictureURL(for: title))
                 try? save(Record(info: nil, fetchedAt: now()), for: title)
+                failedAt[title] = nil
                 return nil
             }
             let data = try await client.imageData(info.thumbnailURL)
@@ -140,10 +168,19 @@ public actor PlaceImages {
             // The picture first: a record with info always has its picture beside it.
             try data.write(to: file, options: .atomic)
             try save(Record(info: info, fetchedAt: now()), for: title)
+            failedAt[title] = nil
             return StoredPlaceImage(fileURL: file, info: info)
         } catch {
+            failedAt[title] = now()
             return nil
         }
+    }
+
+    private func isCoolingDown(_ title: String) -> Bool {
+        guard let failed = failedAt[title] else { return false }
+        let age = now().timeIntervalSince(failed)
+        // A time ahead of now (the clock moved back) is not trusted.
+        return age >= 0 && age < Self.failureCooldown
     }
 
     private func remembersNoImage(for title: String) -> Bool {

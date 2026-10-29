@@ -236,7 +236,8 @@ extension WikipediaClient {
     /// then imageinfo (iiprop=extmetadata, iiextmetadatafilter=Artist|LicenseShortName) for "File:<name>".
     /// nil when the article has no page image. Artist HTML is reduced to plain text (tags stripped, entities decoded).
     /// A missing article also gives nil. Throws on HTTP/API/malformed errors of either request (so a picture is never
-    /// returned without the credit lookup having succeeded), for a non-https thumbnail, and for a malformed title.
+    /// returned without the credit lookup having succeeded), with .malformed when the credit names neither author nor
+    /// licence, for a non-https thumbnail, and for a malformed title.
     public func pageImage(wikipediaTitle: String) async throws -> PlaceImageInfo? {
         let (code, title) = try Self.split(wikipediaTitle: wikipediaTitle)
 
@@ -253,11 +254,12 @@ extension WikipediaClient {
         // A Commons file is reported "missing" (but "known") on the article's wiki; only the metadata matters here.
         let file = info.query?.pages?.first
         let metadata = file?.imageinfo?.first?.extmetadata
-        return PlaceImageInfo(
-            thumbnailURL: thumbnailURL,
-            author: metadata?.Artist?.value.flatMap(Self.plainText(fromHTML:)),
-            licence: metadata?.LicenseShortName?.value.flatMap(Self.plainText(fromHTML:)),
-            filePage: Self.filePage(code: code, fileName: fileName, repository: file?.imagerepository))
+        let author = metadata?.Artist?.value.flatMap(Self.plainText(fromHTML:))
+        let licence = metadata?.LicenseShortName?.value.flatMap(Self.plainText(fromHTML:))
+        // A picture with no credit at all is never offered: that reply counts as malformed, not as "no image".
+        guard author != nil || licence != nil else { throw GroundingFetchError.malformed }
+        return PlaceImageInfo(thumbnailURL: thumbnailURL, author: author, licence: licence,
+                              filePage: Self.filePage(code: code, fileName: fileName, repository: file?.imagerepository))
     }
 
     /// The thumbnail's bytes. Throws GroundingFetchError.http for a non-2xx status and .malformed for an empty body.

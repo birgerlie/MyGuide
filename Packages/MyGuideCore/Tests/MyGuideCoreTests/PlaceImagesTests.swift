@@ -42,14 +42,7 @@ import Foundation
     static let t0 = Date(timeIntervalSinceReferenceDate: 800_000_000)
     static let day: TimeInterval = 86_400
 
-    /// Yields until `condition` holds; no real time is involved. False if it never held.
-    static func eventually(_ condition: () async -> Bool) async -> Bool {
-        for _ in 0..<100_000 {
-            if await condition() { return true }
-            await Task.yield()
-        }
-        return await condition()
-    }
+    static let minute: TimeInterval = 60
 
     // MARK: WikipediaClient.pageImage
 
@@ -112,21 +105,38 @@ import Foundation
         #expect(info?.author == "Jane Doe")
     }
 
-    @Test func missingCreditGivesNilAuthorAndLicence() async throws {
-        let http = StubHTTPClient { r in
-            Self.isPageImages(r) ? (200, Self.pageImagesBody()) : (200, Self.imageInfoBody(artist: nil, licence: nil))
+    @Test func oneCreditFieldIsEnough() async throws {
+        let licenceOnly = StubHTTPClient { r in
+            Self.isPageImages(r) ? (200, Self.pageImagesBody()) : (200, Self.imageInfoBody(artist: nil))
         }
-        let info = try await WikipediaClient(http: http).pageImage(wikipediaTitle: "en:Pantheon")
-        #expect(info?.thumbnailURL == URL(string: Self.thumb)!)
-        #expect(info?.author == nil && info?.licence == nil)
+        let a = try await WikipediaClient(http: licenceOnly).pageImage(wikipediaTitle: "en:Pantheon")
+        #expect(a?.thumbnailURL == URL(string: Self.thumb)!)
+        #expect(a?.author == nil && a?.licence == "CC BY-SA 4.0")
+        let authorOnly = StubHTTPClient { r in
+            Self.isPageImages(r) ? (200, Self.pageImagesBody()) : (200, Self.imageInfoBody(licence: "  "))
+        }
+        let b = try await WikipediaClient(http: authorOnly).pageImage(wikipediaTitle: "en:Pantheon")
+        #expect(b?.author == "Jane Doe" && b?.licence == nil)
     }
 
-    @Test func blankCreditGivesNil() async throws {
-        let http = StubHTTPClient { r in
-            Self.isPageImages(r) ? (200, Self.pageImagesBody()) : (200, Self.imageInfoBody(artist: "<span> </span>", licence: "  "))
+    /// A picture is never offered without credit: a reply naming neither author nor licence is malformed.
+    @Test func noCreditAtAllIsMalformed() async {
+        let bodies = [
+            Self.imageInfoBody(artist: nil, licence: nil),
+            Self.imageInfoBody(artist: "<span> </span>", licence: "  "),
+            Data(#"{"batchcomplete":true}"#.utf8),
+            Data(#"{"batchcomplete":true,"query":{"pages":[]}}"#.utf8),
+            Data(#"{"query":{"pages":[{"ns":6,"title":"File:P.jpg","imagerepository":"shared"}]}}"#.utf8),
+            Data(#"{"query":{"pages":[{"ns":6,"title":"File:P.jpg","imageinfo":[{}]}]}}"#.utf8),
+            // Values that are not strings count as absent.
+            Data(#"{"query":{"pages":[{"imageinfo":[{"extmetadata":{"Artist":{"value":7},"LicenseShortName":{"value":null}}}]}]}}"#.utf8),
+        ]
+        for body in bodies {
+            let http = StubHTTPClient { r in Self.isPageImages(r) ? (200, Self.pageImagesBody()) : (200, body) }
+            await #expect(throws: GroundingFetchError.malformed) {
+                _ = try await WikipediaClient(http: http).pageImage(wikipediaTitle: "en:Pantheon")
+            }
         }
-        let info = try await WikipediaClient(http: http).pageImage(wikipediaTitle: "en:Pantheon")
-        #expect(info?.author == nil && info?.licence == nil)
     }
 
     @Test func artistHTMLIsReducedToPlainText() {
@@ -319,6 +329,7 @@ import Foundation
     @Test func failureIsNotRemembered() async {
         let dir = Self.tempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = LockedBox(Self.t0)
         let failing = LockedBox<String?>("pageimages")
         let http = StubHTTPClient { r in
             switch failing.value {
@@ -328,11 +339,13 @@ import Foundation
             default: return Self.route(r)
             }
         }
-        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http))
+        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http), now: { clock.value })
         for step in ["pageimages", "imageinfo", "thumbnail"] {
             failing.set(step)
             #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
             #expect(await images.cached(wikipediaTitle: "en:Pantheon") == nil)
+            // Past the 5-minute cooldown (5 × 60 = 300 s < 301 s) before the next attempt.
+            clock.set(clock.value.addingTimeInterval(301))
         }
         // Requests so far: 1 (pageimages fails) + 2 (imageinfo fails) + 3 (thumbnail fails) = 6.
         #expect(http.requests.count == 6)
@@ -349,6 +362,91 @@ import Foundation
         let http = StubHTTPClient { _ in throw Offline() }
         let images = PlaceImages(directory: dir, client: WikipediaClient(http: http))
         #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
+    }
+
+    @Test func failureCooldownIsFiveMinutes() async throws {
+        let dir = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = LockedBox(Self.t0)
+        let failing = LockedBox(true)
+        let http = StubHTTPClient { r in failing.value ? (500, Data()) : Self.route(r) }
+        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http), now: { clock.value })
+
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
+        #expect(http.requests.count == 1)
+        failing.set(false)
+        // 4:59 = 4 × 60 + 59 = 299 s < 300 s: every entry point answers nil without a request.
+        clock.set(Self.t0.addingTimeInterval(299))
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
+        #expect(await images.image(wikipediaTitle: "en:Pantheon", within: .seconds(30)) == nil)
+        await images.prefetch(["en:Pantheon"])
+        #expect(http.requests.count == 1)
+        // The cooldown is per title: another title is fetched (1 + 3 = 4).
+        #expect(await images.image(wikipediaTitle: "it:Pantheon") != nil)
+        #expect(http.requests.count == 4)
+        // 5:01 = 301 s ≥ 300 s: tried again, and succeeds (4 + 3 = 7).
+        clock.set(Self.t0.addingTimeInterval(301))
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") != nil)
+        #expect(http.requests.count == 7)
+    }
+
+    @Test func failureCooldownEndsAtExactlyFiveMinutes() async {
+        let dir = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = LockedBox(Self.t0)
+        let http = StubHTTPClient { _ in (500, Data()) }
+        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http), now: { clock.value })
+        _ = await images.image(wikipediaTitle: "en:Pantheon")
+        // 5 × 60 = 300 s: the boundary itself is past the cooldown, so a request (1 + 1 = 2).
+        clock.set(Self.t0.addingTimeInterval(5 * Self.minute))
+        _ = await images.image(wikipediaTitle: "en:Pantheon")
+        #expect(http.requests.count == 2)
+        // The clock moved back a minute behind that failure: the cooldown is not trusted, so a request (2 + 1 = 3).
+        clock.set(Self.t0.addingTimeInterval(4 * Self.minute))
+        _ = await images.image(wikipediaTitle: "en:Pantheon")
+        #expect(http.requests.count == 3)
+    }
+
+    @Test func nonHTTPSThumbnailIsAFailureUnderTheCooldown() async {
+        let dir = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = LockedBox(Self.t0)
+        let http = StubHTTPClient { _ in (200, Self.pageImagesBody(source: "http://upload.wikimedia.org/x.jpg")) }
+        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http), now: { clock.value })
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
+        #expect(http.requests.count == 1)
+        // Not remembered on disk as "no image": nothing was written.
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).isEmpty)
+        // 299 s < 300 s: no request.
+        clock.set(Self.t0.addingTimeInterval(299))
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
+        #expect(http.requests.count == 1)
+        // 301 s ≥ 300 s: one request (1 + 1 = 2).
+        clock.set(Self.t0.addingTimeInterval(301))
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
+        #expect(http.requests.count == 2)
+    }
+
+    @Test func uncreditedPictureIsAFailedFetch() async throws {
+        let dir = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = LockedBox(Self.t0)
+        let credited = LockedBox(false)
+        let http = StubHTTPClient { r in
+            if Self.isImageInfo(r) && !credited.value { return (200, Data(#"{"batchcomplete":true}"#.utf8)) }
+            return Self.route(r)
+        }
+        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http), now: { clock.value })
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") == nil)
+        #expect(await images.cached(wikipediaTitle: "en:Pantheon") == nil)
+        // pageimages + imageinfo = 2; the thumbnail is never downloaded and nothing is written.
+        #expect(http.requests.count == 2)
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).isEmpty)
+        // Not remembered as "no image" for 7 days: after the 5-minute cooldown (301 s) it is fetched again (2 + 3 = 5).
+        credited.set(true)
+        clock.set(Self.t0.addingTimeInterval(301))
+        #expect(await images.image(wikipediaTitle: "en:Pantheon")?.info.author == "Jane Doe")
+        #expect(http.requests.count == 5)
     }
 
     @Test func corruptRecordIsAMiss() async throws {
@@ -383,10 +481,10 @@ import Foundation
         let images = PlaceImages(directory: dir, client: WikipediaClient(http: http))
 
         let first = Task { await images.image(wikipediaTitle: "en:Pantheon") }
-        #expect(await Self.eventually { http.arrived == 1 })
+        await http.waitForArrivals(1)
         let second = Task { await images.image(wikipediaTitle: "en:Pantheon") }
         // The second caller has joined the fetch that is still held at the gate.
-        #expect(await Self.eventually { await images.joinedFetches == 1 })
+        await images.waitForJoinedFetches(1)
         await http.gate.open()
         let a = await first.value
         let b = await second.value
@@ -418,7 +516,8 @@ import Foundation
         let capped = await images.image(wikipediaTitle: "en:Pantheon", within: .milliseconds(20))
         #expect(capped == nil)
         #expect(await images.cached(wikipediaTitle: "en:Pantheon") == nil)
-        #expect(await Self.eventually { http.arrived == 1 })
+        await http.waitForArrivals(1)
+        #expect(http.arrived == 1)
 
         // The fetch continues after the cap and fills the cache.
         await http.gate.open()
@@ -427,6 +526,47 @@ import Foundation
         #expect(await images.cached(wikipediaTitle: "en:Pantheon") == joined)
         // The capped call's fetch was joined, not repeated: still 3 requests.
         #expect(http.arrived == 3)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancelledCallerStopsWaitingAndTheFetchFillsTheCache() async throws {
+        let dir = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = GatedHTTP { Self.route($0) }
+        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http))
+
+        let caller = Task { await images.image(wikipediaTitle: "en:Pantheon") }
+        await http.waitForArrivals(1)
+        caller.cancel()
+        // Returns while the gate is still closed: the caller abandoned the wait.
+        #expect(await caller.value == nil)
+        #expect(await images.cached(wikipediaTitle: "en:Pantheon") == nil)
+
+        await http.gate.open()
+        let joined = await images.image(wikipediaTitle: "en:Pantheon")
+        #expect(joined != nil)
+        #expect(await images.cached(wikipediaTitle: "en:Pantheon") == joined)
+        // The abandoned fetch was joined, not repeated: 3 requests.
+        #expect(http.arrived == 3)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancelledPrefetchStopsWaitingAndTheFetchesFillTheCache() async throws {
+        let dir = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = GatedHTTP { Self.route($0) }
+        let images = PlaceImages(directory: dir, client: WikipediaClient(http: http))
+
+        let prefetch = Task { await images.prefetch(["en:Pantheon", "it:Pantheon"]) }
+        // Both fetches have sent their first request and are held at the gate.
+        await http.waitForArrivals(2)
+        prefetch.cancel()
+        await prefetch.value
+        #expect(await images.cached(wikipediaTitle: "en:Pantheon") == nil)
+
+        await http.gate.open()
+        #expect(await images.image(wikipediaTitle: "en:Pantheon") != nil)
+        #expect(await images.image(wikipediaTitle: "it:Pantheon") != nil)
+        // 2 titles × 3 requests = 6: both fetches ran to the end and were joined.
+        #expect(http.arrived == 6)
     }
 
     @Test func fetchWithinCapReturnsAFastImage() async throws {
@@ -494,20 +634,43 @@ import Foundation
     }
 }
 
-/// Holds every request at `gate` until it is opened; counts requests as they arrive.
+/// Holds every request at `gate` until it is opened; counts requests as they arrive and signals waiters.
 final class GatedHTTP: HTTPClient, @unchecked Sendable {
     let gate = Gate()
     private let inner: StubHTTPClient
-    private let arrivals = LockedBox(0)
+    private struct Arrivals {
+        var count = 0
+        var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    }
+    private let arrivals = LockedBox(Arrivals())
 
     init(_ handler: @escaping @Sendable (URLRequest) throws -> (Int, Data)) {
         inner = StubHTTPClient(handler)
     }
 
-    var arrived: Int { arrivals.value }
+    var arrived: Int { arrivals.value.count }
+
+    /// Returns once at least `count` requests have arrived (held at the gate or not).
+    func waitForArrivals(_ count: Int) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let reached = arrivals.withValue { state in
+                if state.count >= count { return true }
+                state.waiters.append((count, continuation))
+                return false
+            }
+            if reached { continuation.resume() }
+        }
+    }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        arrivals.withValue { $0 += 1 }
+        let ready = arrivals.withValue { state in
+            state.count += 1
+            let count = state.count
+            let ready = state.waiters.filter { $0.count <= count }.map(\.continuation)
+            state.waiters.removeAll { $0.count <= count }
+            return ready
+        }
+        ready.forEach { $0.resume() }
         await gate.wait()
         return try await inner.send(request)
     }
