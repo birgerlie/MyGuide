@@ -64,13 +64,15 @@ targets:
     type: app-extension
     platform: iOS
     deploymentTarget: "26.0"
-    sources: [MyGuideWidgets, Shared]
+    # The shared files, the design file and its fonts: no MyGuideCore and no key (spec 7.5).
+    sources: [MyGuideWidgets, Shared, MyGuide/Design/Theme.swift, MyGuide/Design/Fonts]
     info:
       path: MyGuideWidgets/Info.plist
       properties:
         CFBundleDisplayName: MyGuide
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UIAppFonts: [PlayfairDisplay-Variable.ttf, Inter-Regular.ttf, Inter-Medium.ttf]
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:

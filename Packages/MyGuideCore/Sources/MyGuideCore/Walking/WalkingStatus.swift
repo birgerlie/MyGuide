@@ -12,8 +12,8 @@ public enum WalkingStatus {
     public static let staleRefreshStep: TimeInterval = 30
 
     /// Nil when walking mode is off. Paused wins over waiting for GPS: manual reads "Paused · N buzzes", auto "Paused · not moving · N buzzes". A missing or stale fix reads as waiting for GPS (120 s is still fresh).
-    /// Norwegian ("Går · N varsler", "Pauset · står stille · N varsler", "Går · venter på GPS") follows the same rules;
-    /// the Live Activity keeps the English default.
+    /// Norwegian ("Går · N varsler", "Pauset · står stille · N varsler", "Går · venter på GPS") follows the same rules.
+    /// The Live Activity no longer shows this line: it has its own texts (`WalkingActivityController`, spec 7.5).
     public static func text(isOn: Bool, lastFixAt: Date?, buzzCount: Int, now: Date, pause: WalkingPauseKind? = nil,
                             language: StoryLanguage = .english) -> String? {
         guard isOn else { return nil }

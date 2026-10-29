@@ -56,6 +56,8 @@ final class WalkingStories {
     @ObservationIgnored var onHeard: ((String) -> Void)?
     /// A level of a story about a place chosen on the map started playing; memory has already marked it heard.
     @ObservationIgnored var onChosenHeard: ((Candidate) -> Void)?
+    /// A level of a buzzed or chosen place's story started playing (not a stop story): the Live Activity shows it.
+    @ObservationIgnored var onPlaybackStarted: ((Candidate) -> Void)?
     /// A buzz was skipped: its id, its place when known, and the deepest level played.
     @ObservationIgnored var onRetire: ((UUID, Candidate?, Int) -> Void)?
     /// The trip new stories are saved in.
@@ -460,6 +462,7 @@ final class WalkingStories {
         }
         listening = Listening(id: id, level: level, isLoading: false)
         markHeard(id, level: level)
+        if let place = prepared.story(id)?.place { onPlaybackStarted?(place) }
     }
 
     private func stopAudio() {

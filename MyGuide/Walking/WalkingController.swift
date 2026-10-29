@@ -142,6 +142,8 @@ final class WalkingController {
         stories.currentPlaces = { [weak self] in self?.feed.places ?? [] }
         stories.walkLog = walkLog
         activity.onFailure = { [weak self] context, error in self?.logFailure(context, error) }
+        // The Live Activity shows the place whose story is playing (spec 7.5); it has none while walking mode is off.
+        stories.onPlaybackStarted = { [weak self] candidate in self?.activity.showPlace(candidate) }
         location.onLocation = { [weak self] fix in self?.handle(fix) }
         location.onDenied = { [weak self] in
             guard let self, isOn else { return }
@@ -233,7 +235,7 @@ final class WalkingController {
         // once. Any left over from an earlier launch end first. From the background (a watch start) it fails, which is
         // logged; the walk goes on without one (spec 5.3).
         let now = Date.now
-        let activityID = await activity.start(at: now, status: WalkingStatus.text(isOn: true, lastFixAt: nil, buzzCount: 0, now: now) ?? "Walking")
+        let activityID = await activity.start(at: now)
         guard startToken == token else {
             if let activityID { activity.end(id: activityID) }
             return nil
@@ -741,17 +743,15 @@ final class WalkingController {
         walkLog.log(.gps(found: found), at: now)
     }
 
-    /// Shows the status on the Live Activity; it only changes with the buzz count, the GPS state or a pause, and is
-    /// pushed again now and then to move its stale date on. While paused the stale date is now + 120 s; after a
-    /// resume it counts from the resume at the earliest, as `lastFixAt` stood still through the pause.
+    /// Shows the status on the Live Activity; it only changes with a pause or a resume (the buzz count clears a stop
+    /// story), and is pushed again now and then to move its stale date on. While paused the stale date is now + 120 s;
+    /// after a resume it counts from the resume at the earliest, as `lastFixAt` stood still through the pause.
     private func refreshActivity(now: Date) {
-        guard isOn, let startedAt,
-              let text = WalkingStatus.text(isOn: true, lastFixAt: lastFixAt, buzzCount: buzzCount, now: now, pause: pauseKind)
-        else { return }
+        guard isOn, let startedAt else { return }
         let floor = max(startedAt, resumedAt ?? startedAt)
         let stale = isPaused ? WalkingStatus.pausedStaleDate(now: now)
                              : WalkingStatus.activityStaleDate(lastFixAt: lastFixAt, startedAt: floor)
-        activity.updateStatus(text, buzzCount: buzzCount, staleDate: stale)
+        activity.updateStatus(paused: isPaused, buzzCount: buzzCount, staleDate: stale)
     }
 
     // MARK: - Route
@@ -851,6 +851,8 @@ final class WalkingController {
         }
         buzzCount += 1
         publishState()
+        // No alert on the Live Activity: the notification below alerts (spec 7.5).
+        activity.showPlace(buzz.place.candidate)
         let run = runToken
         let language = Self.storyLanguage()
         Task { [weak self] in

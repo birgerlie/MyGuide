@@ -17,6 +17,7 @@
 		11386A40C01FB7F1BCA9228F /* WorkoutKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58D6D0C9593CCF44B8C790D /* WorkoutKeeper.swift */; };
 		1471143EBE82B553E40129AE /* PhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB5929240699451326DF1BD /* PhotoImport.swift */; };
 		171D6B09E744C5313C984C14 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
+		1863D99A6B97AEACDB45955B /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D057C0477AFAE0BE29550C9 /* Inter-Regular.ttf */; };
 		1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FDE1443A09F9C472F02CDD /* HistoryView.swift */; };
 		1F38F439526191EA725269C7 /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		1F68E52117A68240EF842AD4 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
@@ -44,6 +45,7 @@
 		5E7B8190ABEA4609D2693F89 /* AroundModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DDCA86FDC346959CC0CBB7 /* AroundModel.swift */; };
 		5EFA0074A45D0C954418D2A4 /* MyGuideWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8DC19E8463DA0B5CA2AF45B0 /* MyGuideWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5FA86F274E41178B17735956 /* WalkStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7A49C840514706DE718EF1 /* WalkStoryView.swift */; };
+		60A784568EAE6A93C0CD99BD /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
 		6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7601A9D4143D662A6232BA41 /* AppServices.swift */; };
 		65B3917A0095C5BC97B77000 /* StoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */; };
 		6AD7BBF413B4C419E0755A62 /* WalkingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5476DAEFAB978C8E27AD569 /* WalkingActivityAttributes.swift */; };
@@ -52,6 +54,7 @@
 		6C3FDF42EAD1B48C0D631C87 /* BuzzNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */; };
 		6CAFAF4562FB87C72F4F72F4 /* WalkingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9399C561071230F13BDD5526 /* WalkingPanel.swift */; };
 		6E45AE573B3E9C4E3C3E8D7E /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
+		739CC53B7A785DD930F81C06 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6B7D6310A0056F6611D4CA19 /* Inter-Medium.ttf */; };
 		7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AAB6A3685B614A563229E1E /* DayStoryModel.swift */; };
 		791D55EFA8664AC2961AA5FF /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 746E8A1175813126816BD7DE /* Inter-OFL.txt */; };
 		7E141C44A90C43677F85DB56 /* SelfCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AC3F6758B70A451EA067EB /* SelfCheckView.swift */; };
@@ -72,7 +75,9 @@
 		B7D8FAEEF5DD3E027FB2728F /* WatchAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3509B449881359F212693562 /* WatchAppDelegate.swift */; };
 		B8D753A876BD7F2DBBED7DE1 /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FFAE626A6814B93A8DACF5 /* PhoneLink.swift */; };
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
+		BC7EFBCFC2635F7B838E46A8 /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */; };
+		CB892EAF08D652A33BE6AA47 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
 		CDFAD1A0883E09219D87E2AD /* BackgroundTaskHold.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB62877340E610053D66495A /* BackgroundTaskHold.swift */; };
 		CE4081054052B226778217DA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB976060B732B94CFFDBA0D /* AppDelegate.swift */; };
 		CFDC6AAC8088686BF9ECB839 /* TellMeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262854964F0668D9EA23A15A /* TellMeIntent.swift */; };
@@ -91,6 +96,7 @@
 		ECA8499C6DF9275A4004C77E /* PlaceSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 635B227C5CCD96148DF5AF1F /* PlaceSymbol.swift */; };
 		F0B8DAD8B104CB1D547EA859 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D59629C52B71A28FA9DCBB /* WatchLink.swift */; };
 		F199AE42802893D5B109B128 /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
+		F21FD11B30BBDA0A46902314 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
 		F8DE2811C1B6D114F0707472 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68E63B23D5D4103DCC816284 /* Assets.xcassets */; };
 		FF0E80F8AF923A70D8B6E274 /* AroundTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00B654124830A6916016517 /* AroundTexts.swift */; };
 		FFBBFC14F9F46488A350EEA9 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35446013504E49DDC25F8906 /* CaptureScreen.swift */; };
@@ -554,6 +560,7 @@
 			buildConfigurationList = D8D45D081DF87EEBE5B0E573 /* Build configuration list for PBXNativeTarget "MyGuideWidgets" */;
 			buildPhases = (
 				08916862C983985F8F6A83AC /* Sources */,
+				594CB6FED74989D8A94A2EF4 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -653,6 +660,18 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		594CB6FED74989D8A94A2EF4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				739CC53B7A785DD930F81C06 /* Inter-Medium.ttf in Resources */,
+				60A784568EAE6A93C0CD99BD /* Inter-OFL.txt in Resources */,
+				1863D99A6B97AEACDB45955B /* Inter-Regular.ttf in Resources */,
+				CB892EAF08D652A33BE6AA47 /* PlayfairDisplay-OFL.txt in Resources */,
+				BC7EFBCFC2635F7B838E46A8 /* PlayfairDisplay-Variable.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7C2528A5E854B11936B24A9F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -695,6 +714,7 @@
 			files = (
 				2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */,
 				488B69ECBEBD43BE7A961581 /* NotificationPayload.swift in Sources */,
+				F21FD11B30BBDA0A46902314 /* Theme.swift in Sources */,
 				6AD7BBF413B4C419E0755A62 /* WalkingActivityAttributes.swift in Sources */,
 				BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */,
 			);
