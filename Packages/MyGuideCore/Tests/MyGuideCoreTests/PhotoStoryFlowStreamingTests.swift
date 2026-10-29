@@ -15,17 +15,21 @@ import Testing
         let onStream: @Sendable () -> Void
         let onOverpass: @Sendable () -> Void
         let onWikipedia: @Sendable () -> Void
+        /// Overpass answers after this long; a cancelled wait is recorded in `overpassCancelled`.
+        let overpassDelay: Duration
+        let overpassCancelled = LockedBox(false)
         private let recorded = LockedBox<[URLRequest]>([])
 
         init(lines: [String], failure: (any Error & Sendable)? = nil, hang: Bool = false,
              onStream: @escaping @Sendable () -> Void = {}, onOverpass: @escaping @Sendable () -> Void = {},
-             onWikipedia: @escaping @Sendable () -> Void = {}) {
+             onWikipedia: @escaping @Sendable () -> Void = {}, overpassDelay: Duration = .zero) {
             self.lines = lines
             self.failure = failure
             self.hang = hang
             self.onStream = onStream
             self.onOverpass = onOverpass
             self.onWikipedia = onWikipedia
+            self.overpassDelay = overpassDelay
         }
 
         var requests: [URLRequest] { recorded.value }
@@ -36,6 +40,12 @@ import Testing
             let body: String
             if host.contains("overpass") {
                 onOverpass()
+                if overpassDelay > .zero {
+                    do { try await Task.sleep(for: overpassDelay) } catch {
+                        overpassCancelled.set(true)
+                        throw error
+                    }
+                }
                 body = GroundingTests.osmJSON
             } else if host.contains("wikipedia") {
                 onWikipedia()
@@ -61,33 +71,50 @@ import Testing
         var searchRequests: [URLRequest] { requests.filter { $0.url?.host != "api.openai.com" } }
     }
 
+    /// Sleeps `delay` (recording in `cancelled` when the sleep is cancelled), then answers.
+    static func sleep(_ delay: Duration, cancelled: LockedBox<Bool>?) async throws {
+        guard delay > .zero else { return }
+        do { try await Task.sleep(for: delay) } catch {
+            cancelled?.set(true)
+            throw error
+        }
+    }
     struct Geo: ReverseGeocoding {
         var delay: Duration = .zero
+        var cancelled: LockedBox<Bool>?
         var onCall: @Sendable () -> Void = {}
         func address(for: Coordinate) async throws -> Address {
             onCall()
-            if delay > .zero { try await Task.sleep(for: delay) }
+            try await PhotoStoryFlowStreamingTests.sleep(delay, cancelled: cancelled)
             return Address(line: "Platz", city: "Wien", country: nil)
         }
     }
     struct Places: PointsOfInterestSearching {
         var delay: Duration = .zero
+        var cancelled: LockedBox<Bool>?
         func places(around: Coordinate, radius: Double) async throws -> [ApplePlace] {
-            if delay > .zero { try await Task.sleep(for: delay) }
+            try await PhotoStoryFlowStreamingTests.sleep(delay, cancelled: cancelled)
             return [PhotoStoryFlowTests.museum]
         }
     }
     final class Articles: ArticleTextSource, @unchecked Sendable {
         let result: String?
         let onCall: @Sendable () -> Void
+        let delay: Duration
         let titles = LockedBox<[String]>([])
-        init(_ result: String?, onCall: @escaping @Sendable () -> Void = {}) {
+        init(_ result: String?, delay: Duration = .zero, onCall: @escaping @Sendable () -> Void = {}) {
             self.result = result
+            self.delay = delay
             self.onCall = onCall
         }
+        /// Like `ArticleTextSource`, never throws; a slow answer ignores cancellation, like a shared cache fetch.
         func text(wikipediaTitle: String) async -> String? {
             titles.withValue { $0.append(wikipediaTitle) }
             onCall()
+            if delay > .zero {
+                let end = ContinuousClock.now + delay
+                while ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(20)) }
+            }
             return result
         }
     }
@@ -128,9 +155,11 @@ import Testing
 
     static func flow(_ http: StreamingHTTP, clock: LockedBox<Date> = LockedBox(t0), geocoder: ReverseGeocoding = Geo(),
                      pointsOfInterest: PointsOfInterestSearching? = nil, articles: ArticleTextSource? = nil,
-                     storyDeadline: Duration = PhotoStoryFlow.defaultStoryDeadline) -> PhotoStoryFlow {
+                     storyDeadline: Duration = PhotoStoryFlow.defaultStoryDeadline,
+                     priors: @escaping PriorStoryLookup = { _, _, _ in [] }) -> PhotoStoryFlow {
         PhotoStoryFlow(grounding: GroundingService(overpass: .init(http: http), wikipedia: .init(http: http), geocoder: geocoder),
-                       openAI: OpenAIClient(apiKey: "k", http: http), pointsOfInterest: pointsOfInterest, articles: articles,
+                       openAI: OpenAIClient(apiKey: "k", http: http), priors: priors,
+                       pointsOfInterest: pointsOfInterest, articles: articles,
                        timeZone: TimeZone(identifier: "UTC")!, storyDeadline: storyDeadline, now: { clock.value })
     }
 
@@ -194,7 +223,7 @@ import Testing
         #expect(outcome.timings.listFresh)
         // fetchedAt = t0 − 60 s, measured at t0 → 60 s.
         #expect(outcome.timings.listAgeS == 60)
-        #expect(outcome.freshCandidates == nil)
+        #expect(await outcome.freshCandidates() == nil)
         // Usage from the completed event: 120 input, 40 output tokens.
         #expect(outcome.usage.map(\.inputTokens) == [120] && outcome.usage.map(\.outputTokens) == [40])
         #expect(outcome.usage.first?.kind == .story)
@@ -251,7 +280,8 @@ import Testing
         #expect(text.contains("Position: Platz, Wien"))
         #expect(outcome.session.identified.matchedCandidateID == "osm:node/1")
         #expect(!outcome.timings.listFresh && outcome.timings.listAgeS == expectedAge)
-        #expect(outcome.timings.guessMs == nil && outcome.freshCandidates == nil)
+        #expect(outcome.timings.guessMs == nil)
+        #expect(await outcome.freshCandidates() == nil)
     }
 
     @Test func listInAnotherLanguageIsNotUsed() async throws {
@@ -344,7 +374,7 @@ import Testing
         let text = try Self.inputText(http)
         // 4 000 characters cut to the first 1 500.
         let kept = String(repeating: "a", count: 1500)
-        #expect(text.contains("Article: Tower\n  " + kept + "\n"))
+        #expect(text.contains("Article about [osm:node/7] Tower:\n  " + kept + "\n"))
         #expect(!text.contains(kept + "a"))
         #expect(outcome.timings.articleChars == 1500)
         #expect(outcome.timings.articleMs != nil)
@@ -357,7 +387,7 @@ import Testing
         let articles = Articles("Source\n\n  text.")
         let outcome = try await Self.run(Self.flow(http, articles: articles), nearby: Self.list())
         // Whitespace collapsed to one line: "Source text." = 6 + 1 + 5 = 12 characters.
-        #expect(try Self.inputText(http).contains("Article: Tower\n  Source text.\n"))
+        #expect(try Self.inputText(http).contains("Article about [osm:node/7] Tower:\n  Source text.\n"))
         #expect(outcome.timings.articleChars == 12)
         #expect(articles.titles.value == ["en:Tower"])
     }
@@ -368,29 +398,29 @@ import Testing
         let http = StreamingHTTP(lines: Self.sse(Self.storyChunks))
         let articles = Articles("unused")
         let outcome = try await Self.run(Self.flow(http, articles: articles), nearby: Self.list([untitled]))
-        #expect(try !Self.inputText(http).contains("Article:"))
+        #expect(try !Self.inputText(http).contains("Article about"))
         #expect(outcome.timings.articleChars == 0 && outcome.timings.articleMs == nil)
         #expect(articles.titles.value.isEmpty)
     }
 
     @Test func articleBlockFollowsTheCandidatesAndIsOmittedWhenNil() throws {
-        func prompt(_ article: (title: String, text: String)?) -> String {
+        func prompt(_ article: (candidate: Candidate, text: String)?) -> String {
             PromptBuilder.photoFirstInput(capture: PromptBuilderTests.capture(heading: 135, acc: 10),
                                           grounding: PromptBuilderTests.grounding, recent: [], priors: [], language: .english,
                                           now: PromptBuilderTests.now, timeZone: PromptBuilderTests.utc, article: article)
         }
-        let lines = prompt((title: "Michaelertor", text: "A gate.")).components(separatedBy: "\n")
+        let lines = prompt((candidate: PromptBuilderTests.gate.candidate, text: "A gate.")).components(separatedBy: "\n")
         // The one candidate takes three lines: its own, then "  Summary: …" and "  OSM: …"; the article comes next,
         // before the Apple Maps block.
         let candidate = try #require(lines.firstIndex { $0.hasPrefix("- [osm:way/1] Michaelertor") })
         try #require(lines.count > candidate + 5)
         #expect(lines[candidate + 1].hasPrefix("  Summary: ") && lines[candidate + 2].hasPrefix("  OSM: "))
-        #expect(lines[candidate + 3] == "Article: Michaelertor")
+        #expect(lines[candidate + 3] == "Article about [osm:way/1] Michaelertor:")
         #expect(lines[candidate + 4] == "  A gate.")
         #expect(lines[candidate + 5] == "Also on Apple Maps:")
 
         let without = prompt(nil)
-        #expect(!without.contains("Article:"))
+        #expect(!without.contains("Article about"))
         // The default (no argument) is the same as nil.
         #expect(without == PromptBuilder.photoFirstInput(capture: PromptBuilderTests.capture(heading: 135, acc: 10),
                                                          grounding: PromptBuilderTests.grounding, recent: [], priors: [],
@@ -475,9 +505,10 @@ import Testing
         let json = #"{"subject":"Something","confidence":"\#(confidence)","matchedCandidateID":null,"title":"T","era":"e","story":"S."}"#
         let outcome = try await Self.run(Self.flow(StreamingHTTP(lines: Self.sse([json])), pointsOfInterest: Places()),
                                          nearby: Self.list(listed))
-        #expect((outcome.freshCandidates != nil) == offered)
+        let offer = await outcome.freshCandidates()
+        #expect((offer != nil) == offered)
         if offered {
-            let fresh = try #require(outcome.freshCandidates)
+            let fresh = try #require(offer)
             #expect(Set(fresh.candidates.map(\.candidate.id)) == ["osm:node/1", "wiki:en/5"])
             #expect(fresh.address == Address(line: "Platz", city: "Wien", country: nil))
             #expect(fresh.applePlaces == [PhotoStoryFlowTests.museum])
@@ -488,7 +519,7 @@ import Testing
         // The fresh search was already used; there is nothing new to retry with.
         let json = #"{"subject":"Something","confidence":"unsure","matchedCandidateID":null,"title":"T","era":"e","story":"S."}"#
         let outcome = try await Self.run(Self.flow(StreamingHTTP(lines: Self.sse([json]))), nearby: Self.list(age: 601))
-        #expect(outcome.freshCandidates == nil)
+        #expect(await outcome.freshCandidates() == nil)
     }
 
     @Test func tryAgainUsesTheGivenGroundingWithoutSearching() async throws {
@@ -510,7 +541,7 @@ import Testing
         #expect(outcome.session.grounding == given)
         #expect(outcome.session.identified.confidence == .certain)
         #expect(!outcome.timings.listFresh && outcome.timings.listAgeS == nil && outcome.timings.placeSearchMs == nil)
-        #expect(outcome.freshCandidates == nil)
+        #expect(await outcome.freshCandidates() == nil)
     }
 
     // MARK: - Head start budget
@@ -594,5 +625,137 @@ import Testing
         #expect(raw.contains(#""name":"first_story""#))
         let content = try #require(((body["input"] as? [[String: Any]])?.first?["content"]) as? [[String: Any]])
         #expect(content.count == 2)   // text and photo
+    }
+
+    // MARK: - Fix round 1
+
+    /// Polls `condition` every 10 ms until it holds or `timeout` passes; returns whether it held.
+    @discardableResult
+    static func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+        let end = ContinuousClock.now + timeout
+        while ContinuousClock.now < end {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    static let unsureJSON = #"{"subject":"Something","confidence":"unsure","matchedCandidateID":null,"title":"T","era":"e","story":"S."}"#
+
+    @Test func listCandidatesBeyond400mAreNotSent() async throws {
+        // 399 m ≤ 400 m is sent; 401 m > 400 m is not. Far is Wikipedia-backed and in view, so without the cap it
+        // would rank first (backed before unbacked) and bring its article.
+        let near = Candidate(id: "osm:node/20", name: "Near", coordinate: .at(north: 399), kind: "historic=yes")
+        let far = Candidate(id: "osm:node/21", name: "Far", coordinate: .at(north: 401), kind: "historic=yes",
+                            summary: "Far away.", wikipediaTitle: "en:Far")
+        let http = StreamingHTTP(lines: Self.sse([Self.unsureJSON]))
+        let outcome = try await Self.run(Self.flow(http), nearby: Self.list([near, far], texts: ["en:Far": "Far text."]))
+        let text = try Self.inputText(http)
+        #expect(text.contains("[osm:node/20] Near"))
+        #expect(!text.contains("osm:node/21") && !text.contains("Far"))
+        #expect(outcome.session.grounding.candidates.map(\.candidate.id) == ["osm:node/20"])
+        #expect(PhotoStoryFlow.listCandidateRadius == 400)
+    }
+
+    @Test func slowArticleSharesTheHeadStartBudget() async throws {
+        // Fresh path, the list lacks the text, the source takes 3 s and ignores cancellation. The article step ends
+        // with the 1.5 s budget, so the call ends at ≈ 1.5 s: at least 1.4 s and well under the source's 3 s.
+        let http = StreamingHTTP(lines: Self.sse(Self.storyChunks))
+        let articles = Articles("Late.", delay: .seconds(3))
+        let started = ContinuousClock.now
+        let outcome = try await Self.run(Self.flow(http, articles: articles), nearby: Self.list())
+        let took = ContinuousClock.now - started
+        #expect(took >= .milliseconds(1400) && took < .milliseconds(2900))
+        #expect(try !Self.inputText(http).contains("Article about"))
+        #expect(outcome.timings.articleChars == 0)
+        #expect(articles.titles.value == ["en:Tower"])
+    }
+
+    @Test(arguments: [
+        // Facing north, the only candidate is 50 m south: out of view → no article, the source is not asked.
+        (0.0 as Double?, false),
+        // No usable heading: nothing has a view flag, the top candidate counts → article sent.
+        (nil as Double?, true),
+    ])
+    func articleOnlyForATopCandidateInViewOrWithoutHeading(heading: Double?, expectArticle: Bool) async throws {
+        var shed = Self.shed
+        shed.wikipediaTitle = "en:Shed"
+        let json = #"{"subject":"Shed","confidence":"likely","matchedCandidateID":null,"title":"T","era":"e","story":"S."}"#
+        let http = StreamingHTTP(lines: Self.sse([json]))
+        let articles = Articles("Shed text.")
+        let capture = GroundingTests.capture(heading: heading, acc: heading == nil ? nil : 10)
+        let outcome = try await Self.run(Self.flow(http, articles: articles), nearby: Self.list([shed]), capture: capture)
+        #expect(try Self.inputText(http).contains("Article about [osm:node/8] Shed:\n  Shed text.") == expectArticle)
+        // "Shed text." = 4 + 1 + 5 = 10 characters.
+        #expect(outcome.timings.articleChars == (expectArticle ? 10 : 0))
+        #expect(articles.titles.value == (expectArticle ? ["en:Shed"] : []))
+    }
+
+    @Test func futureDatedListHasNoAge() async throws {
+        // fetchedAt = t0 + 10 s, after the clock's now: never fresh, and its age is unknown.
+        let outcome = try await Self.run(Self.flow(StreamingHTTP(lines: Self.sse(Self.storyChunks))), nearby: Self.list(age: -10))
+        #expect(!outcome.timings.listFresh && outcome.timings.listAgeS == nil)
+    }
+
+    @Test func unsureReturnsBeforeTheFreshSearchEnds() async throws {
+        // Overpass answers after 2 s. The fresh-list story does not wait for it: everything else answers at once, so
+        // the outcome comes well under 1 s. Asking for the fresh candidates waits for the search: about 2 s from the
+        // start (at least 1.9 s), and then Gate (Overpass) and Palace (Wikipedia) are there.
+        let http = StreamingHTTP(lines: Self.sse([Self.unsureJSON]), overpassDelay: .seconds(2))
+        let started = ContinuousClock.now
+        let outcome = try await Self.run(Self.flow(http, pointsOfInterest: Places()), nearby: Self.list([Self.tower]))
+        #expect(ContinuousClock.now - started < .seconds(1))
+        #expect(outcome.timings.placeSearchMs == nil)
+        let fresh = await outcome.freshCandidates()
+        #expect(ContinuousClock.now - started >= .milliseconds(1900))
+        #expect(Set(fresh?.candidates.map(\.candidate.id) ?? []) == ["osm:node/1", "wiki:en/5"])
+        #expect(fresh?.applePlaces == [PhotoStoryFlowTests.museum])
+    }
+
+    @Test func cancellingTheFreshCandidatesCallerCancelsTheSearch() async throws {
+        let http = StreamingHTTP(lines: Self.sse([Self.unsureJSON]), overpassDelay: .seconds(30))
+        let outcome = try await Self.run(Self.flow(http), nearby: Self.list([Self.tower]))
+        let started = ContinuousClock.now
+        let asking = Task { await outcome.freshCandidates() }
+        try await Task.sleep(for: .milliseconds(100))
+        asking.cancel()
+        #expect(await asking.value == nil)
+        #expect(ContinuousClock.now - started < .seconds(5))
+        #expect(await Self.waitUntil { http.overpassCancelled.value })
+    }
+
+    @Test func cancellingTheFlowCancelsTheSearchesAndStopsProgress() async throws {
+        // Fresh path: after the 1.5 s budget the story streams and the stream stays open. The geocoder, Apple Maps and
+        // Overpass would take 60 s. Cancel once the stream is open.
+        let geoCancelled = LockedBox(false), placesCancelled = LockedBox(false)
+        let http = StreamingHTTP(lines: OpenAIClientTests.delta(#"{"subject":"Tow"#), hang: true, overpassDelay: .seconds(60))
+        let flow = Self.flow(http, geocoder: Geo(delay: .seconds(60), cancelled: geoCancelled),
+                             pointsOfInterest: Places(delay: .seconds(60), cancelled: placesCancelled))
+        let progress = LockedBox<[PhotoStoryProgress]>([])
+        let running = Task { try await Self.run(flow, nearby: Self.list(), progress: progress) }
+        #expect(await Self.waitUntil { http.openAIRequest != nil })
+        running.cancel()
+        let reportedAtCancel = progress.value.count
+        await #expect(throws: CancellationError.self) { try await running.value }
+        #expect(await Self.waitUntil { geoCancelled.value && placesCancelled.value && http.overpassCancelled.value })
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(progress.value.count == reportedAtCancel)
+    }
+
+    @Test func noWritingAfterCancellationDuringTheMemoryLookups() async throws {
+        let inPriors = LockedBox(false)
+        let http = StreamingHTTP(lines: Self.sse(Self.storyChunks))
+        let flow = Self.flow(http) { _, _, _ in
+            inPriors.set(true)
+            try? await Task.sleep(for: .seconds(10))   // ends early when the flow is cancelled
+            return []
+        }
+        let progress = LockedBox<[PhotoStoryProgress]>([])
+        let running = Task { try await Self.run(flow, nearby: nil, progress: progress) }
+        #expect(await Self.waitUntil { inPriors.value })
+        running.cancel()
+        await #expect(throws: CancellationError.self) { try await running.value }
+        #expect(!progress.value.contains(.writing))
+        #expect(http.openAIRequest == nil)
     }
 }

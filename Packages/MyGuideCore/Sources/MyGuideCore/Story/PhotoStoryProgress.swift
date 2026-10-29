@@ -55,12 +55,14 @@ public struct PhotoStoryOutcome: Sendable {
     public var session: StorySession
     public var usage: [UsageEntry]
     public var timings: PhotoStoryTimings
-    /// The fresh search's places, set only when the story came from a fresh list, the model was "unsure", and the
-    /// fresh search found a candidate in view that was not sent. Offered as "Prøv igjen med flere steder" /
-    /// "Try again with more places"; never retried automatically.
-    public var freshCandidates: Grounding?
+    /// The fresh search's places for "Prøv igjen med flere steder" / "Try again with more places" (never retried
+    /// automatically). Returns nil at once unless the story came from a fresh list and the model was "unsure"; then it
+    /// waits for the fresh search, which the outcome does not, and returns its places when it found a candidate in
+    /// view that was not sent, else nil. Cancelling the caller cancels only that search.
+    public var freshCandidates: @Sendable () async -> Grounding?
 
-    public init(session: StorySession, usage: [UsageEntry], timings: PhotoStoryTimings, freshCandidates: Grounding?) {
+    public init(session: StorySession, usage: [UsageEntry], timings: PhotoStoryTimings,
+                freshCandidates: @escaping @Sendable () async -> Grounding?) {
         self.session = session
         self.usage = usage
         self.timings = timings

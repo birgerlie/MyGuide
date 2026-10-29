@@ -54,40 +54,59 @@ public struct PhotoStoryFlow: Sendable {
                                language: StoryLanguage) async throws -> (StorySession, [UsageEntry]) {
         guard let coordinate = capture.coordinate else { throw PhotoStoryError.noPosition }
 
-        let upload = try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: Self.uploadLongSide, quality: Self.jpegQuality)
-        let thumbnail = try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: Self.thumbnailLongSide, quality: Self.jpegQuality)
+        let (upload, thumbnail) = try Self.downscaled(photoJPEG)
 
         // The Apple Maps search runs alongside the grounding; it fails silently and never throws but for cancellation.
         async let applePlaces = ApplePlaces.fetch(pointsOfInterest, around: coordinate, radius: ApplePlaces.photoRadius)
         var found = try await grounding.ground(capture, language: language)
         found.applePlaces = try await applePlaces
 
-        let at = now()
-        let told = await priors(found.candidates.map(\.candidate.id), coordinate, nil)
-        let lately = await recent(at - RecentStories.window, nil)
+        let told = await toldBefore(found, at: coordinate)
 
         let (json, usage) = try await openAI.respond(
             model: models.story,
             reasoningEffort: models.storyReasoningEffort,
             instructions: PromptBuilder.systemInstructions,
-            text: PromptBuilder.photoFirstInput(capture: capture, grounding: found, recent: lately, priors: told,
-                                                language: language, now: at, timeZone: timeZone),
+            text: PromptBuilder.photoFirstInput(capture: capture, grounding: found, recent: told.recent, priors: told.priors,
+                                                language: language, now: told.at, timeZone: timeZone),
             imageJPEG: upload,
             schemaName: "first_story",
             schema: PromptBuilder.firstStorySchema,
             promptCacheKey: PromptBuilder.promptCacheKey)
+        let (session, entry) = try firstStory(json: json, usage: usage, grounding: found, capture: capture,
+                                              language: language, upload: upload, thumbnail: thumbnail)
+        return (session, [entry])
+    }
+
+    /// The upload and thumbnail versions of the photo.
+    static func downscaled(_ photoJPEG: Data) throws -> (upload: Data, thumbnail: Data) {
+        (try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: uploadLongSide, quality: jpegQuality),
+         try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: thumbnailLongSide, quality: jpegQuality))
+    }
+
+    /// The request time, and the stories told near `found`'s places and lately, for a first story.
+    private func toldBefore(_ found: Grounding, at coordinate: Coordinate)
+        async -> (at: Date, priors: [PriorStory], recent: [RecentStory]) {
+        let at = now()
+        let told = await priors(found.candidates.map(\.candidate.id), coordinate, nil)
+        let lately = await recent(at - RecentStories.window, nil)
+        return (at, told, lately)
+    }
+
+    /// The session and usage entry of a first story from the model's final JSON. The JSON is decoded and checked
+    /// (an invented id dropped, "certain" on it downgraded); an empty story is malformed and must never reach the user.
+    private func firstStory(json: Data, usage: TokenUsage, grounding found: Grounding, capture: CaptureContext,
+                            language: StoryLanguage, upload: Data, thumbnail: Data) throws -> (StorySession, UsageEntry) {
         let identified = try PromptBuilder.decodeFirstStory(json, grounding: found)
-        // An empty story must never reach the user.
         guard !identified.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw OpenAIError.malformedResponse
         }
-
         let session = StorySession(id: UUID(), capture: capture, photoJPEG: upload, thumbnailJPEG: thumbnail,
                                    language: language, grounding: found, identified: identified,
                                    levels: [identified.story])
         let entry = UsageEntry(date: now(), kind: .story, model: models.story,
                                inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
-        return (session, [entry])
+        return (session, entry)
     }
 
     /// Adds the next level (spec 8.1.6). Text only: the photo is not sent again; the first level's Apple Maps places are reused.
@@ -159,6 +178,8 @@ extension PhotoStoryFlow {
     public static let articleLimit = 1500
     /// The guess card needs a candidate in view at most this far (metres) from the photo.
     public static let guessDistance = 250.0
+    /// List candidates farther than this (metres) from the photo are not sent: the fresh search's Wikipedia radius.
+    public static let listCandidateRadius = Double(GroundingService.wikiRadius)
     /// A streamed story not completed within this time fails like a lost connection.
     public static let defaultStoryDeadline: Duration = .seconds(90)
 
@@ -264,31 +285,34 @@ extension PhotoStoryFlow {
     // MARK: Article
 
     private struct ArticleStep: Sendable {
-        var article: (title: String, text: String)?
+        var article: (candidate: Candidate, text: String)?
         var ms: Int?
     }
 
-    /// The top candidate's article text, from the list when it has it, else from `articles` (bounded by the source's
-    /// own timeout), collapsed to one line and cut to `articleLimit` characters. Nothing when the candidate has no
-    /// article title or no text was found.
-    private func articleStep(for top: RankedCandidate?, list: NearbyList?) async -> ArticleStep {
-        guard let title = top?.candidate.wikipediaTitle, !title.isEmpty else { return ArticleStep() }
+    /// The top candidate's article text, collapsed to one line and cut to `articleLimit` characters: from the list
+    /// when it has it, else from `articles`, which on the fresh-list path must answer before `deadline` (the shared
+    /// head-start budget) and otherwise within the source's own timeout.
+    /// Nothing when the top candidate is out of view (with a usable heading every candidate has a view flag; without
+    /// one it is nil and the top candidate counts), has no article title, or no text was found.
+    private func articleStep(for top: RankedCandidate?, list: NearbyList?,
+                             deadline: ContinuousClock.Instant? = nil) async -> ArticleStep {
+        guard let top, top.inView != false,
+              let title = top.candidate.wikipediaTitle, !title.isEmpty else { return ArticleStep() }
         let started = now()
         var raw = list?.articleTexts[title]
         if raw.map(GuideText.oneLine)?.isEmpty ?? true, let articles {
-            // Abandoned on cancellation: a source's shared fetch may not stop for one caller.
-            raw = try? await GroundingService.abandoningOnCancel { await articles.text(wikipediaTitle: title) }
+            let fetch: @Sendable () async throws -> String? = { await articles.text(wikipediaTitle: title) }
+            if let deadline {
+                raw = try? await GroundingService.withTimeout(max(.zero, deadline - ContinuousClock.now), fetch)
+            } else {
+                // Abandoned on cancellation: a source's shared fetch may not stop for one caller.
+                raw = try? await GroundingService.abandoningOnCancel(fetch)
+            }
         }
         let ms = Self.milliseconds(from: started, to: now())
         let text = String(GuideText.oneLine(raw ?? "").prefix(Self.articleLimit))
         guard !text.isEmpty else { return ArticleStep(article: nil, ms: ms) }
-        return ArticleStep(article: (title: Self.articleTitle(title), text: text), ms: ms)
-    }
-
-    /// "en:Tower" → "Tower": the title without its language prefix.
-    private static func articleTitle(_ wikipediaTitle: String) -> String {
-        guard let colon = wikipediaTitle.firstIndex(of: ":") else { return wikipediaTitle }
-        return String(wikipediaTitle[wikipediaTitle.index(after: colon)...])
+        return ArticleStep(article: (candidate: top.candidate, text: text), ms: ms)
     }
 
     // MARK: First story
@@ -313,8 +337,10 @@ extension PhotoStoryFlow {
         let listFresh = list?.isFresh(for: coordinate, now: started) ?? false
 
         return try await withTaskCancellationHandler {
-            // The searches are only needed until the story is done; on the fresh-list path (b) may still be running.
-            defer { searches?.cancel() }
+            // The searches are only needed until the story is done, unless an "unsure" story from a fresh list hands
+            // the fresh search to `freshCandidates`.
+            var handedOver = false
+            defer { if !handedOver { searches?.cancel() } }
 
             var guessMs: Int?
             let found: Grounding
@@ -325,13 +351,13 @@ extension PhotoStoryFlow {
                 found = given
                 article = await articleStep(for: given.candidates.first, list: nil)
             } else if let searches, let list, listFresh {
-                let ranked = CandidateRanker.rank(list.candidates, capture: capture)
+                let ranked = CandidateRanker.rank(Self.withinPhotoRadius(list.candidates, of: coordinate), capture: capture)
                 if let guess = ranked.first(where: { $0.inView == true && $0.distance <= Self.guessDistance }) {
                     progress(.guess(guess))
                     guessMs = Self.milliseconds(from: started, to: now())
                 }
                 (upload, thumbnail) = try Self.downscaled(photoJPEG)
-                async let articleStep = articleStep(for: ranked.first, list: list)
+                async let articleStep = articleStep(for: ranked.first, list: list, deadline: searches.waitEnds)
                 async let address = Self.value(of: searches.address, before: searches.waitEnds)
                 async let applePlaces = Self.value(of: searches.applePlaces, before: searches.waitEnds)
                 let gotAddress = try await address
@@ -347,12 +373,13 @@ extension PhotoStoryFlow {
             }
             try Task.checkCancellation()
 
-            let at = now()
-            let told = await priors(found.candidates.map(\.candidate.id), coordinate, nil)
-            let lately = await recent(at - RecentStories.window, nil)
-            let text = PromptBuilder.photoFirstInput(capture: capture, grounding: found, recent: lately, priors: told,
-                                                     language: language, now: at, timeZone: timeZone, article: article.article)
+            let told = await toldBefore(found, at: coordinate)
+            let text = PromptBuilder.photoFirstInput(capture: capture, grounding: found, recent: told.recent,
+                                                     priors: told.priors, language: language, now: told.at,
+                                                     timeZone: timeZone, article: article.article)
 
+            // The memory lookups do not stop for cancellation; nothing more is reported once cancelled.
+            try Task.checkCancellation()
             progress(.writing)
             let modelStarted = now()
             let firstText = Latch<Date>()
@@ -366,23 +393,13 @@ extension PhotoStoryFlow {
             let modelEnded = now()
 
             // The final JSON is authoritative; the partials were display only.
-            let identified = try PromptBuilder.decodeFirstStory(json, grounding: found)
-            // An empty story must never reach the user.
-            guard !identified.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw OpenAIError.malformedResponse
-            }
-            let session = StorySession(id: UUID(), capture: capture, photoJPEG: upload, thumbnailJPEG: thumbnail,
-                                       language: language, grounding: found, identified: identified,
-                                       levels: [identified.story])
-            let entry = UsageEntry(date: now(), kind: .story, model: models.story,
-                                   inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, words: 0, images: 0)
+            let (session, entry) = try firstStory(json: json, usage: usage, grounding: found, capture: capture,
+                                                  language: language, upload: upload, thumbnail: thumbnail)
 
-            var freshCandidates: Grounding?
-            if listFresh, identified.confidence == .unsure, let searches {
-                let fresh = try await Self.searched(searches)
-                if fresh.candidates.contains(where: { $0.inView == true && !sentIDs.contains($0.candidate.id) }) {
-                    freshCandidates = fresh
-                }
+            var freshCandidates: @Sendable () async -> Grounding? = { nil }
+            if listFresh, session.identified.confidence == .unsure, let searches {
+                handedOver = true
+                freshCandidates = { await Self.newInView(searches, notIn: sentIDs) }
             }
 
             let timings = PhotoStoryTimings(
@@ -393,11 +410,37 @@ extension PhotoStoryFlow {
                 firstTextMs: firstText.value.map { Self.milliseconds(from: modelStarted, to: $0) },
                 modelMs: Self.milliseconds(from: modelStarted, to: modelEnded),
                 listFresh: listFresh,
-                listAgeS: list.map { Int(started.timeIntervalSince($0.fetchedAt).rounded(.towardZero)) },
+                listAgeS: list.flatMap { list in
+                    let age = started.timeIntervalSince(list.fetchedAt)
+                    // A list dated after now (the clock was set back) has no known age.
+                    return age >= 0 ? Int(age.rounded(.towardZero)) : nil
+                },
                 articleChars: article.article?.text.count ?? 0)
             return PhotoStoryOutcome(session: session, usage: [entry], timings: timings, freshCandidates: freshCandidates)
         } onCancel: {
             searches?.cancel()
+        }
+    }
+
+    /// The list candidates that may be sent for a photo: at most `listCandidateRadius` from it, the reach of the
+    /// photo's own search (spec 7.1: the list's 500 m from a centre up to 250 m away reaches much further).
+    static func withinPhotoRadius(_ candidates: [Candidate], of photo: Coordinate) -> [Candidate] {
+        candidates.filter { GeoMath.distance(photo, $0.coordinate) <= listCandidateRadius }
+    }
+
+    /// Waits for the fresh search (b) and returns it, with the Apple Maps places, when it found a candidate in view
+    /// whose id is not in `sentIDs`; else nil. Cancelling the caller cancels (b) and nothing else, and gives nil.
+    private static func newInView(_ searches: Searches, notIn sentIDs: Set<String>) async -> Grounding? {
+        await withTaskCancellationHandler {
+            guard let places = try? await searches.places.value, !Task.isCancelled,
+                  places.candidates.contains(where: { $0.inView == true && !sentIDs.contains($0.candidate.id) })
+            else { return nil }
+            var fresh = places
+            // Bounded by the Apple Maps timeout; a failed or cancelled search leaves the places out.
+            fresh.applePlaces = try? await searches.applePlaces.value
+            return fresh
+        } onCancel: {
+            searches.places.cancel()
         }
     }
 
@@ -411,11 +454,6 @@ extension PhotoStoryFlow {
             checked.confidence = SubjectConfidence.likely.rawValue
         }
         return checked
-    }
-
-    private static func downscaled(_ photoJPEG: Data) throws -> (upload: Data, thumbnail: Data) {
-        (try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: uploadLongSide, quality: jpegQuality),
-         try ImageProcessing.downscaledJPEG(photoJPEG, maxLongSide: thumbnailLongSide, quality: jpegQuality))
     }
 
     // MARK: Stream

@@ -41,11 +41,11 @@ public enum PromptBuilder {
     public static let promptCacheKey = "myguide-story-v1"
 
     /// The photo story's first level (spec 6): the model identifies the subject among the ranked candidates and tells about it.
-    /// `article`, when given, is the top candidate's article text (already cut and on one line), sent as an `Article:`
-    /// block after the candidates; nothing is written for nil.
+    /// `article`, when given, is a listed candidate's article text (already cut and on one line), sent after the
+    /// candidates as `Article about [id] Name:` and the text; nothing is written for nil.
     static func photoFirstInput(capture: CaptureContext, grounding: Grounding, recent: [RecentStory],
                                 priors: [PriorStory], language: StoryLanguage, now: Date, timeZone: TimeZone,
-                                article: (title: String, text: String)? = nil) -> String {
+                                article: (candidate: Candidate, text: String)? = nil) -> String {
         let heading = capture.usableHeading
         var lines = ["Story: photo, first level"]
         lines.append(contentsOf: positionLines(capture: capture, address: grounding.address))
@@ -59,7 +59,7 @@ public enum PromptBuilder {
             lines.append(contentsOf: grounding.candidates.flatMap { candidateLines($0, heading: heading) })
         }
         if let article {
-            lines.append("Article: \(article.title)")
+            lines.append("Article about [\(article.candidate.id)] \(article.candidate.name):")
             lines.append("  \(article.text)")
         }
         lines.append(contentsOf: appleMapsLines(grounding.applePlaces, from: capture.coordinate, direction: heading,
