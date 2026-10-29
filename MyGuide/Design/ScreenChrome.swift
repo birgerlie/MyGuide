@@ -5,10 +5,14 @@ import SwiftUI
 // title in Playfair, section labels in spaced capitals (`SectionLabel`, as on the story screen) and stone dividers.
 // Developer screens keep their dense layouts; they only take these colours and fonts.
 
-/// A list row's surface: a faint veil of the text colour over the background, so rows read as a secondary surface on
-/// ivory and on forest green alike.
+/// The list screens' own design values.
 enum ScreenChrome {
+    /// A list row's surface: a faint veil of the text colour over the background, so rows read as a secondary surface
+    /// on ivory and on forest green alike.
     static let rowFill = Theme.Colour.text.opacity(0.06)
+    /// A switch that is on: coral (a marking, design package) in both appearances. The theme accent would be ivory in
+    /// dark mode, where the white knob all but vanishes on it; the knob's position still says on or off.
+    static let toggleTint = Theme.Colour.coral
     /// The screen title in the navigation bar.
     static let titleFont = Font.custom(Theme.FontName.display, size: 20, relativeTo: .headline)
 }

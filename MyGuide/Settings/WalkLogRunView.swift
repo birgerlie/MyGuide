@@ -40,6 +40,7 @@ struct WalkLogRunView: View {
                 }
                 Section {
                     Toggle(SettingsTexts.hideFixes(storyLanguage), isOn: $hideFixes)
+                        .tint(ScreenChrome.toggleTint)
                     // The event lines are the log's own data; a failure gets a warning symbol as well as red.
                     ForEach(timeline(loaded.events)) { item in
                         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.unit) {

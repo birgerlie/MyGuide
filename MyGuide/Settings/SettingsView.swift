@@ -64,6 +64,7 @@ struct SettingsView: View {
             .themedRows()
             Section {
                 Toggle(ScreenText.readAloud(storyLanguage), isOn: $readAloudAutomatically)
+                    .tint(ScreenChrome.toggleTint)
                 NavigationLink(SettingsTexts.storyTimings(storyLanguage)) { StoryTimingsView() }
             } header: {
                 ListSectionHeader(SettingsTexts.photoStoriesSection(storyLanguage))
@@ -75,6 +76,7 @@ struct SettingsView: View {
                 Toggle(SettingsTexts.prepareBackgroundPlaces(storyLanguage),
                        isOn: backgroundPlacesToggle(
                            alwaysGranted: BackgroundPlaces.shared.authorization == .authorizedAlways))
+                .tint(ScreenChrome.toggleTint)
             } footer: {
                 ListSectionFooter(SettingsTexts.prepareBackgroundPlacesFooter(storyLanguage))
             }
