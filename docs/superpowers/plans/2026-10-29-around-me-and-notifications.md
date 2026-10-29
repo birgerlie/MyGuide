@@ -868,3 +868,23 @@ Executed right after Task 6, before Task 7. The binding text is spec section 13.
 - [ ] **Step 3: Implement the core part**, then the app changes.
 - [ ] **Step 4:** full core `swift test` and the app build.
 - [ ] **Step 5: Commit** `fix(walking): 30-day place rest, reading counts, speech on demand, reset button, OSM fallback`.
+
+### Task 14: Design pass over every remaining screen (app + watch)
+
+Spec section 15 is binding. Run this after Task 12, which extracts `StoryComponents` (SectionLabel and friends);
+reuse those components.
+
+**Files:**
+- Modify: `MyGuide/Diary/DiaryView.swift`, `DiaryRows.swift`, `DayStoryView.swift`
+- Modify: `MyGuide/History/HistoryView.swift`
+- Modify: `MyGuide/Settings/SettingsView.swift`, `StoryTimingsView.swift`, `BuzzLogView.swift`,
+  `WalkLogListView.swift`, `WalkLogRunView.swift`
+- Modify: `MyGuide/SelfCheck/SelfCheckView.swift`, `MyGuide/WalkingCheck/WalkingCheckView.swift`
+- Modify: `MyGuideWatch/GuidedWalkView.swift`, `WatchCheckView.swift`. Add a small watch colour palette with the
+  same hex values. The watch does not link `Theme.swift`'s fonts; use the system font.
+
+**Steps:**
+- [ ] Apply the spec 15 rules screen by screen. Behaviour and data are unchanged.
+- [ ] Texts: any user-facing string you touch comes in both story languages, through a local texts enum per area.
+- [ ] Build the app (it embeds the watch app). Expected: no errors.
+- [ ] Commit `style: every remaining screen in the design package`.

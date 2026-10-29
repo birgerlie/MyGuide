@@ -355,3 +355,35 @@ and card rules stay as written.
   a gear in the diary's top bar.
 - Parks and fountains are not shown (12.8). The map is MapKit muted and cannot look like the illustration's
   drawn trees; colours, symbols and the sheet follow the sketch.
+
+## 15. Every screen in the design (owner, 2026-10-29)
+
+Owner: «kan vi gå gjennom alle skjermbilder så de harmoniserer med selve design malen».
+
+**Already covered by other parts:**
+- Home and the walking panel: section 14.
+- Walk story: section 8.
+- Expanded notification and Live Activity: sections 7.4 and 7.5.
+- Camera and photo story: done earlier.
+
+**This section is a visual pass over the remaining screens:**
+- Diary (`DiaryView`, `DiaryRows`, `DayStoryView`);
+- History;
+- Settings and its sub-screens (Story timings, Buzz log, Walk logs list and run);
+- Self check;
+- Walking check;
+- Watch (`GuidedWalkView`, `WatchCheckView`).
+
+**Rules:**
+- Theme colour tokens and backgrounds in light and dark mode.
+- Playfair for screen titles and place or story headings; Inter for body and interface.
+- Section labels in spaced capitals, as on the story screen.
+- Primary actions in forest, active audio in coral with forest text, secondary actions in stone.
+- 8 pt rhythm, 16–24 pt margins, 44 pt targets.
+- Status shown in words or symbols, never by colour alone.
+- New and touched user-facing text comes in both story languages.
+- The watch uses the design colours with the system font, as the design package says.
+
+**Non-goals:** no new features and no changes to behaviour or data. The diary redesign (day pages, AI title,
+«Del dagen») stays a separate project. Developer and diagnostic screens (logs, checks, timings) get the theme but
+keep their dense layouts.
