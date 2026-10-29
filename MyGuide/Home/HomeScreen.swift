@@ -121,7 +121,14 @@ struct HomeScreen: View {
         }
         // Location runs while the camera is on top, or while a story offers "Use where I am now".
         .onChange(of: locationWanted, initial: true) { _, wanted in
-            if wanted { location.start() } else { location.stop() }
+            if wanted {
+                // Fixes while the camera (or a story's "Use where I am now") is up keep the nearby list current.
+                let services = services
+                location.onFix = { services.noteForegroundFix($0) }
+                location.start()
+            } else {
+                location.stop()
+            }
         }
         // The camera runs only while its screen is on top and the app is not in the background. Driven from here,
         // not by the camera screen's appear/disappear, so a rebuilt or duplicated screen can never start a second

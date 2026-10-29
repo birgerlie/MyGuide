@@ -19,6 +19,7 @@
 		2372F6786301805D64B055F5 /* LibraryImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */; };
 		25CAC5AE46A2956C88341916 /* WalkingStatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593634ED52C4FE33249A2C22 /* WalkingStatusPill.swift */; };
 		29206B709BA8501F5B3CC4F8 /* MyGuideCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE587AA7461D78CE72F90F38 /* MyGuideCore */; };
+		2BB7ADB87183D830935BFF6B /* BackgroundPlaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2EC6BE86575DCCDD7559C6 /* BackgroundPlaces.swift */; };
 		2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7997E87C2249FBDE4BADF3 /* DiaryRows.swift */; };
 		2FFA3D460202500FFA00E9C3 /* MyGuideWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */; };
 		357BDDD00F40A1DF41E20DC6 /* WalkingStories.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC982992B37C30453C7F88D8 /* WalkingStories.swift */; };
@@ -131,6 +132,7 @@
 		262854964F0668D9EA23A15A /* TellMeIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TellMeIntent.swift; sourceTree = "<group>"; };
 		281EB5D0CE1B4F80F96F8B1E /* WalkLogRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogRunView.swift; sourceTree = "<group>"; };
 		283B0BB54FBC4ED2E53547E2 /* GuidedWalkModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedWalkModel.swift; sourceTree = "<group>"; };
+		2A2EC6BE86575DCCDD7559C6 /* BackgroundPlaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundPlaces.swift; sourceTree = "<group>"; };
 		2D1DC67ED65D4F315121CE00 /* MyGuideWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWidgetsBundle.swift; sourceTree = "<group>"; };
 		32CB088E737DE4DD25A20C41 /* DiaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryView.swift; sourceTree = "<group>"; };
 		3509B449881359F212693562 /* WatchAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppDelegate.swift; sourceTree = "<group>"; };
@@ -311,6 +313,7 @@
 		65FCED6406B373ED5C73E009 /* Platform */ = {
 			isa = PBXGroup;
 			children = (
+				2A2EC6BE86575DCCDD7559C6 /* BackgroundPlaces.swift */,
 				FB62877340E610053D66495A /* BackgroundTaskHold.swift */,
 				C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */,
 				B64EE42B9C454328CA81C986 /* MapKitReverseGeocoder.swift */,
@@ -610,6 +613,7 @@
 				CE4081054052B226778217DA /* AppDelegate.swift in Sources */,
 				6553F3EC93D9EA008F314071 /* AppServices.swift in Sources */,
 				B5A8DF4E95D298083036943C /* AudioPlayer.swift in Sources */,
+				2BB7ADB87183D830935BFF6B /* BackgroundPlaces.swift in Sources */,
 				CDFAD1A0883E09219D87E2AD /* BackgroundTaskHold.swift in Sources */,
 				E8032EFCA466ECD13CCB7000 /* BuzzLogView.swift in Sources */,
 				6C3FDF42EAD1B48C0D631C87 /* BuzzNotifier.swift in Sources */,

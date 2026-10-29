@@ -25,9 +25,12 @@ final class AppServices {
     let watchLink = WatchLink()
     /// The diary's import and day story writes, kept here so they survive a walk story pushed over their screens.
     let diary = DiaryWork()
-    private let http: HTTPClient = URLSessionHTTPClient()
+    private let http: HTTPClient = AppServices.sharedHTTP
     /// The one Wikipedia article text cache, for the app's lifetime: photo and walking stories share it.
-    private let articles: ArticleTextCache
+    private let articles: ArticleTextCache = AppServices.sharedArticles
+    /// The one nearby list (spec 7): walking mode, the camera and background wakes all ask it. The same instance as
+    /// `BackgroundPlaces` uses, so a list prepared in the background is the one the camera finds.
+    let nearby: NearbyPlaces = AppServices.sharedNearby
     /// The one camera. It lives here, not in the camera screen, so exactly one capture session exists however
     /// often SwiftUI rebuilds the pushed screen, and the preview always shows the session that runs. Home starts
     /// and stops it by what is on top of its stack.
@@ -48,8 +51,8 @@ final class AppServices {
         let http = http
         let keychain = keychain
         let walkLog = walkLog
-        let articles = ArticleTextCache(client: WikipediaClient(http: http))
-        self.articles = articles
+        let articles = articles
+        let nearby = nearby
         let stories = WalkingStories(
             memory: memory,
             makeFlow: {
@@ -62,7 +65,7 @@ final class AppServices {
             memory: memory,
             stories: stories,
             walkLog: walkLog,
-            makeSource: { Self.walkingSource(http: http) },
+            nearby: nearby,
             hasAPIKey: { (try? Self.apiKey(keychain: keychain)) != nil })
         let walkingCheck = walkingCheck
         let walking = walking
@@ -139,6 +142,66 @@ final class AppServices {
         }
     }
 
+    // MARK: - Shared with the background path
+
+    /// The one HTTP client. Static, so `BackgroundPlaces` (which must not depend on this object or any screen) and
+    /// this object share it, the article cache and the nearby list.
+    nonisolated static let sharedHTTP: HTTPClient = URLSessionHTTPClient()
+    nonisolated static let sharedArticles = ArticleTextCache(client: WikipediaClient(http: sharedHTTP))
+    nonisolated static let nearbyLog = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "nearby")
+
+    /// Application Support/NearbyPlaces: the stored lists, one file per story language.
+    nonisolated static var nearbyDirectory: URL {
+        URL.applicationSupportDirectory.appending(path: "NearbyPlaces", directoryHint: .isDirectory)
+    }
+
+    /// Created on first use, by whichever of `AppServices` and `BackgroundPlaces` comes first; thread-safe (a static
+    /// `let` is initialised once).
+    nonisolated static let sharedNearby = NearbyPlaces(
+        fetcher: walkingSource(http: sharedHTTP),
+        articles: sharedArticles,
+        store: NearbyListStore(directory: nearbyDirectory),
+        now: { Date() },
+        onStoreError: { error in logNearbyFailure("nearby list save failed", error) })
+
+    /// The story language setting as it is now; refreshes of the nearby list use it.
+    nonisolated static func currentStoryLanguage() -> StoryLanguage {
+        UserDefaults.standard.string(forKey: storyLanguageKey).flatMap(StoryLanguage.init(rawValue:)) ?? .english
+    }
+
+    /// Logs a nearby-list failure: the error's type, domain and code, and its description (no personal data: the
+    /// errors are network and file errors).
+    nonisolated static func logNearbyFailure(_ what: String, _ error: Error) {
+        let ns = error as NSError
+        nearbyLog.error("\(what, privacy: .public): \(String(describing: type(of: error)), privacy: .public) \(ns.domain, privacy: .public) \(ns.code, privacy: .public) \(WalkLogEvent.errorText(error), privacy: .public)")
+    }
+
+    /// Whether a foreground refresh (camera fix) is under way, so fixes arriving every second do not each start one.
+    private var foregroundRefreshRunning = false
+
+    /// A foreground fix (camera open): with accuracy within `foregroundAccuracy`, asks the nearby list whether it
+    /// should refresh (`.foreground`: ≥ 150 m from its centre or old, at most once a minute) and refreshes in a task.
+    /// A failure is logged; the old list stays.
+    func noteForegroundFix(_ fix: LocationFix) {
+        guard fix.accuracy <= Self.foregroundAccuracy, !foregroundRefreshRunning else { return }
+        foregroundRefreshRunning = true
+        let nearby = nearby
+        let position = fix.coordinate
+        let language = Self.currentStoryLanguage()
+        Task { @MainActor [weak self] in
+            defer { self?.foregroundRefreshRunning = false }
+            guard await nearby.shouldRefresh(at: position, trigger: .foreground, language: language) else { return }
+            do {
+                try await nearby.refresh(at: position, language: language)
+            } catch {
+                Self.logNearbyFailure("foreground refresh failed", error)
+            }
+        }
+    }
+
+    /// Foreground fixes less accurate than this (metres) never start a refresh.
+    nonisolated static let foregroundAccuracy = 50.0
+
     /// Logs a memory failure without any story text: only the error's type, and domain and code when it has them.
     nonisolated static func logMemoryFailure(_ what: String, _ error: Error) {
         let ns = error as NSError
@@ -171,7 +234,7 @@ final class AppServices {
         Self.walkingSource(http: http)
     }
 
-    private static func walkingSource(http: HTTPClient) -> WalkingPlaceSource {
+    nonisolated private static func walkingSource(http: HTTPClient) -> WalkingPlaceSource {
         WalkingPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http))
     }
 

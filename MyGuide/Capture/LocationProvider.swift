@@ -8,6 +8,9 @@ import Observation
 final class LocationProvider: NSObject {
     var location: CLLocation?
     var compass: CompassReading?
+    /// Told every usable fix (`usableFix`) as it arrives; the owner feeds foreground refreshes of the nearby list
+    /// with it while this provider runs (camera open, or a story offering "Use where I am now").
+    @ObservationIgnored var onFix: ((LocationFix) -> Void)?
 
     @ObservationIgnored private let manager = CLLocationManager()
     @ObservationIgnored private var wantsUpdates = false
@@ -75,7 +78,10 @@ extension LocationProvider: CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let last = locations.last else { return }
-        MainActor.assumeIsolated { self.location = last }
+        MainActor.assumeIsolated {
+            self.location = last
+            if let fix = Self.usableFix(last, now: .now) { self.onFix?(fix) }
+        }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {

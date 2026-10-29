@@ -54,7 +54,8 @@ final class WalkingController {
 
     @ObservationIgnored private let memory: MemoryStore
     @ObservationIgnored private let walkLog: WalkLog
-    @ObservationIgnored private let makeSource: () -> WalkingPlaceSource
+    /// The shared nearby list; walking mode refreshes it at 250 m and walks with its tiered places.
+    @ObservationIgnored private let nearby: NearbyPlaces
     @ObservationIgnored private let hasAPIKey: () -> Bool
     @ObservationIgnored private let location = WalkingLocation()
     @ObservationIgnored private let motion = WalkingMotion()
@@ -79,7 +80,6 @@ final class WalkingController {
     @ObservationIgnored private let activity = WalkingActivityController()
     @ObservationIgnored private var appliedPerHour = BuzzBudget.defaultPerHour
     @ObservationIgnored private var feed = PlaceFeed()
-    @ObservationIgnored private var source: WalkingPlaceSource?
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
     /// The run's 15 s timer: pause and resume, GPS state, auto-off and the Live Activity, for the stretches without
     /// fixes or motion readings.
@@ -117,12 +117,12 @@ final class WalkingController {
     /// Failures during a start, before the run's log is open; written right after its `started` line.
     @ObservationIgnored private var startFailures: [WalkLogEvent] = []
 
-    init(memory: MemoryStore, stories: WalkingStories, walkLog: WalkLog, makeSource: @escaping () -> WalkingPlaceSource,
+    init(memory: MemoryStore, stories: WalkingStories, walkLog: WalkLog, nearby: NearbyPlaces,
          hasAPIKey: @escaping () -> Bool) {
         self.memory = memory
         self.walkLog = walkLog
         self.stories = stories
-        self.makeSource = makeSource
+        self.nearby = nearby
         self.hasAPIKey = hasAPIKey
         // No buzz while a story is preparing, being continued or playing.
         stories.onBusyChanged = { [weak self] busy in self?.engine?.isBusy = busy }
@@ -266,7 +266,6 @@ final class WalkingController {
         runToken = run
         walkLog.begin(runID: run, at: now)
         feed = PlaceFeed()
-        self.source = makeSource()
         postedCandidates = [:]
         track = []
         lastTrackSample = nil
@@ -329,7 +328,6 @@ final class WalkingController {
         feed.fetchCancelled()
         engine = nil
         stopDetector = nil
-        self.source = nil
         problems = []
         activity.endCurrent()
         // Preparations and fetches still end with their (silent) failure events, so the machine never stays busy.
@@ -820,25 +818,53 @@ final class WalkingController {
                         })
     }
 
+    /// Brings the feed up to date through the shared nearby list (trigger `.walking`). `PlaceFeed` still gates when
+    /// this runs (250 m, and 60 s after a failure); the list then decides between:
+    /// - a network refresh: walk log `fetchStarted`, then `fetched` or `fetchFailed`, as before;
+    /// - its current list, when that is near and recent enough that it would not refresh (for example one the camera
+    ///   just fetched here): the feed takes it, logged as `fetched` around the list's centre with no `fetchStarted`,
+    ///   since nothing was fetched;
+    /// - neither (it would not refresh, within a minute of another fetch, and has no usable list): nothing now, and the
+    ///   next fix asks again.
     private func fetch(around position: Coordinate, now: Date) {
-        guard let source else { return }
+        guard engine != nil else { return }
         feed.fetchStarted(now: now)
-        walkLog.log(.fetchStarted(position), at: now)
         let language = Self.storyLanguage()
         let run = runToken
+        let nearby = nearby
         fetchTask = Task { [weak self] in
-            let result: Result<[WalkingPlace], Error>
+            let refreshes = await nearby.shouldRefresh(at: position, trigger: .walking, language: language)
+            guard let self, self.runToken == run else { return }
+            guard !Task.isCancelled else {
+                self.feed.fetchCancelled()
+                return
+            }
+            guard refreshes else {
+                if let list = await nearby.current(language: language), Self.covers(list, position, now: .now),
+                   self.runToken == run, !Task.isCancelled {
+                    let places = list.walkingPlaces
+                    self.feed.fetchSucceeded(places, at: list.centre, now: .now)
+                    self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre))
+                } else if self.runToken == run {
+                    self.feed.fetchCancelled()
+                }
+                return
+            }
+            self.walkLog.log(.fetchStarted(position), at: .now)
+            let result: Result<NearbyList, Error>
             do {
-                result = .success(try await source.places(around: position, language: language))
+                result = .success(try await nearby.refresh(at: position, language: language))
             } catch {
                 result = .failure(error)
             }
             // A fetch from an earlier run never touches this run's feed (stop() already settled that one).
-            guard let self, self.runToken == run else { return }
+            guard self.runToken == run else { return }
             switch result {
-            case .success(let places) where !Task.isCancelled:
-                self.feed.fetchSucceeded(places, at: position, now: .now)
-                self.walkLog.log(WalkLogEvent.fetched(places, around: position))
+            case .success(let list) where !Task.isCancelled:
+                // A refresh already under way (the camera's) is joined; its list is centred where that one started.
+                let places = list.walkingPlaces
+                self.feed.fetchSucceeded(places, at: list.centre, now: .now)
+                self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
                 // A real failure waits 60 s before the next try.
                 self.feed.fetchFailed(now: .now)
@@ -848,6 +874,16 @@ final class WalkingController {
                 self.feed.fetchCancelled()
             }
         }
+    }
+
+    /// Whether `list` can serve a walker at `position` without a refresh: centred less than
+    /// `NearbyPlaces.walkingDistance` away, and not older than `NearbyList.freshAge` (nor dated in the future). The same
+    /// limits `shouldRefresh(.walking)` refreshes beyond, so a list it declines for distance or age is never
+    /// used here.
+    private static func covers(_ list: NearbyList, _ position: Coordinate, now: Date) -> Bool {
+        let age = now.timeIntervalSince(list.fetchedAt)
+        return age >= 0 && age <= NearbyList.freshAge
+            && GeoMath.distance(list.centre, position) < NearbyPlaces.walkingDistance
     }
 
     private func flushTrack() {

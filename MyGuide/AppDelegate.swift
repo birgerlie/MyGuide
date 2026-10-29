@@ -9,6 +9,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // Also on a relaunch for a location event (`.location` in the options): monitoring must be started again for
+        // the event to be delivered. Needs no scene; does nothing unless the setting is on and access is Always.
+        BackgroundPlaces.shared.start()
         return true
     }
 

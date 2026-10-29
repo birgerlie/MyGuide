@@ -42,7 +42,7 @@
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>MyGuide starts the guided walk on your Apple Watch, which saves it to Health as a walking workout. The iPhone app writes no health data.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass.</string>
+	<string>In walking mode MyGuide follows your position with the phone locked, so it can tell you about places you pass, and it prepares the places around you in the background so the camera answers faster.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MyGuide uses your exact position and compass heading to work out what you are looking at.</string>
 	<key>NSMotionUsageDescription</key>

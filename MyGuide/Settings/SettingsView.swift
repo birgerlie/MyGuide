@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var totalsFailed = false
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @AppStorage(WalkingController.buzzesPerHourKey) private var buzzesPerHour = BuzzBudget.defaultPerHour
+    @AppStorage(BackgroundPlaces.settingKey) private var prepareBackgroundPlaces = true
 
     var body: some View {
         Form {
@@ -50,6 +51,17 @@ struct SettingsView: View {
                 Text("Language")
             } footer: {
                 Text("Applies to new photos. Stories already told keep their language.")
+            }
+            Section {
+                Toggle(storyLanguage == .norwegian ? "Forbered steder i bakgrunnen" : "Prepare places in the background",
+                       isOn: $prepareBackgroundPlaces)
+                    .onChange(of: prepareBackgroundPlaces) { _, on in
+                        if on { BackgroundPlaces.shared.settingTurnedOn() } else { BackgroundPlaces.shared.stop() }
+                    }
+            } footer: {
+                Text(storyLanguage == .norwegian
+                     ? "Henter stedene rundt deg når du har flyttet deg, også med appen lukket, så kameraet svarer raskere. Krever posisjon «Alltid»."
+                     : "Fetches the places around you when you have moved, also with the app closed, so the camera answers faster. Needs location access Always.")
             }
             Section {
                 Stepper(value: $buzzesPerHour, in: 5...60, step: 5) {
