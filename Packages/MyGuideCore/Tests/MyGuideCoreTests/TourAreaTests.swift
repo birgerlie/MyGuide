@@ -169,32 +169,78 @@ import Testing
 
     // MARK: - Overpass bounding box query
 
-    @Test func overpassBoundingBoxQueryIsExact() {
+    @Test func overpassTourQueryIsExact() {
         // Six decimals, rounded: 12.4812346 → 12.481235.
         let box = (south: 41.89, west: 12.47, north: 41.9, east: 12.4812346)
-        #expect(OverpassClient.query(boundingBox: box) == """
-        [out:json][timeout:10];
+        let b = "41.890000,12.470000,41.900000,12.481235"
+        #expect(OverpassClient.tourQuery(boundingBox: box) == """
+        [out:json][timeout:25];
         (
-          nwr(41.890000,12.470000,41.900000,12.481235)["historic"]["name"];
-          nwr(41.890000,12.470000,41.900000,12.481235)["tourism"~"^(attraction|museum|artwork|viewpoint|gallery)$"]["name"];
-          nwr(41.890000,12.470000,41.900000,12.481235)["amenity"="place_of_worship"]["name"];
-          nwr(41.890000,12.470000,41.900000,12.481235)["building"]["name"]["wikidata"];
-          nwr(41.890000,12.470000,41.900000,12.481235)["wikipedia"]["name"];
+          nwr(\(b))["historic"]["name"];
+          nwr(\(b))["tourism"~"^(museum|attraction|gallery)$"]["name"];
+          nwr(\(b))["amenity"="place_of_worship"]["name"];
+          nwr(\(b))["building"~"^(cathedral|palace|castle)$"]["name"];
         );
-        out center tags 500;
+        out center tags 2000;
         """)
     }
 
-    @Test func overpassBoundingBoxRequestUsesTheEndpointsInOrder() async throws {
+    @Test func overpassTourRequestHas30SecondsAndUsesTheEndpointsInOrder() async throws {
         let http = StubHTTPClient { request in
             request.url?.host == "overpass-api.de" ? (504, Data()) : (200, Data(#"{"elements":[]}"#.utf8))
         }
         let box = (south: 41.89, west: 12.47, north: 41.9, east: 12.48)
-        _ = try await OverpassClient(http: http).placesReportingEndpoints(in: box, language: .english)
+        _ = try await OverpassClient(http: http).tourPlacesReportingEndpoints(in: box, language: .english)
         #expect(http.requests.map(\.url) == Array(OverpassClient.endpoints.prefix(2)))
         let body = String(decoding: http.requests[1].httpBody ?? Data(), as: UTF8.self).removingPercentEncoding ?? ""
-        #expect(body.contains("nwr(41.890000,12.470000,41.900000,12.480000)[\"historic\"][\"name\"];"))
-        #expect(http.requests.allSatisfy { $0.httpMethod == "POST" && $0.timeoutInterval == 12 })
+        #expect(body == "data=" + OverpassClient.tourQuery(boundingBox: box))
+        #expect(http.requests.allSatisfy { $0.httpMethod == "POST" && $0.timeoutInterval == 30 })
+    }
+
+    @Test func walkingRequestKeepsItsTwelveSeconds() async throws {
+        let http = StubHTTPClient { _ in (200, Data(#"{"elements":[]}"#.utf8)) }
+        _ = try await OverpassClient(http: http).placesReportingEndpoints(around: rome, radius: 500, language: .english)
+        #expect(http.requests.map(\.timeoutInterval) == [12])
+    }
+
+    // MARK: - Robustness
+
+    @Test func negativeOrNaNPaddingCountsAsZero() {
+        let p = Coordinate.at(north: 10, east: 20)
+        for area in [TourArea.corridor(from: p, to: p, padding: -50), .corridor(from: p, to: p, padding: .nan),
+                     .loop(centre: p, radius: -50), .loop(centre: p, radius: .nan)] {
+            let box = area.boundingBox
+            // Padding 0 → the box is the point itself.
+            #expect(box.south == p.latitude && box.north == p.latitude, "\(area)")
+            #expect(box.west == p.longitude && box.east == p.longitude, "\(area)")
+        }
+        // A negative padding cannot shrink a real corridor: the line's own box (0…1000 m east) remains.
+        let box = TourArea.corridor(from: .at(), to: .at(east: 1000), padding: -300).boundingBox
+        #expect(box.south == 0 && box.north == 0 && box.west == 0 && abs(box.east - 1000 / Self.mpd) < 1e-12)
+    }
+
+    @Test func containsNeverTrapsOnNaN() {
+        let nan = Coordinate(latitude: .nan, longitude: .nan)
+        #expect(!TourArea.corridor(from: .at(), to: .at(east: 1000)).contains(nan))
+        #expect(!TourArea.loop(centre: .at(), radius: 936).contains(nan))
+        // A corridor with a NaN end has a NaN box; every comparison with NaN is false, so nothing is inside.
+        #expect(!TourArea.corridor(from: nan, to: .at()).contains(.at()))
+        #expect(!TourArea.corridor(from: nan, to: nan, padding: 10).contains(.at()))
+        // Its tiles do not trap either. (GeoMath.distance clamps a NaN haversine term to 1, so a NaN corner reads as
+        // half the globe; the radius is then cut to the 10 000 m maximum.)
+        #expect(TourArea.corridor(from: nan, to: nan, padding: 10).wikipediaTiles.allSatisfy { (0...10_000).contains($0.radius) })
+    }
+
+    @Test func tileRadiusIgnoresFloatingPointNoise() {
+        // 45 min: 1.3 × 2700 / 2.5 = 1404 m, computed as 1404.0000000000002 → 1404, not 1405.
+        #expect(TourArea.loop(from: rome, minutes: 45).wikipediaTiles.map(\.radius) == [1404])
+        // Real fractions still round up: 1404.4 → 1405, 1404.000002 (2 µm over) → 1405.
+        #expect(TourArea.wholeMetres(1404.4) == 1405)
+        #expect(TourArea.wholeMetres(1404.000002) == 1405)
+        #expect(TourArea.wholeMetres(1404) == 1404)
+        // Not finite, zero or negative → 0; huge → the 10 000 m maximum, never an Int overflow.
+        #expect([Double.nan, .infinity, 0, -5].map(TourArea.wholeMetres) == [0, 0, 0, 0])
+        #expect(TourArea.wholeMetres(1e300) == 10_000)
     }
 
     // MARK: - Wikipedia geosearch limits

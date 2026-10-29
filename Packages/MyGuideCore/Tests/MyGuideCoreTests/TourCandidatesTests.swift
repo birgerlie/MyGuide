@@ -191,6 +191,68 @@ import Testing
         }
     }
 
+    // MARK: - Reporting failures
+
+    @Test func searchReportsNothingFailedWhenAllAnswer() async throws {
+        let result = try await Self.source(Self.stub()).search(in: area, language: .english)
+        #expect(result.places.map(\.candidate.name) == ["Burg", "Dom"])
+        #expect(!result.osmFailed && result.osmErrors.isEmpty && result.failedTiles == 0 && result.tileCount == 1)
+        #expect(!result.isPartial)
+    }
+
+    @Test func searchReportsOverpassFailureWithItsEndpoints() async throws {
+        let result = try await Self.source(Self.stub(osm: { (502, Data()) })).search(in: area, language: .english)
+        #expect(result.osmFailed && result.isPartial)
+        #expect(result.osmErrors == ["overpass-api.de: HTTP 502", "overpass.kumi.systems: HTTP 502", "maps.mail.ru: HTTP 502"])
+        #expect(result.failedTiles == 0)
+        #expect(result.places.map(\.candidate.name) == ["Dom"])
+    }
+
+    @Test func searchCountsFailedTiles() async throws {
+        let corridor = TourArea.corridor(from: .at(), to: .at(east: 15_000))
+        let oneTile = Self.stub(wiki: { request in
+            request.url!.absoluteString.contains("ggscoord=0.000000%7C0.013490") ? (503, Data()) : (200, Data(Self.wikiBody.utf8))
+        })
+        let partial = try await Self.source(oneTile).search(in: corridor, language: .english)
+        // 1 of the 2 tiles failed; OSM answered.
+        #expect(partial.failedTiles == 1 && partial.tileCount == 2 && !partial.osmFailed && partial.isPartial)
+
+        let allTiles = try await Self.source(Self.stub(wiki: { _ in (500, Data()) })).search(in: corridor, language: .english)
+        // Every tile failed: Wikipedia failed, OSM's places remain and all 2 tiles count as failed.
+        #expect(allTiles.failedTiles == 2 && allTiles.tileCount == 2 && !allTiles.osmFailed)
+        #expect(allTiles.places.map(\.candidate.name) == ["Burg"])
+    }
+
+    // MARK: - CandidateRanker.merge at tour scale
+
+    @Test func mergeOfTwoThousandPlacesPerSourceIsFast() {
+        // 2000 OSM places on a 50 × 40 grid 50 m apart; 2000 articles, every 4th the same Wikidata item as an OSM place
+        // (folded in), the rest new names, 25 m east of a grid point. Expected: 2000 OSM + 1500 unmatched articles.
+        let osm = (0..<2000).map { Self.gridCandidate($0, wiki: false) }
+        let wiki = (0..<2000).map { Self.gridCandidate($0, wiki: true) }
+        let clock = ContinuousClock()
+        var merged: [Candidate] = []
+        let elapsed = clock.measure { merged = CandidateRanker.merge(osm: osm, wiki: wiki) }
+        #expect(merged.count == 3500)
+        #expect(merged[0].summary == "Text 0.")   // Q0 folded its summary into the OSM place
+        // Measured on the M-series dev Mac in a debug build: 1.65 s pairwise, 0.005 s bucketed.
+        #expect(elapsed < .seconds(2))
+    }
+
+    /// Point `i` of a 50-wide grid, 50 m apart; an article sits 25 m east of its point and shares the OSM place's
+    /// name and Wikidata item only when `i` is a multiple of 4.
+    static func gridCandidate(_ i: Int, wiki: Bool) -> Candidate {
+        let north = Double(i / 50) * 50
+        let east = Double(i % 50) * 50 + (wiki ? 25 : 0)
+        let shared = !wiki || i % 4 == 0
+        let name = shared ? "Place \(i)" : "Article \(i)"
+        let wikidata = shared ? "Q\(i)" : "W\(i)"
+        let id = wiki ? "wiki:en/\(i)" : "osm:node/\(i)"
+        let summary: String? = wiki ? "Text \(i)." : nil
+        return Candidate(id: id, name: name, coordinate: .at(north: north, east: east), kind: wiki ? "wikipedia" : "historic=yes",
+                         summary: summary, wikidata: wikidata)
+    }
+
     @Test func norwegianTilesFallBackToEnglishLikeEveryGeosearch() async throws {
         let http = Self.stub(wiki: { _ in (200, Data(#"{"query":{"pages":[]}}"#.utf8)) })
         _ = try await Self.source(http).places(in: area, language: .norwegian)

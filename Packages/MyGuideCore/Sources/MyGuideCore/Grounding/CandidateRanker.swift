@@ -8,15 +8,20 @@ public enum CandidateRanker {
     /// Merges OpenStreetMap and Wikipedia candidates. OSM candidates come first and keep their identity;
     /// a Wikipedia candidate with the same wikidata id or article title is folded into the OSM one
     /// (supplying its summary if the OSM one has none). Same-name candidates within `duplicateRadius` are dropped.
+    /// Lookups are bucketed (by lowercased name, wikidata id and article title) so a tour area's thousands of places
+    /// merge in linear time; the result is the same as comparing every pair in order.
     public static func merge(osm: [Candidate], wiki: [Candidate]) -> [Candidate] {
         var kept: [Candidate] = []
+        /// Indices into `kept` by lowercased name, in insertion order, so the first twin still wins.
+        var keptByName: [String: [Int]] = [:]
 
         /// Adds `c` unless a same-name twin is already kept; a dropped candidate donates missing fields to its twin.
         func add(_ c: Candidate) {
             let name = c.name.lowercased()
-            guard let twin = kept.firstIndex(where: {
-                $0.name.lowercased() == name && GeoMath.distance($0.coordinate, c.coordinate) <= duplicateRadius
+            guard let twin = keptByName[name]?.first(where: {
+                GeoMath.distance(kept[$0].coordinate, c.coordinate) <= duplicateRadius
             }) else {
+                keptByName[name, default: []].append(kept.count)
                 kept.append(c)
                 return
             }
@@ -29,18 +34,24 @@ public enum CandidateRanker {
             if kept[twin].tags == nil { kept[twin].tags = c.tags }
         }
 
+        var wikiByQ: [String: [Int]] = [:], wikiByTitle: [String: [Int]] = [:]
+        for (i, w) in wiki.enumerated() {
+            if let q = w.wikidata { wikiByQ[q, default: []].append(i) }
+            if let title = w.wikipediaTitle { wikiByTitle[title, default: []].append(i) }
+        }
+
         // Every OSM candidate may match (differently named parts of one site share an article);
         // matched articles are consumed only after the loop.
         var consumed = Set<Int>()
         for var o in osm {
-            for (i, w) in wiki.enumerated() {
-                let sameQ = o.wikidata != nil && o.wikidata == w.wikidata
-                let sameTitle = o.wikipediaTitle != nil && o.wikipediaTitle == w.wikipediaTitle
-                guard sameQ || sameTitle else { continue }
+            let byQ = o.wikidata.flatMap { wikiByQ[$0] } ?? []
+            let byTitle = o.wikipediaTitle.flatMap { wikiByTitle[$0] } ?? []
+            // In article order, as a pairwise scan would meet them: the first match supplies a missing summary.
+            for i in Set(byQ + byTitle).sorted() {
                 consumed.insert(i)
                 if o.summary == nil {
-                    o.summary = w.summary
-                    o.summaryLanguage = w.summaryLanguage
+                    o.summary = wiki[i].summary
+                    o.summaryLanguage = wiki[i].summaryLanguage
                 }
             }
             add(o)

@@ -46,7 +46,31 @@ public enum TourCandidates {
     }
 }
 
-/// Fetches the tiered places of a tour area: one Overpass box query (the same tags as walking mode) and one Wikipedia
+/// The tiered places of a tour area, and what failed while fetching them, so the app can mark the result as
+/// approximate and the walk log can say why.
+public struct TourPlaceSearch: Sendable, Equatable {
+    public var places: [WalkingPlace]
+    /// OpenStreetMap failed (every Overpass endpoint) while Wikipedia answered.
+    public var osmFailed: Bool
+    /// When `osmFailed`: one short line per Overpass endpoint tried; else empty.
+    public var osmErrors: [String]
+    /// Wikipedia geosearch tiles that failed, of `tileCount`; all of them when OpenStreetMap alone answered.
+    public var failedTiles: Int
+    public var tileCount: Int
+
+    public init(places: [WalkingPlace], osmFailed: Bool, osmErrors: [String], failedTiles: Int, tileCount: Int) {
+        self.places = places
+        self.osmFailed = osmFailed
+        self.osmErrors = osmErrors
+        self.failedTiles = failedTiles
+        self.tileCount = tileCount
+    }
+
+    /// True when a source, or part of one, did not answer.
+    public var isPartial: Bool { osmFailed || failedTiles > 0 }
+}
+
+/// Fetches the tiered places of a tour area: one Overpass box query (`OverpassClient.tourQuery`) and one Wikipedia
 /// geosearch per tile of the area, merged with `CandidateRanker` and tiered with `PlaceTiers`. Places outside the
 /// area may be included (tiles and boxes overreach); `TourCandidates.select` keeps the area's own.
 public struct TourPlaceSource: Sendable {
@@ -61,39 +85,53 @@ public struct TourPlaceSource: Sendable {
         self.wikipedia = wikipedia
     }
 
-    /// Both sources concurrently, failing like `WalkingPlaceSource`: one failing → the other's places; both failing →
-    /// the OpenStreetMap error is thrown (an `OverpassFailure` when every endpoint answered with an error).
-    /// Wikipedia counts as failed only when every tile failed. Cancellation always propagates.
+    /// `search(in:language:)`'s places alone.
     public func places(in area: TourArea, language: StoryLanguage) async throws -> [WalkingPlace] {
+        try await search(in: area, language: language).places
+    }
+
+    /// Both sources concurrently, failing like `WalkingPlaceSource`: one failing → the other's places, with the failure
+    /// reported in the result; both failing → the OpenStreetMap error is thrown (an `OverpassFailure` when every
+    /// endpoint answered with an error). Wikipedia counts as failed only when every tile failed; single failed tiles
+    /// are counted in `failedTiles`. Cancellation always propagates.
+    public func search(in area: TourArea, language: StoryLanguage) async throws -> TourPlaceSearch {
         let box = area.boundingBox, tiles = area.wikipediaTiles
         async let osm = WalkingPlaceSource.outcome {
-            try await overpass.placesReportingEndpoints(in: box, language: language)
+            try await overpass.tourPlacesReportingEndpoints(in: box, language: language)
         }
         async let wiki = WalkingPlaceSource.outcome { try await articles(in: tiles, language: language) }
         let (osmResult, wikiResult) = try await (osm, wiki)
         // Some sources signal cancellation with their own error type; do not report that as a failure.
         try Task.checkCancellation()
 
+        var result = TourPlaceSearch(places: [], osmFailed: false, osmErrors: [], failedTiles: 0, tileCount: tiles.count)
         let candidates: [Candidate]
         switch (osmResult, wikiResult) {
         case (.failure(let error), .failure):
             throw error
         case (.success(let osmPlaces), .failure):
+            result.failedTiles = tiles.count
             candidates = CandidateRanker.merge(osm: osmPlaces, wiki: [])
-        case (.failure, .success(let articles)):
-            candidates = CandidateRanker.merge(osm: [], wiki: articles)
-        case (.success(let osmPlaces), .success(let articles)):
-            candidates = CandidateRanker.merge(osm: osmPlaces, wiki: articles)
+        case (.failure(let error), .success(let found)):
+            result.osmFailed = true
+            result.osmErrors = WalkingPlaceSource.endpointErrors(error)
+            result.failedTiles = found.failedTiles
+            candidates = CandidateRanker.merge(osm: [], wiki: found.articles)
+        case (.success(let osmPlaces), .success(let found)):
+            result.failedTiles = found.failedTiles
+            candidates = CandidateRanker.merge(osm: osmPlaces, wiki: found.articles)
         }
-        return candidates.compactMap { candidate in
+        result.places = candidates.compactMap { candidate in
             PlaceTiers.tier(for: candidate).map { WalkingPlace(candidate: candidate, tier: $0) }
         }
+        return result
     }
 
     /// Every tile concurrently. The articles come in tile order, each place once: a page found by two overlapping
     /// tiles, or the same Wikidata item found in two languages (each tile may add English pages), is kept from the
-    /// first. Failed tiles are left out; when every tile fails, the first tile's error is thrown.
-    private func articles(in tiles: [GeosearchTile], language: StoryLanguage) async throws -> [Candidate] {
+    /// first. Failed tiles are left out and counted; when every tile fails, the first tile's error is thrown.
+    private func articles(in tiles: [GeosearchTile],
+                          language: StoryLanguage) async throws -> (articles: [Candidate], failedTiles: Int) {
         let wikipedia = self.wikipedia
         let results = try await withThrowingTaskGroup(of: (Int, Result<[Candidate], Error>).self) { group in
             for (index, tile) in tiles.enumerated() {
@@ -113,17 +151,17 @@ public struct TourPlaceSource: Sendable {
         var seen = Set<String>()
         var articles: [Candidate] = []
         var firstError: Error?
-        var anyAnswered = false
+        var failedTiles = 0
         for result in results {
             switch result {
             case .success(let found):
-                anyAnswered = true
                 articles += found.filter { seen.insert($0.wikidata ?? $0.id).inserted }
             case .failure(let error):
+                failedTiles += 1
                 if firstError == nil { firstError = error }
             }
         }
-        if !anyAnswered, let firstError { throw firstError }
-        return articles
+        if failedTiles == results.count, let firstError { throw firstError }
+        return (articles, failedTiles)
     }
 }
