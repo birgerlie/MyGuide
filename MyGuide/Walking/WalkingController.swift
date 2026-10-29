@@ -74,14 +74,22 @@ final class WalkingController {
 
     @ObservationIgnored private let memory: MemoryStore
     @ObservationIgnored private let walkLog: WalkLog
-    @ObservationIgnored private let tourStore: TourStore
-    /// False until the stored tour has been read (or found missing or unreadable); a read that failed because the
-    /// phone was locked (a background launch) is tried again when the app becomes active.
+    @ObservationIgnored private let tourStore: ActiveTourStore
+    /// False until the stored tour has been read (or found missing or unreadable, or the reads given up).
     @ObservationIgnored private var tourLoaded = false
+    /// Reads of the stored tour that failed for a reason other than decoding (the file is protected while the phone
+    /// is locked after a restart, as in a background launch); at most `maxTourReads` per launch.
+    @ObservationIgnored private var tourReads = 0
+    private static let maxTourReads = 2
     /// While a tour runs, places other than its stops buzz at most once per 3 minutes. Fresh for each run and tour.
     @ObservationIgnored private var tourCadence = TourBuzzCadence()
-    /// The last usable position of this run while a tour runs, for the distance on the watch; nil before.
+    /// Stops arrived at whose buzz waits for a free story engine and 30 s after the previous stop's.
+    @ObservationIgnored private var stopDelivery = TourStopDelivery()
+    /// The last usable position of this run while a tour runs, for the distance on the watch and held stops' buzzes.
     @ObservationIgnored private var lastTourPosition: Coordinate?
+    /// The watch's distance step to the next stop, steadied, and the stop it belongs to.
+    @ObservationIgnored private var nextStopSteps = TourDistanceSteps()
+    @ObservationIgnored private var nextStopStepsID: String?
     /// The shared nearby list; walking mode refreshes it at 250 m and walks with its tiered places.
     @ObservationIgnored private let nearby: NearbyPlaces
     @ObservationIgnored private let hasAPIKey: () -> Bool
@@ -140,7 +148,7 @@ final class WalkingController {
     @ObservationIgnored private var startFailures: [WalkLogEvent] = []
 
     init(memory: MemoryStore, stories: WalkingStories, walkLog: WalkLog, nearby: NearbyPlaces,
-         tourStore: TourStore = .standard, hasAPIKey: @escaping () -> Bool) {
+         tourStore: ActiveTourStore = WalkingController.tourStore, hasAPIKey: @escaping () -> Bool) {
         self.memory = memory
         self.walkLog = walkLog
         self.tourStore = tourStore
@@ -148,7 +156,11 @@ final class WalkingController {
         self.nearby = nearby
         self.hasAPIKey = hasAPIKey
         // No buzz while a story is preparing, being continued or playing.
-        stories.onBusyChanged = { [weak self] busy in self?.engine?.isBusy = busy }
+        stories.onBusyChanged = { [weak self] busy in
+            self?.engine?.isBusy = busy
+            // A stop waiting for the engine goes out once it is free; after this event is handled, never inside it.
+            if !busy { Task { @MainActor [weak self] in self?.deliverHeldStop(now: .now) } }
+        }
         stories.onHeard = { [weak self] placeID in self?.noteHeard(placeID: placeID) }
         stories.onChosenHeard = { [weak self] candidate in self?.noteChosenHeard(candidate) }
         stories.onRetire = { [weak self] id, candidate, level in self?.retire(id, candidate: candidate, deepestLevel: level) }
@@ -275,6 +287,8 @@ final class WalkingController {
         // never read may come again (spec 13.3); within this run the engine excludes every place it buzzes.
         var excluded = Set<String>()
         do { excluded = try memory.retiredPlaceIDs(now: now) } catch { fail("retired places failed", error) }
+        // A tour's stops buzz only through the tour (tours spec 6).
+        excluded.formUnion(tour?.stops.map(\.id) ?? [])
 
         stopSpots = []
         do { stopSpots = try memory.stopSpots(tripID: trip) } catch { fail("stop spots failed", error) }
@@ -306,6 +320,8 @@ final class WalkingController {
         resumedAt = nil
         UIDevice.current.isBatteryMonitoringEnabled = true
         isOn = true
+        // The tour's break (walking mode off) ends with the start.
+        noteTourBreak(paused: false, now: now)
         walkLog.log(.started(startFields(state, source: source)), at: now)
         for failure in startFailures { walkLog.log(failure.kind, at: failure.at) }
         startFailures = []
@@ -333,9 +349,14 @@ final class WalkingController {
         isOn = false
         runToken = nil
         tourCadence = TourBuzzCadence()
+        stopDelivery = TourStopDelivery()
         lastTourPosition = nil
-        // The owner's Stop ends the tour; walking mode stopped by the app keeps it, to be continued.
-        if reason == .user, tour != nil { setTour(nil) }
+        // The owner's Stop ends the tour; walking mode stopped by the app keeps it, to be continued, on a break.
+        if reason == .user {
+            if tour != nil { setTour(nil) }
+        } else {
+            noteTourBreak(paused: true, now: .now)
+        }
         timerTask?.cancel()
         timerTask = nil
         startedAt = nil
@@ -396,6 +417,10 @@ final class WalkingController {
 
     // MARK: - Tour
 
+    /// Application Support/ActiveTour.json.
+    nonisolated static let tourStore = ActiveTourStore(
+        url: URL.applicationSupportDirectory.appending(path: "ActiveTour.json"))
+
     /// «Start turen» (tours spec 6): the tour replaces any other and walking mode starts on it (an interactive start,
     /// so the owner may be asked for permissions), or goes on with it when already on, resumed if paused. Returns why
     /// walking mode did not start; the tour stays, so «Fortsett turen» can try again.
@@ -403,8 +428,13 @@ final class WalkingController {
     func startTour(_ routed: RoutedTour) async -> WalkingProblem? {
         tourLoaded = true
         tourCadence = TourBuzzCadence()
+        stopDelivery = TourStopDelivery()
         lastTourPosition = nil
-        setTour(ActiveTour(routed: routed, startedAt: .now))
+        var new = ActiveTour(routed: routed, startedAt: .now)
+        // Walking mode off: the tour waits on a break until the start below (or «Fortsett turen») ends it.
+        if !isOn { new.pause(at: new.startedAt) }
+        setTour(new)
+        excludeTourStops()
         if isOn {
             resume(source: .phone)
             return nil
@@ -439,17 +469,40 @@ final class WalkingController {
             clearStoredTour()
             return
         } catch {
-            AppServices.logMemoryFailure("tour restore failed", error)
+            tourReads += 1
+            // Given up after the last try: the file is kept for the next launch.
+            if tourReads >= Self.maxTourReads { tourLoaded = true }
+            AppServices.logMemoryFailure("tour restore failed (read \(tourReads) of \(Self.maxTourReads))", error)
             return
         }
         tourLoaded = true
-        guard let stored else { return }
-        guard !stored.isStale(now: .now) else {
+        guard var stored else { return }
+        let now = Date.now
+        guard !stored.isStale(now: now) else {
             clearStoredTour()
             return
         }
+        // Walking mode never survives a relaunch: the tour is on a break from now until walking mode starts. When the
+        // app ended is unknown, so the time until now counts as walking.
+        let opensBreak = !isOn && !stored.isFinished && stored.pausedSince == nil
+        if opensBreak { stored.pause(at: now) }
         tour = stored
+        if opensBreak { saveTour(stored) }
+        excludeTourStops()
         tourChanged()
+    }
+
+    /// A running engine never buzzes a stop of the tour: those buzz through the tour alone (tours spec 6).
+    private func excludeTourStops() {
+        guard let tour else { return }
+        for stop in tour.stops { engine?.exclude(stop.id) }
+    }
+
+    /// A break in the tour's walking time starts (walking mode paused or off) or ends. Nothing without a running tour.
+    private func noteTourBreak(paused: Bool, now: Date) {
+        guard var current = tour, !current.isFinished else { return }
+        if paused { current.pause(at: now) } else { current.resume(at: now) }
+        setTour(current)
     }
 
     /// Sets the tour, saves it (or removes the file without one) and tells the watch and the Live Activity.
@@ -457,11 +510,15 @@ final class WalkingController {
         guard new != tour else { return }
         tour = new
         if let new {
-            do { try tourStore.save(new) } catch { fail("tour save failed", error) }
+            saveTour(new)
         } else {
             clearStoredTour()
         }
         tourChanged()
+    }
+
+    private func saveTour(_ tour: ActiveTour) {
+        do { try tourStore.save(tour) } catch { fail("tour save failed", error) }
     }
 
     private func clearStoredTour() {
@@ -475,35 +532,69 @@ final class WalkingController {
         publishState()
     }
 
-    /// The tour at a fix the engine could use (tours spec 6): within 60 m of the next stop that stop is visited and
-    /// buzzed, whatever its tier, and true is returned so nothing else buzzes on this fix; with every stop done, within
-    /// 60 m of the end the tour finishes. Nothing without a running tour or with a poor fix.
-    private func advanceTour(position: Coordinate, accuracy: Double, direction: Double?, now: Date) -> Bool {
-        guard var current = tour, !current.isFinished, WalkingFix.isUsable(accuracy: accuracy) else { return false }
+    /// The tour at a fix the engine could use (tours spec 6): within 60 m of the next stop that stop is visited and its
+    /// buzz queued (`deliverHeldStop` sends it, whatever its tier); with every stop done, within 60 m of the end the
+    /// tour finishes. Nothing without a running tour or with a poor fix.
+    private func advanceTour(position: Coordinate, accuracy: Double, now: Date) {
+        guard var current = tour, !current.isFinished, WalkingFix.isUsable(accuracy: accuracy) else { return }
         lastTourPosition = position
-        // The distance on the watch follows the fix (sent only when its 50 m step changes).
-        defer { publishState() }
+        // The distance on the watch follows the fix, steadied (`TourDistanceSteps`); sent only when it changes.
+        defer {
+            updateWatchDistance(now: now)
+            publishState()
+        }
         if let stop = current.arrive(at: position, now: now) {
             setTour(current)
-            deliverTourStop(stop, position: position, direction: direction, now: now)
-            return true
+            stopDelivery.arrive(stop, at: now)
+            return
         }
         if current.reachEnd(at: position, now: now) { setTour(current) }
-        return false
+    }
+
+    /// Feeds the steadied distance step to the next stop; starts afresh for a new next stop or without a position.
+    private func updateWatchDistance(now: Date) {
+        guard isTouring, let next = tour?.next, let lastTourPosition else {
+            nextStopSteps = TourDistanceSteps()
+            nextStopStepsID = nil
+            return
+        }
+        if nextStopStepsID != next.id {
+            nextStopSteps = TourDistanceSteps()
+            nextStopStepsID = next.id
+        }
+        _ = nextStopSteps.update(TourFormat.approachStep(GeoMath.distance(lastTourPosition, next.coordinate)), now: now)
+    }
+
+    /// Buzzes the oldest stop arrived at when `TourStopDelivery` lets it go (the story engine free, 30 s since the
+    /// last stop's buzz), from `position` (the fix's, else the last usable one) and `direction`. A stop held more than
+    /// 3 minutes is dropped and logged. Nothing while off or paused (no buzz then, spec 5.4). True when a stop buzzed.
+    @discardableResult
+    private func deliverHeldStop(now: Date, position: Coordinate? = nil, direction: Double? = nil) -> Bool {
+        guard isOn, !isPaused, !stopDelivery.isEmpty else { return false }
+        let taken = stopDelivery.take(now: now, busy: stories.isBusy)
+        for held in taken.dropped {
+            walkLog.log(.failure(context: "tour stop dropped",
+                                 error: "\(held.stop.id) held \(Int(now.timeIntervalSince(held.since))) s before it could buzz"),
+                        at: now)
+        }
+        guard let stop = taken.deliver, let position = position ?? lastTourPosition else { return false }
+        deliverTourStop(stop, position: position, direction: direction ?? route.walkingBearing, now: now)
+        return true
     }
 
     /// Buzzes a stop as a place chosen on the map is told (`Buzz(chosen:position:)`): the feed's place when the stop
-    /// is in it (its tags and article make the better story), else the stop as the planner knew it. Delivered like any
-    /// buzz, so it is recorded, notified, sent to the watch and its story prepared. The engine never buzzes it again
-    /// this run, and the cadence counts it.
+    /// is in it, else the candidate the planner kept with the stop, else (a tour stored before that) a bare one.
+    /// Delivered like any buzz, so it is recorded (marked as a tour stop in the walk log), notified, sent to the watch
+    /// and its story prepared. The engine never buzzes it this run, and the cadence counts it.
     private func deliverTourStop(_ stop: TourStop, position: Coordinate, direction: Double?, now: Date) {
         let place = feed.places.first { $0.candidate.id == stop.id }
-            ?? WalkingPlace(candidate: Candidate(id: stop.id, name: stop.name, coordinate: stop.coordinate, kind: ""),
+            ?? WalkingPlace(candidate: stop.candidate
+                                ?? Candidate(id: stop.id, name: stop.name, coordinate: stop.coordinate, kind: ""),
                             tier: stop.tier)
         let buzz = Buzz(chosen: place, position: position)
         engine?.exclude(stop.id)
         tourCadence.noteBuzz(at: now)
-        walkLog.log(.buzz(WalkLogBuzz(buzz)), at: now)
+        walkLog.log(.buzz(WalkLogBuzz(buzz, tourStop: true)), at: now)
         walkLog.resetQuiet()
         if lastQuietReason != nil { lastQuietReason = nil }
         deliver(buzz, position: position, direction: direction, at: now)
@@ -536,6 +627,7 @@ final class WalkingController {
     /// exclusion, so every place nearby may buzz again in this run too. Nothing while walking mode is off.
     func resetExclusions() {
         engine?.clearExclusions()
+        excludeTourStops()
         if lastQuietReason == .allExcluded { lastQuietReason = nil }
     }
 
@@ -609,6 +701,8 @@ final class WalkingController {
     /// (which moves its stale date on, also while paused).
     private func tick(_ count: Int, now: Date) {
         applyPause(pauseDetector?.tick(now: now), now: now)
+        // A held stop also goes out (or is dropped) between fixes.
+        deliverHeldStop(now: now)
         noteGPS(now: now)
         guard count % Self.ticksPerAutoOff == 0 else { return }
         checkAutoOff(now: now)
@@ -686,9 +780,11 @@ final class WalkingController {
         for effect in effects {
             switch effect {
             case .suspendTracking:
+                noteTourBreak(paused: true, now: now)
                 location.setPaused(true)
                 flushTrack()
             case .resetRoute:
+                noteTourBreak(paused: false, now: now)
                 location.setPaused(false)
                 resetRoute()
                 stopDetector = StopDetector(previousStops: stopSpots)
@@ -732,10 +828,12 @@ final class WalkingController {
                                nextStop: guidedNextStop)
     }
 
-    /// «Neste: Pantheon · 300 m» for the watch while a tour runs, from the last usable fix (the name alone before it).
+    /// «Neste: Pantheon · 300 m» for the watch while a tour runs, at the steadied 50 m step (the name alone before a
+    /// usable fix).
     private var guidedNextStop: GuidedWalkNextStop? {
         guard isTouring, let next = tour?.next else { return nil }
-        let metres = lastTourPosition.map { GeoMath.distance($0, next.coordinate) }
+        let step = nextStopStepsID == next.id ? nextStopSteps.shown : nil
+        let metres = step.map { Double($0 * 50) }
         return GuidedWalkNextStop(name: next.name,
                                   line: TourFormat.nextStop(next.name, metres: metres, language: UILanguage.current))
     }
@@ -816,10 +914,16 @@ final class WalkingController {
         let direction = route.walkingBearing ?? course
         // A tour's stop comes first and alone; between stops the engine is asked at most once per 3 minutes after a
         // buzz (tours spec 6). Not asking leaves its budget and exclusions untouched for when it may buzz again.
-        let stopBuzzed = advanceTour(position: position, accuracy: fix.horizontalAccuracy, direction: direction, now: now)
+        advanceTour(position: position, accuracy: fix.horizontalAccuracy, now: now)
+        let stopBuzzed = deliverHeldStop(now: now, position: position, direction: direction)
         let decision: BuzzDecision?
-        if stopBuzzed || (isTouring && !tourCadence.allows(at: now)) {
+        if stopBuzzed || !stopDelivery.isEmpty {
+            // A stop buzzed, or one waits: it goes first.
             decision = nil
+        } else if isTouring && !tourCadence.allows(at: now) {
+            decision = nil
+            walkLog.logQuiet(.tourCadence, due: [], at: now)
+            if lastQuietReason != .tourCadence { lastQuietReason = .tourCadence }
         } else {
             decision = engine?.decide(places: feed.places, position: position, accuracy: fix.horizontalAccuracy,
                                       course: direction, now: now)

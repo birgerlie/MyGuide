@@ -53,7 +53,7 @@ struct TourPanel: View {
     @ViewBuilder
     private var status: some View {
         if tour.isFinished {
-            Label(TourFormat.finished(stops: tour.visitedCount, seconds: tour.elapsedSeconds ?? 0, language: language),
+            Label(TourFormat.finished(stops: tour.visitedCount, seconds: tour.walkingSeconds ?? 0, language: language),
                   systemImage: "flag.checkered")
                 .font(Theme.Font.bodyMedium)
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// During a tour (tours spec 6) the map also shows its route as forest lines (straight stand-ins dashed) and its stops
 /// as numbered pins, the next one coral, in place of their place markers (the selected place keeps its pin); a tap on
-/// a stop chooses it as a marker tap does.
+/// a stop in the nearby list chooses it as a marker tap does.
 struct AroundMap: View {
     let model: AroundModel
     @Binding var position: MapCameraPosition
@@ -170,21 +170,36 @@ struct AroundMap: View {
         }
     }
 
+    /// A stop in the nearby list is a button that chooses it, as its marker would; one outside the list cannot be
+    /// chosen, so it is only a labelled pin.
+    @MapContentBuilder
     private func stopPin(_ stop: TourStop, number: Int, state: ToursTexts.StopState) -> some MapContent {
-        Annotation(coordinate: stop.coordinate.clCoordinate, anchor: .center) {
-            Button {
-                model.choose(stop.id)
+        let label = ToursTexts.stopLabel(number, stop.name, state: state, language)
+        let badge = StopNumberBadge(number: number, isNext: state == .next, visited: state == .visited,
+                                    skipped: state == .skipped)
+            .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+        if model.places.contains(where: { $0.candidate.id == stop.id }) {
+            Annotation(coordinate: stop.coordinate.clCoordinate, anchor: .center) {
+                Button {
+                    model.choose(stop.id)
+                } label: {
+                    badge
+                        .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(label)
             } label: {
-                StopNumberBadge(number: number, isNext: state == .next, visited: state == .visited,
-                                skipped: state == .skipped)
-                    .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-                    .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
-                    .contentShape(Rectangle())
+                EmptyView()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(ToursTexts.stopLabel(number, stop.name, state: state, language))
-        } label: {
-            EmptyView()
+        } else {
+            Annotation(coordinate: stop.coordinate.clCoordinate, anchor: .center) {
+                badge
+                    .accessibilityElement()
+                    .accessibilityLabel(label)
+            } label: {
+                EmptyView()
+            }
         }
     }
 
