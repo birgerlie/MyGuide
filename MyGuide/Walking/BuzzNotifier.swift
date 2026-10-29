@@ -11,9 +11,9 @@ enum BuzzNotifier {
     nonisolated static let moreCategory = "MORE"
     nonisolated static let failedCategory = "STORY_FAILED"
     nonisolated static let stopCategory = "STOP"
-    nonisolated static let tellMeAction = "TELL_ME"
+    nonisolated static let tellMeAction = GuidedWalkBuzz.notificationTellAction
     nonisolated static let moreAction = "MORE"
-    nonisolated static let skipAction = "SKIP"
+    nonisolated static let skipAction = GuidedWalkBuzz.notificationSkipAction
     /// The categories `stop()` clears from the notification centre; a failure report stays.
     private static let walkCategories: Set<String> = [category, moreCategory]
     private static let thread = "walk"

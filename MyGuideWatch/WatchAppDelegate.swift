@@ -34,7 +34,9 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
 /// Notifications forwarded from the phone while the app is frontmost. Without a delegate the system may not present
 /// them at all; with one, a buzz already felt through WatchConnectivity is skipped, and a buzz presented here is
 /// counted as felt, so the WatchConnectivity message that follows shows its card without a second haptic (spec 18).
-/// Nonisolated: UserNotifications calls in on its own queue, where a main-actor method would trap.
+/// Listen tapped on a forwarded buzz reaches the phone as the card's «Lytt» does.
+/// Nonisolated: UserNotifications calls in on its own queue, where a main-actor method would trap. The async forms
+/// complete the system's request when they return.
 extension WatchAppDelegate: UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification) async
@@ -44,5 +46,17 @@ extension WatchAppDelegate: UNUserNotificationCenterDelegate {
                                                          userInfo: content.userInfo)
         else { return [.banner, .sound] }
         return await walk.notificationArrived(forBuzz: id) ? [.banner, .sound] : []
+    }
+
+    /// Listen on a buzz → the phone tells its story. Skip, a tap on the notification itself, a dismissal or any other
+    /// notification: nothing to send (the phone moves on by itself).
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse) async {
+        let content = response.notification.request.content
+        guard response.actionIdentifier == GuidedWalkBuzz.notificationTellAction,
+              let id = GuidedWalkBuzz.notificationBuzzID(category: content.categoryIdentifier,
+                                                         userInfo: content.userInfo)
+        else { return }
+        await walk.listenFromNotification(buzzID: id)
     }
 }

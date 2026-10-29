@@ -181,6 +181,10 @@ public struct GuidedWalkBuzz: Sendable, Equatable {
     /// The phone's buzz notification category and the `userInfo` key of its buzz id (`BuzzNotifier`).
     public static let notificationCategory = "BUZZ"
     public static let notificationIDKey = "buzzID"
+    /// The buzz notification's actions: Listen (the phone tells the story) and Skip. Shared by the phone, which
+    /// registers them, and the watch, which answers a Listen tapped on a forwarded notification.
+    public static let notificationTellAction = "TELL_ME"
+    public static let notificationSkipAction = "SKIP"
 
     /// The buzz id of a buzz notification; nil for another category (the offer of the next part carries the same id,
     /// and must not be taken for the buzz), a missing id or one that is not a UUID.

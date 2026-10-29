@@ -22,13 +22,17 @@ final class GuidedWalkModel {
     var error: String?
     /// A line about the workout: not saved, or ended from outside.
     var healthNote: String?
-    /// The last buzz the phone sent straight to the watch (spec 18), shown with «Lytt» until the next one or the end
-    /// of the walk.
+    /// The last buzz the phone sent straight to the watch (spec 18), shown with «Lytt» until the next one, the end of
+    /// the walk, `listenedCardHold` after a «Lytt» the phone took, or `GuidedWalkBuzz.maxAge` after it was sent
+    /// (the same age at which a queued buzz is no longer shown: the place is behind by then).
     private(set) var buzz: GuidedWalkBuzz?
     /// The buzz whose «Lytt» waits for the phone's reply; a newer buzz's «Lytt» is not held up by it.
     private(set) var listeningBuzzID: UUID?
     /// After «Lytt»: sent, or why it failed. Cleared by the next buzz.
     var buzzNote: String?
+
+    /// How long (seconds) the card stays after the phone took its «Lytt», so «Sendt til telefonen» can be read.
+    static let listenedCardHold: TimeInterval = 3
 
     /// A guided walk workout exists or is starting. The Check screen's own test workout must not run then.
     var hasWorkout: Bool { keeper.isActive }
@@ -55,6 +59,8 @@ final class GuidedWalkModel {
     /// The buzzes felt in the last 10 minutes, by this app's haptic or by their presented notification: each is felt
     /// once, whichever comes first.
     @ObservationIgnored private var feltBuzzes = RecentBuzzIDs()
+    /// Clears the shown card when it is too old, or soon after its «Lytt»; replaced for each card.
+    @ObservationIgnored private var cardTimer: Task<Void, Never>?
 
     init(link: PhoneLink = .shared) {
         self.link = link
@@ -82,7 +88,42 @@ final class GuidedWalkModel {
         guard shownBuzzes.remember(id, now: now) else { return }
         buzz = GuidedWalkBuzz(id: id, name: name, line: line, sentAt: sentAt)
         buzzNote = nil
+        // `sentAt` is the phone's clock: a watch clock a little behind keeps the card a little longer, never less
+        // than at once for one already past its age.
+        clearCard(id, after: sentAt.addingTimeInterval(GuidedWalkBuzz.maxAge).timeIntervalSince(now))
         if feltBuzzes.remember(id, now: now) { WKInterfaceDevice.current().play(.notification) }
+    }
+
+    /// Removes the card of buzz `id` after `delay` seconds (at once when ≤ 0), unless another card replaced it.
+    /// Replaces the previous timer. Task.sleep counts on the continuous clock, so time while suspended counts too.
+    private func clearCard(_ id: UUID, after delay: TimeInterval) {
+        cardTimer?.cancel()
+        cardTimer = Task { [weak self] in
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard !Task.isCancelled, let self, self.buzz?.id == id else { return }
+            self.buzz = nil
+            self.buzzNote = nil
+        }
+    }
+
+    /// Listen was tapped on the buzz `id`'s forwarded notification: the phone tells its story, as with «Lytt» on the
+    /// card. A card for that buzz then goes like after «Lytt». A failure is shown on the card when it is there, and
+    /// otherwise dropped: the notification has gone and there is nowhere to say it.
+    func listenFromNotification(buzzID id: UUID) async {
+        guard listeningBuzzID != id else { return }
+        listeningBuzzID = id
+        defer { if listeningBuzzID == id { listeningBuzzID = nil } }
+        do {
+            try await link.tell(GuidedWalkBuzz.tellMessage(id: id))
+            if buzz?.id == id {
+                buzzNote = WatchTexts.listenSent
+                clearCard(id, after: Self.listenedCardHold)
+            }
+        } catch PhoneLinkError.notReachable {
+            if buzz?.id == id { buzzNote = Self.notReachableText }
+        } catch {
+            if buzz?.id == id { buzzNote = error.localizedDescription }
+        }
     }
 
     /// The buzz `id`'s notification is about to be presented while the app is frontmost. Returns true when it should
@@ -100,8 +141,12 @@ final class GuidedWalkModel {
         buzzNote = nil
         do {
             try await link.tell(GuidedWalkBuzz.tellMessage(id: buzz.id))
-            // A newer buzz that arrived meanwhile keeps its own clean card.
-            if self.buzz?.id == buzz.id { buzzNote = WatchTexts.listenSent }
+            // A newer buzz that arrived meanwhile keeps its own clean card. This one has done its job: it goes after
+            // the note has been seen, and Pause or Resume is the main button again.
+            if self.buzz?.id == buzz.id {
+                buzzNote = WatchTexts.listenSent
+                clearCard(buzz.id, after: Self.listenedCardHold)
+            }
         } catch PhoneLinkError.notReachable {
             if self.buzz?.id == buzz.id { buzzNote = Self.notReachableText }
         } catch {
@@ -142,6 +187,7 @@ final class GuidedWalkModel {
         if newState.phase == .off {
             restartBlocked = false
             // The walk is over: its last place no longer belongs on screen.
+            cardTimer?.cancel()
             buzz = nil
             buzzNote = nil
         }

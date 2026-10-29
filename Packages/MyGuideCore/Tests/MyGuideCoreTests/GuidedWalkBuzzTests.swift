@@ -88,6 +88,9 @@ import Testing
     @Test func notificationBuzzIDOnlyForTheBuzzCategory() {
         #expect(GuidedWalkBuzz.notificationCategory == "BUZZ")
         #expect(GuidedWalkBuzz.notificationIDKey == "buzzID")
+        // The phone registers these action ids; the watch matches them on a forwarded notification.
+        #expect(GuidedWalkBuzz.notificationTellAction == "TELL_ME")
+        #expect(GuidedWalkBuzz.notificationSkipAction == "SKIP")
         let info: [AnyHashable: Any] = ["buzzID": Self.id.uuidString, "placeID": "osm:node/1"]
         #expect(GuidedWalkBuzz.notificationBuzzID(category: "BUZZ", userInfo: info) == Self.id)
         // The offer of the next part, a failure and a stop story carry buzz ids too, but are not the buzz.
