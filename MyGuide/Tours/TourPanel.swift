@@ -4,7 +4,7 @@ import SwiftUI
 /// The running tour in the «Rundt deg» sheet, in the place of «Gå en tur» (tours spec 6): «Neste: Pantheon · 300 m»
 /// with «2 av 6», then «Tilbake til start» (or «Fram til målet») once every stop is done, and «Turen er ferdig · 6
 /// stopp · 1 t 31 min» at the end; «Hopp over stopp» while a stop is next, and «Avslutt turen», which asks first while
-/// stops remain. Ending the tour also ends walking mode. The walking panel, or «Fortsett turen», sits under it
+/// stops remain. Ending the tour also ends walking mode; «Lukk» on the finished tour clears it and walking goes on. The walking panel, or «Fortsett turen», sits under it
 /// (`AroundSheet`).
 struct TourPanel: View {
     let walking: WalkingController
@@ -26,6 +26,14 @@ struct TourPanel: View {
                         walking.skipStop()
                     } label: {
                         Label(ToursTexts.skipStop(language), systemImage: "forward.end.fill")
+                    }
+                    .buttonStyle(.themeSecondary)
+                }
+                if tour.isFinished {
+                    Button {
+                        walking.closeFinishedTour()
+                    } label: {
+                        Label(ToursTexts.closeTour(language), systemImage: "xmark")
                     }
                     .buttonStyle(.themeSecondary)
                 }

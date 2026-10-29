@@ -252,6 +252,11 @@ enum ToursTexts {
         language == .norwegian ? "Avslutt turen" : "End the tour"
     }
 
+    /// «Lukk» on the finished tour: the tour is cleared, walking mode goes on.
+    static func closeTour(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Lukk" : "Close"
+    }
+
     static func endTourQuestion(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Avslutte turen?" : "End the tour?"
     }

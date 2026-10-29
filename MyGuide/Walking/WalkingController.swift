@@ -456,6 +456,15 @@ final class WalkingController {
         setTour(current)
     }
 
+    /// «Lukk» on the finished tour's panel: the tour is cleared and walking mode goes on without it. Nothing unless the
+    /// tour has finished.
+    func closeFinishedTour() {
+        guard tour?.isFinished == true else { return }
+        setTour(nil)
+        // No next stop any more: the watch distance starts afresh (the state just sent has no next stop).
+        updateWatchDistance(now: .now)
+    }
+
     /// «Avslutt turen» on the tour panel: the tour ends, and walking mode with it (the owner's Stop).
     func endTour() {
         if isOn || isStarting { stop(reason: .user, source: .phone) }
