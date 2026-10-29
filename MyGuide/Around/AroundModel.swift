@@ -203,12 +203,24 @@ final class AroundModel {
 
     /// Spec 12.2: a buzz while the app is active makes the buzzed place the selection at once, so the map and the
     /// notification agree. It is not held (controller ruling): the normal rules and dwell apply from the next update. Marked seen only once it was selected; until then (no fix, the place not in the list yet,
-    /// the app not active) it is tried again on each tick. A newer buzz replaces it.
+    /// the app not active) it is tried again on each tick, for at most `buzzSelectionMaxAge` after the buzz: a buzz
+    /// that old is behind the owner, and selecting it then would pull the map away from where they are now. A newer
+    /// buzz replaces it.
     private func selectBuzzedPlace() {
-        guard let buzz = services.walking.lastBuzz, buzz.at != seenBuzzAt,
-              UIApplication.shared.applicationState == .active else { return }
-        if select(buzz.placeID, hold: false, now: .now) { seenBuzzAt = buzz.at }
+        guard let buzz = services.walking.lastBuzz, buzz.at != seenBuzzAt else { return }
+        let now = Date.now
+        // Given up on, not selected: marked seen so it is not looked at again. A buzz dated ahead of the clock (the
+        // clock set back) counts as new.
+        guard now.timeIntervalSince(buzz.at) <= Self.buzzSelectionMaxAge else {
+            seenBuzzAt = buzz.at
+            return
+        }
+        guard UIApplication.shared.applicationState == .active else { return }
+        if select(buzz.placeID, hold: false, now: now) { seenBuzzAt = buzz.at }
     }
+
+    /// Seconds after a buzz during which it may still become the selection.
+    nonisolated static let buzzSelectionMaxAge: TimeInterval = 30
 
     /// Explicit selection through the selector, held for a tap (`hold`) and not for a buzz; true when `placeID` is
     /// now the selected place (a usable fix and the place in the list). Without a fix the selection is left as it is.
