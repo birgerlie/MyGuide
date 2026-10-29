@@ -9,13 +9,16 @@ enum TourRouter {
     static let requestTimeout: Duration = .seconds(10)
 
     /// Checks `plan` against walking routes and trims it to its budget (`TourRouting.fit`). Legs that fail, time out or
-    /// fall past the request cap are straight lines, and the tour is then marked approximate.
+    /// fall past the request cap are straight lines, and the tour is then approximate. Up to 4 first legs are in flight
+    /// at once; worst case for 12 stops ≈ 40 s for the first legs + 12 × 10 s for joining legs, so the preview needs a
+    /// progress state.
     static func fit(_ plan: TourPlan) async -> RoutedTour {
         await TourRouting.fit(plan, maxRequests: maxRequests) { from, to in await leg(from: from, to: to) }
     }
 
-    /// The walking route from `from` to `to`: MapKit's travel time and distance and the polyline's coordinates. Nil on a
-    /// MapKit error, an answer without a route, after 10 s, or when the caller is cancelled.
+    /// The walking route from `from` to `to`: MapKit's distance, timed at the tours' 1.3 m/s (`RoutedLeg.walked`, not
+    /// MapKit's own walking speed), and the polyline's coordinates. Nil on a MapKit error, an answer without a route,
+    /// after 10 s, or when the caller is cancelled.
     static func leg(from: Coordinate, to: Coordinate) async -> RoutedLeg? {
         await Deadline.value(within: requestTimeout) { await route(from, to) }
     }
@@ -33,8 +36,7 @@ enum TourRouter {
         // makes the leg a straight one in `TourRouting`, so its detail is not needed here.
         guard let response = try? await MKDirections(request: request).calculate(),
               let route = response.routes.first else { return nil }
-        return RoutedLeg(seconds: route.expectedTravelTime, metres: route.distance,
-                         path: coordinates(of: route.polyline), approximate: false)
+        return RoutedLeg.walked(metres: route.distance, path: coordinates(of: route.polyline))
     }
 
     @MainActor

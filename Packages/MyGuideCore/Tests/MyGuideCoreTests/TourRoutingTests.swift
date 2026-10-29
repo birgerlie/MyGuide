@@ -28,9 +28,9 @@ import Testing
     /// Records every request and answers with `answer`.
     final class LegStub: Sendable {
         private let calls = Mutex<[[Coordinate]]>([])
-        private let answer: @Sendable (Coordinate, Coordinate) -> RoutedLeg?
+        private let answer: @Sendable (Coordinate, Coordinate) async -> RoutedLeg?
 
-        init(_ answer: @escaping @Sendable (Coordinate, Coordinate) -> RoutedLeg?) {
+        init(_ answer: @escaping @Sendable (Coordinate, Coordinate) async -> RoutedLeg?) {
             self.answer = answer
         }
 
@@ -49,7 +49,7 @@ import Testing
 
         @Sendable func leg(_ from: Coordinate, _ to: Coordinate) async -> RoutedLeg? {
             calls.withLock { $0.append([from, to]) }
-            return answer(from, to)
+            return await answer(from, to)
         }
     }
 
@@ -66,7 +66,7 @@ import Testing
         let tour = RoutedTour(plan: Self.loop([Self.stop("a", Self.a)], budget: 1000), legs: [
             RoutedLeg(seconds: 100, metres: 130, path: [Self.origin, Self.a], approximate: false),
             RoutedLeg(seconds: 200, metres: 260, path: [Self.a, Self.origin], approximate: false),
-        ], approximate: false)
+        ])
         // 100 + 200 walking + 1 × 240 dwell = 540 s; 130 + 260 = 390 m.
         #expect(tour.totalSeconds == 540)
         #expect(tour.totalMetres == 390)
@@ -76,7 +76,8 @@ import Testing
         let tour = RoutedTour(plan: Self.loop([Self.stop("a", Self.a)], budget: 1000), legs: [
             RoutedLeg(seconds: 100, metres: 130, path: [Self.origin, Self.a], approximate: false),
             RoutedLeg(seconds: 100, metres: 130, path: [Self.a, Self.origin], approximate: true),
-        ], approximate: true)
+        ])
+        #expect(tour.approximate)
         let decoded = try JSONDecoder().decode(RoutedTour.self, from: JSONEncoder().encode(tour))
         #expect(decoded == tour)
     }
@@ -90,7 +91,9 @@ import Testing
         let stub = LegStub.scaled(1.2)
         let tour = await TourRouting.fit(plan, maxRequests: 25, leg: stub.leg)
 
-        #expect(stub.requests == [[Self.origin, Self.a], [Self.a, Self.b], [Self.b, Self.origin]])
+        // The first legs are routed concurrently, so only the set of requests is fixed.
+        #expect(Set(stub.requests) == [[Self.origin, Self.a], [Self.a, Self.b], [Self.b, Self.origin]])
+        #expect(stub.requests.count == 3)
         #expect(tour.plan == plan)
         #expect(tour.legs.count == 3)
         #expect(!tour.approximate)
@@ -110,7 +113,9 @@ import Testing
         let stub = LegStub.scaled(3)
         let tour = await TourRouting.fit(plan, maxRequests: 25, leg: stub.leg)
 
-        #expect(stub.requests == [[Self.origin, Self.a], [Self.a, Self.b], [Self.b, Self.origin], [Self.a, Self.origin]])
+        #expect(stub.requests.count == 4)
+        #expect(Set(stub.requests.prefix(3)) == [[Self.origin, Self.a], [Self.a, Self.b], [Self.b, Self.origin]])
+        #expect(stub.requests.last == [Self.a, Self.origin])
         #expect(tour.plan.stops.map(\.id) == ["a"])
         #expect(tour.plan.budgetSeconds == 1200)
         // The estimate is recomputed: 100 + 100 + 240 = 440 s.
@@ -164,6 +169,9 @@ import Testing
 
     @Test func aTotalOfExactlyTheAllowanceIsKept() async {
         // One stop a; budget 1000 → limit 1000 × 1.1 = 1100. Legs 430 + 430 + 240 = 1100 ≤ 1100: kept.
+        // The limit is exactly 1100 in floating point: 1 + 0.10 rounds to the double nearest 1.1,
+        // 1.100000000000000088817841970012523; × 1000 = 1100.0000000000000888, and the doubles next to 1100 are
+        // 2.27e-13 apart, so the product rounds to 1100 exactly. The sum 430 + 430 + 240 is exact too.
         let plan = Self.loop([Self.stop("a", Self.a)], budget: 1000)
         let stub = LegStub { from, to in RoutedLeg(seconds: 430, metres: 559, path: [from, to], approximate: false) }
         let tour = await TourRouting.fit(plan, maxRequests: 25, leg: stub.leg)
@@ -194,7 +202,9 @@ import Testing
         let stub = LegStub.scaled(1)
         let tour = await TourRouting.fit(plan, maxRequests: 2, leg: stub.leg)
 
-        #expect(stub.requests == [[Self.origin, Self.a], [Self.a, Self.b]])
+        // Slots go out in leg order, so the first two legs get them whatever order they answer in.
+        #expect(Set(stub.requests) == [[Self.origin, Self.a], [Self.a, Self.b]])
+        #expect(stub.requests.count == 2)
         #expect(!tour.legs[0].approximate && !tour.legs[1].approximate)
         Self.expectStraight(tour.legs[2], from: Self.b, to: Self.c, metres: 100)
         Self.expectStraight(tour.legs[3], from: Self.c, to: Self.origin, metres: 300)
@@ -320,18 +330,166 @@ import Testing
         #expect(abs(tour.totalSeconds - 880) < Self.tolerance)
     }
 
-    @Test func cancellationPartWayStopsFurtherRequests() async {
-        // The second request cancels the caller; the third leg (b→O, 200 m) is straight without a request.
-        let plan = Self.loop([Self.stop("a", Self.a), Self.stop("b", Self.b)], budget: 1200)
+    @Test func cancellationWhileTheFirstLegsAreInFlightStopsEverything() async {
+        // Five stops 100…500 m north: six legs. Slots go to legs 0–3 before the parent first waits. The fourth request
+        // cancels the tour, and every request answers only once it sees the cancellation, so the parent wakes up
+        // cancelled: legs 4 (400 → 500 m, 100 m) and 5 (500 m → O, 500 m) are straight without a request. The total,
+        // 4 × 100 + 100 + 500 = 1000 s walking + 5 × 240 = 2200 s, is far over 100 × 1.1 = 110, yet no stop is dropped.
+        let stops = (1...5).map { Self.stop("s\($0)", .at(north: Double($0) * 100)) }
+        let plan = Self.loop(stops, budget: 100)
+        let tourTask = Mutex<Task<RoutedTour, Never>?>(nil)
         let count = Mutex(0)
         let stub = LegStub { from, to in
-            if count.withLock({ $0 += 1; return $0 }) == 2 { withUnsafeCurrentTask { $0?.cancel() } }
+            if count.withLock({ $0 += 1; return $0 }) == 4 {
+                await Self.wait { tourTask.withLock { $0 } != nil }
+                tourTask.withLock { $0 }?.cancel()
+            }
+            await Self.wait { Task.isCancelled }
             return RoutedLeg(seconds: TourPlanner.estimatedLegSeconds(from: from, to: to), metres: 1, path: [from, to],
                              approximate: false)
         }
-        let tour = await Task { await TourRouting.fit(plan, maxRequests: 25, leg: stub.leg) }.value
-        #expect(stub.requests.count == 2)
-        #expect(!tour.legs[0].approximate && !tour.legs[1].approximate)
-        Self.expectStraight(tour.legs[2], from: Self.b, to: Self.origin, metres: 200)
+        let task = Task { await TourRouting.fit(plan, maxRequests: 25, leg: stub.leg) }
+        tourTask.withLock { $0 = task }
+        let tour = await task.value
+
+        #expect(stub.requests.count == 4)
+        #expect(tour.plan.stops.count == 5)
+        #expect(tour.legs.count == 6)
+        #expect(tour.legs.prefix(4).allSatisfy { !$0.approximate })
+        Self.expectStraight(tour.legs[4], from: .at(north: 400), to: .at(north: 500), metres: 100)
+        Self.expectStraight(tour.legs[5], from: .at(north: 500), to: Self.origin, metres: 500)
+    }
+
+    // MARK: - Concurrency
+
+    /// Waits until `condition` holds, at most about 2 s.
+    static func wait(until condition: @Sendable () -> Bool) async {
+        for _ in 0..<2000 where !condition() {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
+    /// Twelve stops 100…1200 m north of the origin: thirteen legs.
+    static let twelveStops = (1...12).map { stop("s\($0)", .at(north: Double($0) * 100)) }
+    static var twelvePoints: [Coordinate] { [origin] + twelveStops.map(\.coordinate) + [origin] }
+
+    @Test func atMostFourFirstLegsAreInFlight() async {
+        // Each request holds until four have been in flight at once (or about 2 s), then a little longer, so an
+        // unbounded fan-out would show all thirteen at once and a serial one would never reach four.
+        let flight = Mutex((now: 0, peak: 0))
+        let stub = LegStub { from, to in
+            flight.withLock { $0.now += 1; $0.peak = max($0.peak, $0.now) }
+            await Self.wait { flight.withLock { $0.peak } >= 4 }
+            try? await Task.sleep(for: .milliseconds(5))
+            flight.withLock { $0.now -= 1 }
+            return RoutedLeg(seconds: TourPlanner.estimatedLegSeconds(from: from, to: to), metres: 1, path: [from, to],
+                             approximate: false)
+        }
+        // A generous budget: nothing is dropped, so every request is a first leg.
+        let tour = await TourRouting.fit(Self.loop(Self.twelveStops, budget: 100_000), maxRequests: 25, leg: stub.leg)
+        #expect(stub.requests.count == 13)
+        #expect(flight.withLock { $0.peak } == TourRouting.maxConcurrentRequests)
+        #expect(TourRouting.maxConcurrentRequests == 4)
+        #expect(!tour.approximate)
+    }
+
+    @Test func answersArrivingOutOfOrderLandInLegOrder() async {
+        // Leg i answers after (14 − i) × 2 ms, so later legs answer first; each answer carries its own ends.
+        let points = Self.twelvePoints
+        let stub = LegStub { from, to in
+            let index = points.indices.first { points[$0] == from && points[$0 + 1] == to } ?? 0
+            try? await Task.sleep(for: .milliseconds(2 * (14 - index)))
+            return RoutedLeg(seconds: Double(index), metres: 1, path: [from, Self.a, to], approximate: false)
+        }
+        let tour = await TourRouting.fit(Self.loop(Self.twelveStops, budget: 100_000), maxRequests: 25, leg: stub.leg)
+        #expect(tour.legs.count == 13)
+        for (index, leg) in tour.legs.enumerated() {
+            #expect(leg.seconds == Double(index))
+            #expect(leg.path == [points[index], Self.a, points[index + 1]])
+        }
+    }
+
+    @Test func theCapIsExactWhenSmallerThanTheFirstLegs() async {
+        // Cap 6 of 13 legs: exactly legs 0–5 are requested; 6–12 are straight.
+        let points = Self.twelvePoints
+        let stub = LegStub.scaled(1)
+        let tour = await TourRouting.fit(Self.loop(Self.twelveStops, budget: 100_000), maxRequests: 6, leg: stub.leg)
+        #expect(stub.requests.count == 6)
+        #expect(Set(stub.requests) == Set((0..<6).map { [points[$0], points[$0 + 1]] }))
+        #expect(tour.legs.prefix(6).allSatisfy { !$0.approximate })
+        for index in 6..<13 {
+            #expect(tour.legs[index].approximate)
+            #expect(tour.legs[index].path == [points[index], points[index + 1]])
+        }
+    }
+
+    // MARK: - Which leg joins
+
+    /// Three stops a, b, c (100, 200, 300 m north), routed at 3×: O→a 300, a→b 300, b→c 300, c→O 900 →
+    /// 1800 + 3 × 240 = 2520 s > 2100 × 1.1 = 2310. Savings (joining estimates O→b, a→c, b→O are 200 each):
+    /// a 300 + 300 − 200 + 240 = 640, b 300 + 300 − 200 + 240 = 640, c 300 + 900 − 200 + 240 = 1240.
+    static func threeStops(scores: (Double, Double, Double)) -> TourPlan {
+        loop([stop("a", a, score: scores.0), stop("b", b, score: scores.1), stop("c", c, score: scores.2)], budget: 2100)
+    }
+
+    @Test func droppingAMiddleStopJoinsItsNeighbours() async {
+        // Scores 3, 1, 3: ratios a 3/640 = 0.0047, b 1/640 = 0.0016, c 3/1240 = 0.0024 → b goes. The joining leg a→c
+        // is routed at 3 × 200 = 600: 300 + 600 + 900 + 2 × 240 = 2280 ≤ 2310.
+        let stub = LegStub.scaled(3)
+        let tour = await TourRouting.fit(Self.threeStops(scores: (3, 1, 3)), maxRequests: 25, leg: stub.leg)
+        #expect(stub.requests.count == 5)
+        #expect(stub.requests.last == [Self.a, Self.c])
+        #expect(tour.plan.stops.map(\.id) == ["a", "c"])
+        #expect(tour.legs.map { [$0.path.first, $0.path.last] } == [[Self.origin, Self.a], [Self.a, Self.c], [Self.c, Self.origin]])
+        #expect(abs(tour.totalSeconds - 2280) < Self.tolerance)
+    }
+
+    @Test func droppingTheFirstStopJoinsTheStartToTheSecond() async {
+        // Scores 1, 3, 3: ratios a 1/640 = 0.0016, b 3/640 = 0.0047, c 3/1240 = 0.0024 → a goes. The joining leg O→b
+        // is routed at 3 × 200 = 600: 600 + 300 + 900 + 2 × 240 = 2280 ≤ 2310.
+        let stub = LegStub.scaled(3)
+        let tour = await TourRouting.fit(Self.threeStops(scores: (1, 3, 3)), maxRequests: 25, leg: stub.leg)
+        #expect(stub.requests.count == 5)
+        #expect(stub.requests.last == [Self.origin, Self.b])
+        #expect(tour.plan.stops.map(\.id) == ["b", "c"])
+        #expect(tour.legs.map { [$0.path.first, $0.path.last] } == [[Self.origin, Self.b], [Self.b, Self.c], [Self.c, Self.origin]])
+        #expect(abs(tour.totalSeconds - 2280) < Self.tolerance)
+    }
+
+    // MARK: - Walked legs
+
+    @Test func aWalkedLegIsTimedAtTheToursWalkingSpeed() {
+        // 130 m / 1.3 m/s = 100 s; 650 m / 1.3 = 500 s; 0 m → 0 s.
+        let walked = RoutedLeg.walked(metres: 130, path: [Self.origin, Self.a])
+        #expect(abs(walked.seconds - 100) < 1e-9)
+        #expect(walked.metres == 130)
+        #expect(walked.path == [Self.origin, Self.a])
+        #expect(!walked.approximate)
+        #expect(abs(RoutedLeg.walked(metres: 650, path: []).seconds - 500) < 1e-9)
+        #expect(RoutedLeg.walked(metres: 0, path: []).seconds == 0)
+    }
+
+    @Test func aWalkedLegWithNonsenseMetresBecomesStraight() async {
+        let direct = TourPlan(kind: .aToB, start: Self.origin, end: Self.a, stops: [], estimatedSeconds: 100,
+                              budgetSeconds: 125)
+        for metres in [Double.nan, .infinity, -1] {
+            let stub = LegStub { from, to in RoutedLeg.walked(metres: metres, path: [from, to]) }
+            let tour = await TourRouting.fit(direct, maxRequests: 25, leg: stub.leg)
+            Self.expectStraight(tour.legs[0], from: Self.origin, to: Self.a, metres: 100)
+        }
+    }
+
+    // MARK: - Codable
+
+    @Test func aStoredApproximateFieldIsIgnoredWhenDecoding() throws {
+        let tour = RoutedTour(plan: Self.loop([], budget: 1000), legs: [
+            RoutedLeg(seconds: 0, metres: 0, path: [Self.origin], approximate: true),
+        ])
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(tour)) as? [String: Any])
+        #expect(object["approximate"] == nil)
+        object["approximate"] = false
+        let decoded = try JSONDecoder().decode(RoutedTour.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(decoded == tour)
+        #expect(decoded.approximate)
     }
 }
