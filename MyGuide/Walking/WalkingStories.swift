@@ -3,10 +3,10 @@ import MyGuideCore
 import Observation
 import UIKit
 
-/// Walking stories on the phone (design 7.5): prepared when a buzz goes out, played on "Tell me", continued on
-/// "More", retired on "Skip". Feeds `WalkingPlayback` and carries out its effects; the controller learns when it is
-/// busy (no buzz meanwhile), when a place is heard and when one is skipped. It keeps working while walking mode is
-/// off, so a late "Tell me" still plays. It is the one owner of walk-story audio (spec 12.2): a place chosen on the map
+/// Walking stories on the phone (design 7.5): their text prepared when a buzz goes out, spoken only on "Tell me"
+/// (spec 13.4), continued on "More", retired on "Skip". Feeds `WalkingPlayback` and carries out its effects; the
+/// controller learns when it is busy (no buzz meanwhile), when a place is heard or read and when one is skipped. It
+/// keeps working while walking mode is off, so a late "Tell me" still plays. It is the one owner of walk-story audio (spec 12.2): a place chosen on the map
 /// is told here too, and the map reads which place is playing.
 @MainActor
 @Observable
@@ -51,7 +51,8 @@ final class WalkingStories {
 
     /// Called after every playback event with `playback.isBusy`.
     @ObservationIgnored var onBusyChanged: ((Bool) -> Void)?
-    /// A place was heard (a level of its story started playing): it never buzzes again.
+    /// A place was heard (a level of its story started playing) or read (its story opened): it does not buzz again
+    /// this run, and memory rests it for 30 days.
     @ObservationIgnored var onHeard: ((String) -> Void)?
     /// A level of a story about a place chosen on the map started playing; memory has already marked it heard.
     @ObservationIgnored var onChosenHeard: ((Candidate) -> Void)?
@@ -153,9 +154,10 @@ final class WalkingStories {
 
     // MARK: - Commands
 
-    /// Prepares the story for a buzz that was just posted: text (the flow runs `context`, which may look up the
-    /// address, alongside its other fetches), then speech for level 1, under a background task.
-    /// Always ends with `storyReady` or `storyFailed`, also when cancelled.
+    /// Prepares the story for a buzz that was just posted: its text only (the flow runs `context`, which may look up
+    /// the address, alongside its other fetches), under a background task. No speech is made in advance (spec 13.4):
+    /// "Tell me" fetches it, and the player shows it loading meanwhile. Always ends with `storyReady` or
+    /// `storyFailed`, also when cancelled.
     func prepare(_ buzz: Buzz, position: Coordinate, nearby: [WalkingPlace], language: StoryLanguage,
                  context: @escaping @MainActor @Sendable () async -> WalkContext) {
         startPreparing(buzz, kind: .buzz, event: .buzzSent(buzz.id), position: position, nearby: nearby,
@@ -182,9 +184,10 @@ final class WalkingStories {
                        nearby: currentPlaces?() ?? [], language: language, context: context)
     }
 
-    /// Text (the flow runs `context` alongside its other fetches), then speech for level 1, under a background task.
-    /// `event` puts the story into the playback machine as preparing. Always ends with `storyReady` or `storyFailed`,
-    /// also when cancelled.
+    /// Text (the flow runs `context` alongside its other fetches) under a background task; for a chosen story also
+    /// the speech for level 1, as it plays at once (spec 12.1), while a buzz story's speech waits for "Tell me"
+    /// (spec 13.4). `event` puts the story into the playback machine as preparing. Always ends with `storyReady` or
+    /// `storyFailed`, also when cancelled.
     private func startPreparing(_ buzz: Buzz, kind: WalkStory.Kind, event: WalkingPlayback.Event, position: Coordinate,
                                 nearby: [WalkingPlace], language: StoryLanguage,
                                 context: @escaping @MainActor @Sendable () async -> WalkContext) {
@@ -204,13 +207,15 @@ final class WalkingStories {
                 // Paid calls are counted even when the story is no longer wanted.
                 recordUsage(usage)
                 try Task.checkCancellation()
-                // Saved before the speech, so the text survives a speech failure (the story screen shows it, and a
-                // later "Tell me" only fetches the speech again). Saving never marks the place heard.
+                // Saved before any speech, so the text survives a speech failure (the story screen shows it, and a
+                // later "Tell me" only fetches the speech). Saving never marks the place heard.
                 save(story, tripID: tripID)
                 prepared.store(story)
-                let url = try await speechFile(for: story, level: 1)
-                try Task.checkCancellation()
-                prepared.setAudio(url, id: id, level: 1)
+                if kind == .chosen {
+                    let url = try await speechFile(for: story, level: 1)
+                    try Task.checkCancellation()
+                    prepared.setAudio(url, id: id, level: 1)
+                }
                 endPreparing(id, with: .storyReady(id))
             } catch {
                 remember(failure(error, for: id), for: id)
@@ -298,6 +303,15 @@ final class WalkingStories {
 
     func open(_ id: UUID) {
         openID = id
+    }
+
+    /// The owner opened the story in the app (spec 13.2): reading it counts as hearing level 1, so its place rests
+    /// 30 days in memory (`markHeard` sets `lastHeardAt`) and does not buzz again this run. A stop story has no place.
+    /// The buzz log's outcome is left to "Tell me" and "Skip". The story screen calls this once per opening.
+    func markRead(_ story: WalkStory) {
+        guard story.kind != .stop, let candidate = story.place else { return }
+        do { try memory.markHeard(candidate, level: 1, at: .now) } catch { fail("read failed", error) }
+        onHeard?(candidate.id)
     }
 
     /// Walking mode is off: cancel the buzz and stop stories being prepared or fetched (each still ends with its

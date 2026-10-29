@@ -18,12 +18,15 @@ import Testing
     ]}}
     """#
 
-    /// Routes by host: Overpass vs Wikipedia.
+    /// Routes by host: either Overpass endpoint vs Wikipedia.
     static func stub(osm: @escaping @Sendable () throws -> (Int, Data) = { (200, Data(osmBody.utf8)) },
                      wiki: @escaping @Sendable () throws -> (Int, Data) = { (200, Data(wikiBody.utf8)) }) -> StubHTTPClient {
         StubHTTPClient { request in
-            request.url?.host == "overpass-api.de" ? try osm() : try wiki()
+            isOverpass(request) ? try osm() : try wiki()
         }
+    }
+    static func isOverpass(_ request: URLRequest) -> Bool {
+        OverpassClient.endpoints.contains { $0.host == request.url?.host }
     }
 
     func source(_ http: StubHTTPClient) -> WalkingPlaceSource {
@@ -43,7 +46,7 @@ import Testing
         let stone = #"{"elements":[{"type":"node","id":7,"lat":48.2086,"lon":16.3671,"tags":{"name":"Old Stone","historic":"yes"}}]}"#
         let empty = #"{"query":{"pages":[]}}"#
         let src = source(Self.stub(osm: { (200, Data(stone.utf8)) }, wiki: { (200, Data(empty.utf8)) }))
-        let candidates = try await src.candidates(around: here, language: .english)
+        let candidates = try await src.candidates(around: here, language: .english).candidates
         let places = try await src.places(around: here, language: .english)
         #expect(candidates.map(\.name) == ["Old Stone"])
         #expect(candidates.first?.tags?["historic"] == "yes")
@@ -109,5 +112,35 @@ import Testing
         }
         task.cancel()
         await #expect(throws: CancellationError.self) { _ = try await task.value }
+    }
+
+    // MARK: - Reporting an OpenStreetMap failure (spec 13.6)
+
+    @Test func osmFailureReportedWhenWikipediaAnswers() async throws {
+        let http = Self.stub(osm: { (502, Data()) })
+        let result = try await source(http).candidates(around: here, language: .english)
+        #expect(result.osmFailed)
+        #expect(result.candidates.map(\.name) == ["Stephansdom"])
+        // Both Overpass endpoints were tried, then given up.
+        #expect(http.requests.filter(Self.isOverpass).count == 2)
+    }
+    @Test func secondEndpointAnsweringIsNoFailure() async throws {
+        let http = StubHTTPClient { request in
+            switch request.url?.host {
+            case "overpass-api.de": (502, Data())
+            case "overpass.kumi.systems": (200, Data(Self.osmBody.utf8))
+            default: (200, Data(Self.wikiBody.utf8))
+            }
+        }
+        let result = try await source(http).candidates(around: here, language: .english)
+        #expect(!result.osmFailed)
+        #expect(result.candidates.map(\.name).contains("Burg"))
+    }
+    @Test func noOSMFailureWhenOSMAnswers() async throws {
+        let ok = try await source(Self.stub()).candidates(around: here, language: .english)
+        #expect(!ok.osmFailed && ok.candidates.count == 4)
+        // Only Wikipedia failing is not an OpenStreetMap failure.
+        let wikiDown = try await source(Self.stub(wiki: { (500, Data()) })).candidates(around: here, language: .english)
+        #expect(!wikiDown.osmFailed && wikiDown.candidates.map(\.name) == ["Burg", "Bank Austria", "Old Stone"])
     }
 }

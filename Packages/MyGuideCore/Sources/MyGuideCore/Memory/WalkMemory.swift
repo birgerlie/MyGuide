@@ -83,12 +83,39 @@ extension MemoryStore {
         }
     }
 
-    /// Places that never buzz again: heard (a story level saved, photo or walk) or skipped.
-    public func retiredPlaceIDs() throws -> Set<String> {
+    /// Days a place rests after it was heard, read or skipped (spec 13.1); then it may buzz again.
+    public static let placeRestDays = 30
+
+    /// Places that must not buzz now: heard or read (a story level saved, photo or walk, with `lastHeardAt`) at or
+    /// after `now` − 30 days, or skipped at or after it. A heard place with `lastHeardAt` nil (stored before that
+    /// field existed) is not retired: its rest is unknown, and spec 13.8 leans towards more buzzes.
+    public func retiredPlaceIDs(now: Date) throws -> Set<String> {
+        let cutoff = now.addingTimeInterval(-TimeInterval(Self.placeRestDays) * 86_400)
+        // The few places with either reason are fetched and judged here; an optional date compare in the predicate
+        // is not worth the risk.
         let descriptor = FetchDescriptor<PlaceRecord>(predicate: #Predicate { place in
             place.deepestLevelHeard >= 1 || place.skippedAt != nil
         })
-        return Set(try context.fetch(descriptor).map(\.id))
+        return Set(try context.fetch(descriptor).filter { place in
+            let heard = place.deepestLevelHeard >= 1 && (place.lastHeardAt.map { $0 >= cutoff } ?? false)
+            let skipped = place.skippedAt.map { $0 >= cutoff } ?? false
+            return heard || skipped
+        }.map(\.id))
+    }
+
+    /// Makes every place eligible to buzz again (spec 13.5): clears `lastHeardAt` and `skippedAt` on every place.
+    /// Levels heard, stories, captures, the buzz log and the track stay.
+    public func resetPlaceNotifications() throws {
+        let places = try context.fetch(FetchDescriptor<PlaceRecord>(predicate: #Predicate { place in
+            place.lastHeardAt != nil || place.skippedAt != nil
+        }))
+        guard !places.isEmpty else { return }
+        try saving {
+            for place in places {
+                place.lastHeardAt = nil
+                place.skippedAt = nil
+            }
+        }
     }
 
     /// Places buzzed in the trip, from the buzz log.
@@ -121,8 +148,9 @@ extension MemoryStore {
 
     /// Moves a buzz on from `pending`. Afterwards only `heard` → `heard` with a deeper level changes anything,
     /// and `ignored` yields to a late explicit `heard` or `skipped`; the deepest level never decreases. When the change applies, the buzz's place is updated in the same save:
-    /// `heard` raises its `deepestLevelHeard` and sets `lastHeardAt = at`, `skipped` sets `skippedAt` (the first
-    /// skip time is kept). Both retire the place. A refused change touches nothing.
+    /// `heard` raises its `deepestLevelHeard` and sets `lastHeardAt = at`, `skipped` moves `skippedAt` on to `at` (the
+    /// latest skip is kept, so the 30-day rest counts from it). Both retire the place for 30 days. A refused change
+    /// touches nothing.
     /// Throws `corruptRecord` for an unknown buzz id.
     public func setBuzzOutcome(_ id: UUID, _ outcome: BuzzOutcome, deepestLevel: Int, at: Date) throws {
         guard let record = try buzzRecord(id: id), let current = BuzzOutcome(rawValue: record.outcome) else {
@@ -142,7 +170,7 @@ extension MemoryStore {
                 place?.deepestLevelHeard = max(place?.deepestLevelHeard ?? 0, deepestLevel)
                 place?.lastHeardAt = at
             case .skipped:
-                if let place, place.skippedAt == nil { place.skippedAt = at }
+                if let place { place.skippedAt = Self.latest(place.skippedAt, at) }
             case .pending, .ignored:
                 break
             }
@@ -154,18 +182,18 @@ extension MemoryStore {
         try buzzRecord(id: buzzID)?.deepestLevel
     }
 
-    /// Retires the place for good, storing it first if it is unknown (for example when `recordBuzz` failed), so a
-    /// skip is never lost. The first skip time is kept.
+    /// Retires the place for 30 days, storing it first if it is unknown (for example when `recordBuzz` failed), so a
+    /// skip is never lost. The latest skip time is kept.
     public func markSkipped(_ candidate: Candidate, at: Date) throws {
         try saving {
             let place = try upsertWalkPlace(candidate, seenAt: at)
-            if place.skippedAt == nil { place.skippedAt = at }
+            place.skippedAt = Self.latest(place.skippedAt, at)
         }
     }
 
-    /// Marks the place heard to `level` at `at`, storing it first if it is unknown (for example when `recordBuzz`
-    /// failed and `setBuzzOutcome` has no log entry to update), so a played story still retires its place. The deepest
-    /// level never decreases.
+    /// Marks the place heard (or read) to `level` at `at`, storing it first if it is unknown (for example when
+    /// `recordBuzz` failed and `setBuzzOutcome` has no log entry to update), so a played or opened story still retires
+    /// its place for 30 days. The deepest level never decreases.
     public func markHeard(_ candidate: Candidate, level: Int, at: Date) throws {
         try saving {
             let place = try upsertWalkPlace(candidate, seenAt: at)
@@ -299,6 +327,11 @@ extension MemoryStore {
     }
 
     // MARK: - Private
+
+    /// The later of a stored date and a new one; a skip timed before the stored one (clock skew) never moves it back.
+    private static func latest(_ stored: Date?, _ new: Date) -> Date {
+        stored.map { max($0, new) } ?? new
+    }
 
     private func buzzRecord(id: UUID) throws -> BuzzRecord? {
         var descriptor = FetchDescriptor<BuzzRecord>(predicate: #Predicate { $0.id == id })

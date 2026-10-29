@@ -12,7 +12,7 @@ public enum RefreshTrigger: Sendable, Equatable {
 
 /// Where the nearby list's candidates come from.
 public protocol NearbyFetching: Sendable {
-    func candidates(around: Coordinate, language: StoryLanguage) async throws -> [Candidate]
+    func candidates(around: Coordinate, language: StoryLanguage) async throws -> PlaceSearchResult
 }
 
 extension WalkingPlaceSource: NearbyFetching {}
@@ -34,6 +34,10 @@ public actor NearbyPlaces {
     public static let backgroundInterval: TimeInterval = 600
     /// Article texts are fetched for at most this many of the nearest tier-top or tier-good candidates.
     public static let articleCount = 5
+    /// When OpenStreetMap fails, the previous list's OSM places are carried forward if that list is at most this old
+    /// (seconds, 7 days) and centred at most `carryDistance` (metres) from the new position (spec 13.6).
+    public static let carryAge: TimeInterval = 7 * 86_400
+    public static let carryDistance = 500.0
 
     private let fetcher: NearbyFetching
     private let articles: ArticleTextSource?
@@ -140,11 +144,16 @@ public actor NearbyPlaces {
             task = Task {
                 defer { inFlight[language] = nil }
                 do {
-                    let candidates = try await fetcher.candidates(around: position, language: language)
-                    let list = NearbyList(centre: position, fetchedAt: self.now(), language: language,
+                    let found = try await fetcher.candidates(around: position, language: language)
+                    let fetchedAt = self.now()
+                    let candidates = found.osmFailed
+                        ? withCarriedOSMPlaces(found.candidates, around: position, language: language, now: fetchedAt)
+                        : found.candidates
+                    let list = NearbyList(centre: position, fetchedAt: fetchedAt, language: language,
                                           candidates: candidates,
                                           articleTexts: carriedArticleTexts(for: candidates, around: position,
-                                                                            language: language))
+                                                                            language: language),
+                                          osmFailed: found.osmFailed)
                     generation[language, default: 0] += 1
                     keep(list)
                     lastOutcome[language] = .success(list)
@@ -194,6 +203,24 @@ public actor NearbyPlaces {
             }
         }
         return lists[language]
+    }
+
+    /// `candidates` (from a fetch whose OpenStreetMap part failed) with the previous list's OSM places merged in
+    /// first, when that list is at most `carryAge` old (and not dated after `now`) and centred within `carryDistance`
+    /// of `position`. Only places within `WalkingPlaceSource.radius` of `position` are carried, as a real fetch there
+    /// would return, so carrying over several failed fetches never drags places along from far behind.
+    private func withCarriedOSMPlaces(_ candidates: [Candidate], around position: Coordinate, language: StoryLanguage,
+                                      now: Date) -> [Candidate] {
+        guard let previous = list(for: language) else { return candidates }
+        let age = now.timeIntervalSince(previous.fetchedAt)
+        guard age >= 0, age <= Self.carryAge,
+              GeoMath.distance(previous.centre, position) <= Self.carryDistance else { return candidates }
+        let carried = previous.candidates.filter {
+            $0.id.hasPrefix("osm:")
+                && GeoMath.distance(position, $0.coordinate) <= Double(WalkingPlaceSource.radius)
+        }
+        guard !carried.isEmpty else { return candidates }
+        return CandidateRanker.merge(osm: carried, wiki: candidates)
     }
 
     /// The previous list's texts for the titles the new candidates need, so a refresh nearby does not lose them while

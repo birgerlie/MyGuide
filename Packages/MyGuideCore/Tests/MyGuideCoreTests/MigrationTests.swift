@@ -68,7 +68,7 @@ import Testing
         let trip = try store.touchTrip(now: Date(timeIntervalSince1970: 1_000), city: "Wien")
         try store.markSkipped(Candidate(id: "osm:node/1", name: "Gate", coordinate: Coordinate(latitude: 48.2, longitude: 16.36),
                                         kind: "historic=city_gate"), at: Date(timeIntervalSince1970: 1_000))
-        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try store.retiredPlaceIDs(now: Date(timeIntervalSince1970: 1_000)) == ["osm:node/1"])
         #expect(try context.fetchCount(FetchDescriptor<TripRecord>()) == 1 && trip.city == "Wien")
     }
 
@@ -112,7 +112,8 @@ import Testing
             let place = try #require(try store.place(id: "osm:node/1"))
             #expect(place.name == "Gate" && place.deepestLevelHeard == 2)
             #expect(place.skippedAt == nil && place.lastBuzzedAt == nil && place.lastBuzzTripID == nil)
-            #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+            // Heard when phase 1 saved it: retired from then on for 30 days (spec 13.1).
+            #expect(try store.retiredPlaceIDs(now: try #require(place.lastHeardAt)) == ["osm:node/1"])
             #expect(try store.context.fetchCount(FetchDescriptor<TripRecord>()) == 0)
         }
     }

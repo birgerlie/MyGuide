@@ -84,6 +84,12 @@ public struct BuzzEngine: Sendable {
         excluded.insert(placeID)
     }
 
+    /// Every place may buzz again (the reset button, spec 13.5): forgets the places retired at start and those
+    /// buzzed, heard or skipped this run. The budget, the skip pause and the due set are kept.
+    public mutating func clearExclusions() {
+        excluded.removeAll()
+    }
+
     /// The owner skipped a buzz: stay quiet for `skipQuiet` seconds.
     public mutating func noteSkip(at now: Date) {
         lastSkip = now

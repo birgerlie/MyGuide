@@ -117,15 +117,15 @@ import Testing
 
     @Test func buzzedOnlyIsNotRetiredSkippedIs() throws {
         try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.trip, at: Self.t0)
-        #expect(try store.retiredPlaceIDs().isEmpty)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000).isEmpty)
         try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 5)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/1"])
         #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 5)
     }
     @Test func savedButUnplayedBuzzStoryDoesNotRetire() throws {
         // Ruling 9: a buzz story is saved when it is prepared, before the owner taps.
         try store.saveWalkStory(Self.buzzStory("osm:node/2", levels: ["one"]), tripID: Self.trip)
-        #expect(try store.retiredPlaceIDs().isEmpty)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000).isEmpty)
         let place = try #require(try store.place(id: "osm:node/2"))
         #expect(place.deepestLevelHeard == 0 && place.lastHeardAt == nil && place.firstSeenAt == Self.t0)
     }
@@ -133,7 +133,7 @@ import Testing
         let b = Self.buzz("osm:node/2")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
         try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 30)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/2"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/2"])
         let place = try #require(try store.place(id: "osm:node/2"))
         #expect(place.deepestLevelHeard == 1 && place.lastHeardAt == Self.t0 + 30 && place.skippedAt == nil)
         // Deeper: level 2 at t0 + 90.
@@ -156,7 +156,7 @@ import Testing
         let b = Self.buzz("osm:node/2")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
         try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 20)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/2"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/2"])
         let place = try #require(try store.place(id: "osm:node/2"))
         #expect(place.skippedAt == Self.t0 + 20 && place.deepestLevelHeard == 0 && place.lastHeardAt == nil)
     }
@@ -170,7 +170,7 @@ import Testing
         let s = try #require(try store.place(id: "osm:node/1")), i = try #require(try store.place(id: "osm:node/2"))
         #expect(s.skippedAt == Self.t0 + 20 && s.deepestLevelHeard == 0 && s.lastHeardAt == nil)
         #expect(i.skippedAt == nil && i.deepestLevelHeard == 0 && i.lastHeardAt == nil)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/1"])
     }
     @Test func lateSkipOverridesIgnored() throws {
         let b = Self.buzz("osm:node/1")
@@ -178,7 +178,7 @@ import Testing
         try store.closePendingBuzzes()
         try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 30)
         #expect(try store.buzzLog().map(\.outcome) == [.skipped])
-        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/1"])
         #expect(try #require(try store.place(id: "osm:node/1")).skippedAt == Self.t0 + 30)
     }
     @Test func lateHearingOverridesIgnored() throws {
@@ -188,7 +188,7 @@ import Testing
         try store.setBuzzOutcome(b.id, .heard, deepestLevel: 1, at: Self.t0 + 30)
         let entry = try #require(try store.buzzLog().first)
         #expect(entry.outcome == .heard && entry.deepestLevel == 1)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/1"])
         #expect(try #require(try store.place(id: "osm:node/1")).lastHeardAt == Self.t0 + 30)
     }
     @Test func skippedStaysSkippedWhenHeardLater() throws {
@@ -203,17 +203,90 @@ import Testing
         let b = Self.buzz("osm:node/1")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
         try store.setBuzzOutcome(b.id, .ignored, deepestLevel: 0, at: Self.t0 + 20)
-        #expect(try store.retiredPlaceIDs().isEmpty)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000).isEmpty)
     }
     @Test func photographedPlaceCountsAsHeard() throws {
         try store.save(MemoryStoreTests.session(placeID: "osm:node/3", levels: ["one"]))
-        #expect(try store.retiredPlaceIDs() == ["osm:node/3"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/3"])
     }
     @Test func stopStoryRetiresNothing() throws {
         try store.saveWalkStory(Self.stopStory(north: 0, levels: ["here"]), tripID: Self.trip)
-        #expect(try store.retiredPlaceIDs().isEmpty)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000).isEmpty)
         #expect(try store.context.fetchCount(FetchDescriptor<PlaceRecord>()) == 0)
     }
+    // MARK: - The 30-day rest (spec 13.1) and the reset (spec 13.5)
+
+    @Test func retiredWithinThirtyDays() throws {
+        // 30 days = 30 × 86 400 = 2 592 000 s. 29 d 23 h = 2 505 600 + 82 800 = 2 588 400 s (inside);
+        // 30 d 1 h = 2 592 000 + 3 600 = 2 595 600 s (outside); exactly 30 d is still inside (≥ now − 30 d).
+        #expect(MemoryStore.placeRestDays == 30)
+        try store.markHeard(Self.candidate("osm:node/1"), level: 1, at: Self.t0)
+        try store.markSkipped(Self.candidate("osm:node/2"), at: Self.t0)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 2_588_400) == ["osm:node/1", "osm:node/2"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 2_592_000) == ["osm:node/1", "osm:node/2"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 2_592_001).isEmpty)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 2_595_600).isEmpty)
+        // At the moment itself, and with a clock set back before it, the place is used.
+        #expect(try store.retiredPlaceIDs(now: Self.t0) == ["osm:node/1", "osm:node/2"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 - 60) == ["osm:node/1", "osm:node/2"])
+    }
+    @Test func heardWithoutLastHeardAtIsNotRetired() throws {
+        // A place heard before lastHeardAt existed: the rest is unknown, and spec 13.8 leans towards more buzzes.
+        store.context.insert(PlaceRecord(id: "osm:node/1", name: "Old", latitude: 0, longitude: 0, firstSeenAt: Self.t0,
+                                         deepestLevelHeard: 2, lastHeardAt: nil))
+        try store.context.save()
+        #expect(try store.retiredPlaceIDs(now: Self.t0).isEmpty)
+    }
+    @Test func lastHeardAtWithoutAHeardLevelIsNotRetired() throws {
+        // lastHeardAt alone (deepestLevelHeard 0) never retires: the rule needs a level heard.
+        store.context.insert(PlaceRecord(id: "osm:node/1", name: "Odd", latitude: 0, longitude: 0, firstSeenAt: Self.t0,
+                                         deepestLevelHeard: 0, lastHeardAt: Self.t0))
+        try store.context.save()
+        #expect(try store.retiredPlaceIDs(now: Self.t0).isEmpty)
+    }
+    @Test func eitherRecentReasonRetires() throws {
+        // Heard 40 days ago (t0 − 3 456 000) but skipped 1 day ago (t0 − 86 400): the skip keeps it resting, and
+        // the other way round.
+        try store.markHeard(Self.candidate("osm:node/1"), level: 1, at: Self.t0 - 3_456_000)
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 - 86_400)
+        try store.markSkipped(Self.candidate("osm:node/2"), at: Self.t0 - 3_456_000)
+        try store.markHeard(Self.candidate("osm:node/2"), level: 1, at: Self.t0 - 86_400)
+        #expect(try store.retiredPlaceIDs(now: Self.t0) == ["osm:node/1", "osm:node/2"])
+    }
+    @Test func resetMakesEveryPlaceEligibleAndKeepsHistory() throws {
+        let heard = Self.buzz("osm:node/1"), skipped = Self.buzz("osm:node/2")
+        try store.recordBuzz(heard, tripID: Self.trip, at: Self.t0)
+        try store.recordBuzz(skipped, tripID: Self.trip, at: Self.t0)
+        try store.setBuzzOutcome(heard.id, .heard, deepestLevel: 2, at: Self.t0 + 10)
+        try store.setBuzzOutcome(skipped.id, .skipped, deepestLevel: 0, at: Self.t0 + 20)
+        try store.save(MemoryStoreTests.session(placeID: "osm:node/3", levels: ["one"]))
+        try store.saveWalkStory(Self.buzzStory("osm:node/1", levels: ["a", "b"]), tripID: Self.trip)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 30) == ["osm:node/1", "osm:node/2", "osm:node/3"])
+        let logBefore = try store.buzzLog()
+
+        try store.resetPlaceNotifications()
+
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 30).isEmpty)
+        let one = try #require(try store.place(id: "osm:node/1"))
+        let two = try #require(try store.place(id: "osm:node/2"))
+        let three = try #require(try store.place(id: "osm:node/3"))
+        for place in [one, two, three] { #expect(place.lastHeardAt == nil && place.skippedAt == nil) }
+        // History stays: levels heard, last buzz, the buzz log, the stories.
+        #expect(one.deepestLevelHeard == 2 && two.deepestLevelHeard == 0 && three.deepestLevelHeard == 1)
+        #expect(one.lastBuzzedAt == Self.t0 && two.lastBuzzTripID == Self.trip)
+        #expect(try store.buzzLog() == logBefore)
+        #expect(try store.context.fetchCount(FetchDescriptor<WalkStoryRecord>()) == 1)
+        #expect(try store.context.fetchCount(FetchDescriptor<CaptureRecord>()) == 1)
+        #expect(try store.context.fetchCount(FetchDescriptor<StoryRecord>()) == 3)
+        // A new hearing retires it again.
+        try store.markHeard(Self.candidate("osm:node/1"), level: 1, at: Self.t0 + 40)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 50) == ["osm:node/1"])
+    }
+    @Test func resetWithNoPlacesDoesNothing() throws {
+        try store.resetPlaceNotifications()
+        #expect(try store.context.fetchCount(FetchDescriptor<PlaceRecord>()) == 0)
+    }
+
     // MARK: - stopSpots
 
     @Test func stopSpotsReturnsTheTripsStopStoriesOnly() throws {
@@ -231,11 +304,26 @@ import Testing
         #expect(try store.stopSpots(tripID: Self.trip).isEmpty)
     }
 
-    @Test func secondSkipKeepsTheFirstTime() throws {
+    @Test func secondSkipStartsTheRestAgain() throws {
+        // Spec 13.1: a place rests 30 days after it was skipped, so the latest skip counts; an earlier one never
+        // replaces it.
         try store.recordBuzz(Self.buzz("osm:node/1"), tripID: Self.trip, at: Self.t0)
         try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 5)
         try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 50)
-        #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 5)
+        #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 50)
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 20)
+        #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 50)
+    }
+    @Test func skipAfterTheRestRetiresThePlaceAgain() throws {
+        // Skipped at t0, rested 31 days (t0 + 31 × 86 400 = t0 + 2 678 400), buzzed and skipped again then: retired
+        // again until 30 days after the second skip.
+        try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0)
+        let later = Self.t0 + 2_678_400
+        #expect(try store.retiredPlaceIDs(now: later).isEmpty)
+        let b = Self.buzz("osm:node/1")
+        try store.recordBuzz(b, tripID: Self.otherTrip, at: later)
+        try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: later + 10)
+        #expect(try store.retiredPlaceIDs(now: later + 20) == ["osm:node/1"])
     }
     @Test func skippingAnUnknownPlaceCreatesAndRetiresIt() throws {
         try store.markSkipped(Self.candidate("osm:node/9", north: 30), at: Self.t0)
@@ -243,14 +331,14 @@ import Testing
         #expect(place.name == "Name osm:node/9" && place.firstSeenAt == Self.t0 && place.skippedAt == Self.t0)
         #expect(place.deepestLevelHeard == 0 && place.lastHeardAt == nil && place.lastBuzzedAt == nil)
         #expect(Coordinate(latitude: place.latitude, longitude: place.longitude) == .at(north: 30))
-        #expect(try store.retiredPlaceIDs() == ["osm:node/9"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/9"])
     }
-    @Test func skipAndHeardViaOutcomeKeepTheFirstSkip() throws {
+    @Test func skipViaOutcomeAfterMarkSkippedKeepsTheLatestSkip() throws {
         let b = Self.buzz("osm:node/1")
         try store.recordBuzz(b, tripID: Self.trip, at: Self.t0)
         try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0 + 5)
         try store.setBuzzOutcome(b.id, .skipped, deepestLevel: 0, at: Self.t0 + 9)
-        #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 5)
+        #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0 + 9)
     }
 
     @Test func markHeardStoresAnUnknownPlaceAndRetiresIt() throws {
@@ -258,7 +346,7 @@ import Testing
         let place = try #require(try store.place(id: "osm:node/9"))
         #expect(place.deepestLevelHeard == 1 && place.lastHeardAt == Self.t0 + 5 && place.firstSeenAt == Self.t0 + 5)
         #expect(place.skippedAt == nil && place.lastBuzzedAt == nil)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/9"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/9"])
     }
     @Test func markHeardNeverLowersTheDeepestLevel() throws {
         try store.markHeard(Self.candidate("osm:node/1"), level: 2, at: Self.t0)
@@ -300,7 +388,7 @@ import Testing
         try store.markSkipped(Self.candidate("osm:node/1"), at: Self.t0)
         try store.deleteCapture(capture)
         #expect(try store.place(id: "osm:node/1")?.skippedAt == Self.t0)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/1"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/1"])
     }
     @Test func aBuzzedPlaceIsKept() throws {
         let capture = try saveCapture(placeID: "osm:node/1")
@@ -826,9 +914,9 @@ import Testing
         try store.saveWalkStory(story, tripID: Self.trip)
         let place = try #require(try store.place(id: "osm:node/7"))
         #expect(place.deepestLevelHeard == 0 && place.lastHeardAt == nil && place.name == "Name osm:node/7")
-        #expect(try store.retiredPlaceIDs().isEmpty)
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000).isEmpty)
         try store.markHeard(try #require(story.place), level: 1, at: Self.t0 + 5)
-        #expect(try store.retiredPlaceIDs() == ["osm:node/7"])
+        #expect(try store.retiredPlaceIDs(now: Self.t0 + 1_000) == ["osm:node/7"])
     }
 
     @Test func savingAStopStoryStillStoresNoPlace() throws {

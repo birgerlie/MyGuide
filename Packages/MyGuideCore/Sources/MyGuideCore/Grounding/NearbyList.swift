@@ -15,14 +15,28 @@ public struct NearbyList: Sendable, Equatable, Codable {
     public var candidates: [Candidate]
     /// Article text by `wikipediaTitle`.
     public var articleTexts: [String: String]
+    /// True when OpenStreetMap failed for this fetch (both Overpass endpoints); its OSM candidates, if any, were
+    /// carried from the previous list (spec 13.6). False in a file written before the field existed.
+    public var osmFailed: Bool
 
     public init(centre: Coordinate, fetchedAt: Date, language: StoryLanguage, candidates: [Candidate],
-                articleTexts: [String: String]) {
+                articleTexts: [String: String], osmFailed: Bool = false) {
         self.centre = centre
         self.fetchedAt = fetchedAt
         self.language = language
         self.candidates = candidates
         self.articleTexts = articleTexts
+        self.osmFailed = osmFailed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        centre = try c.decode(Coordinate.self, forKey: .centre)
+        fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
+        language = try c.decode(StoryLanguage.self, forKey: .language)
+        candidates = try c.decode([Candidate].self, forKey: .candidates)
+        articleTexts = try c.decode([String: String].self, forKey: .articleTexts)
+        osmFailed = try c.decodeIfPresent(Bool.self, forKey: .osmFailed) ?? false
     }
 
     /// At most `freshAge` old and centred within `freshDistance` of `position`. A list dated after `now` (the clock

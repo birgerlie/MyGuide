@@ -17,7 +17,7 @@ import Testing
     }
 
     static func fetched(_ places: [WalkLogPlace]) -> WalkLogEvent.Kind {
-        .fetched(count: places.count, top: 0, good: places.count, wikiOnly: 0, places: places)
+        .fetched(count: places.count, top: 0, good: places.count, wikiOnly: 0, places: places, osmFailed: false)
     }
 
     @Test func distanceSkipsPausedAndPoorFixes() {

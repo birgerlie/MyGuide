@@ -23,7 +23,8 @@ import Testing
         let http = StubHTTPClient { _ in (200, Data(#"{"elements":[]}"#.utf8)) }
         _ = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
         let r = http.requests[0]
-        #expect(r.url == OverpassClient.endpoint && r.httpMethod == "POST")
+        #expect(r.url == OverpassClient.endpoints[0] && r.httpMethod == "POST")
+        #expect(http.requests.count == 1)
         #expect(r.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
         #expect(r.value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
         #expect(r.timeoutInterval == 12)
@@ -142,5 +143,76 @@ import Testing
         let r = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
         #expect(r[0].tags == ["historic": "building", "heritage": "2"])
         #expect(PlaceTiers.tier(for: r[0]) == .good)
+    }
+
+    // MARK: - The second endpoint (spec 13.6)
+
+    static let oneElement = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"A","historic":"yes"}}]}"#
+
+    @Test func endpointsAreTheMainOneThenKumi() {
+        #expect(OverpassClient.endpoints.map(\.absoluteString) == [
+            "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+        ])
+    }
+    @Test func overpassFallsBackToSecondEndpointOnce() async throws {
+        let http = StubHTTPClient { request in
+            request.url?.host == "overpass-api.de" ? (502, Data()) : (200, Data(Self.oneElement.utf8))
+        }
+        let r = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
+        #expect(r.map(\.id) == ["osm:node/1"])
+        #expect(http.requests.map(\.url) == OverpassClient.endpoints)
+        // The same request goes to the second endpoint.
+        #expect(http.requests[1].httpBody == http.requests[0].httpBody && http.requests[1].httpMethod == "POST")
+        #expect(http.requests[1].value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
+        #expect(http.requests[1].timeoutInterval == 12)
+    }
+    @Test func bothEndpointsFailingThrowsTheFirstErrorAfterTwoRequests() async {
+        let http = StubHTTPClient { request in
+            request.url?.host == "overpass-api.de" ? (502, Data()) : (504, Data())
+        }
+        await #expect(throws: GroundingFetchError.http(502)) {
+            try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
+        }
+        #expect(http.requests.count == 2)
+    }
+    @Test func malformedRuntimeAndTransportFailuresAlsoFallBack() async throws {
+        let remark = #"{"elements":[],"remark":"runtime error: Query timed out"}"#
+        let failures: [@Sendable () throws -> (Int, Data)] = [
+            { (200, Data("not json".utf8)) },
+            { (200, Data(remark.utf8)) },
+            { throw URLError(.timedOut) },
+        ]
+        for failure in failures {
+            let http = StubHTTPClient { request in
+                request.url?.host == "overpass-api.de" ? try failure() : (200, Data(Self.oneElement.utf8))
+            }
+            let r = try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
+            #expect(r.map(\.id) == ["osm:node/1"])
+            #expect(http.requests.count == 2)
+        }
+    }
+    @Test func cancellationIsNeverRetried() async {
+        let cancelledURL = StubHTTPClient { _ in throw URLError(.cancelled) }
+        await #expect(throws: URLError(.cancelled)) {
+            try await OverpassClient(http: cancelledURL).places(around: vienna, radius: 250, language: .english)
+        }
+        #expect(cancelledURL.requests.count == 1)
+
+        let cancelled = StubHTTPClient { _ in throw CancellationError() }
+        await #expect(throws: CancellationError.self) {
+            try await OverpassClient(http: cancelled).places(around: vienna, radius: 250, language: .english)
+        }
+        #expect(cancelled.requests.count == 1)
+    }
+    @Test func aCancelledTaskIsNotRetriedAfterAnOrdinaryFailure() async {
+        let http = StubHTTPClient { _ in (502, Data()) }
+        let vienna = self.vienna
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return try await OverpassClient(http: http).places(around: vienna, radius: 250, language: .english)
+        }
+        task.cancel()
+        _ = await task.result
+        #expect(http.requests.count == 1)
     }
 }

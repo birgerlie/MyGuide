@@ -92,12 +92,12 @@ public enum WalkLogCodec {
             return ["state": found ? "found" : "lost"]
         case .fetchStarted(let c):
             return ["lat": coordinate(c.latitude), "lon": coordinate(c.longitude)]
-        case .fetched(let count, let top, let good, let wikiOnly, let places):
+        case .fetched(let count, let top, let good, let wikiOnly, let places, let osmFailed):
             let list: [[String: Any]] = places.map {
                 ["id": $0.id, "name": $0.name, "tier": $0.tier.rawValue,
                  "lat": coordinate($0.coordinate.latitude), "lon": coordinate($0.coordinate.longitude)]
             }
-            return ["count": count, "top": top, "good": good, "wikiOnly": wikiOnly, "places": list]
+            return ["count": count, "top": top, "good": good, "wikiOnly": wikiOnly, "places": list, "osmFailed": osmFailed]
         case .fetchFailed(let error):
             return ["error": error]
         case .quiet(let reason, let due):
@@ -228,7 +228,13 @@ public enum WalkLogCodec {
                 guard let id = string(p, "id"), let name = string(p, "name"), let tier = tier(p), let c = coord(p) else { return nil }
                 places.append(WalkLogPlace(id: id, name: name, tier: tier, coordinate: c))
             }
-            return .fetched(count: count, top: top, good: good, wikiOnly: wikiOnly, places: places)
+            // Absent in lines written before it existed: no failure then. Present, it must be a Bool.
+            var osmFailed = false
+            if o["osmFailed"] != nil {
+                guard let flag = bool(o, "osmFailed") else { return nil }
+                osmFailed = flag
+            }
+            return .fetched(count: count, top: top, good: good, wikiOnly: wikiOnly, places: places, osmFailed: osmFailed)
         case "fetchFailed":
             return string(o, "error").map { .fetchFailed(error: $0) }
         case "quiet":

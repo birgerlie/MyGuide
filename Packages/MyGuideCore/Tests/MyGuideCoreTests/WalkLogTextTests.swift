@@ -4,8 +4,10 @@ import Testing
 
 @Suite struct WalkLogTextTests {
     @Test func fetchedLine() {
-        let kind = WalkLogEvent.Kind.fetched(count: 34, top: 3, good: 12, wikiOnly: 19, places: [])
+        let kind = WalkLogEvent.Kind.fetched(count: 34, top: 3, good: 12, wikiOnly: 19, places: [], osmFailed: false)
         #expect(WalkLogText.line(kind) == "Fetched 34 places (3 top, 12 good)")
+        let failed = WalkLogEvent.Kind.fetched(count: 15, top: 0, good: 0, wikiOnly: 15, places: [], osmFailed: true)
+        #expect(WalkLogText.line(failed) == "Fetched 15 places (0 top, 0 good) · OpenStreetMap failed")
     }
 
     @Test func quietLines() {

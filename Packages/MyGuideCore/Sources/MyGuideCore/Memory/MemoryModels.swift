@@ -79,7 +79,7 @@ import SwiftData
     /// The highest story level saved for this place; a level counts as heard once saved.
     public var deepestLevelHeard: Int
     public var lastHeardAt: Date?
-    /// When the owner first skipped a buzz about this place; a skipped place never buzzes again.
+    /// When the owner last skipped a buzz about this place; it rests 30 days from then (spec 13.1).
     public var skippedAt: Date?
     public var lastBuzzedAt: Date?
     public var lastBuzzTripID: UUID?

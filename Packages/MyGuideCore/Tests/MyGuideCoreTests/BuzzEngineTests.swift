@@ -136,6 +136,21 @@ import Testing
         e.exclude("church")
         #expect(e.evaluate(places: [Self.place("church", .good, north: 10)], position: .at(), accuracy: 5, course: 0, now: Self.t0) == nil)
     }
+    @Test func clearedExclusionsBuzzAgain() {
+        // Spec 13.5: the reset button clears the running engine's exclusions, retired and buzzed this run alike.
+        var e = Self.engine(excluded: ["castle"])
+        let castle = Self.place("castle", .top, north: 10)
+        let before = e.decide(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.allExcluded, _) = before else { Issue.record("expected allExcluded, got \(before)"); return }
+        e.clearExclusions()
+        #expect(e.evaluate(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 1)?.place == castle)
+        // Buzzed now, so excluded again for the rest of the run, even with the budget refilled (3 600 s at 20/h).
+        let after = e.decide(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 3_600)
+        guard case .quiet(.allExcluded, _) = after else { Issue.record("expected allExcluded, got \(after)"); return }
+        e.clearExclusions()
+        // 20/h refills one buzz per 180 s; 3 600 s after the last buzz the budget is full, so the castle buzzes again.
+        #expect(e.evaluate(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 3_601)?.place == castle)
+    }
     @Test func inaccurateFixesChangeNothing() {
         // Review Focus 3: a 51 m fix must not put a place into the due set.
         var e = Self.engine(perHour: 5)

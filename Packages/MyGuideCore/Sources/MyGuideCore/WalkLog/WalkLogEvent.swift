@@ -140,7 +140,9 @@ public struct WalkLogEvent: Sendable, Equatable {
         case fix(WalkLogFix)
         case gps(found: Bool)
         case fetchStarted(Coordinate)
-        case fetched(count: Int, top: Int, good: Int, wikiOnly: Int, places: [WalkLogPlace])
+        /// `osmFailed`: OpenStreetMap failed (both endpoints) and only Wikipedia and carried places are listed
+        /// (spec 13.6); false in a line written before the field existed.
+        case fetched(count: Int, top: Int, good: Int, wikiOnly: Int, places: [WalkLogPlace], osmFailed: Bool)
         case fetchFailed(error: String)
         case quiet(QuietReason, due: [DuePlace])
         case buzz(WalkLogBuzz)
@@ -168,7 +170,7 @@ public struct WalkLogEvent: Sendable, Equatable {
     }
 
     /// Counts over every place; the listed places are capped at 150 by tier, then distance from `around`.
-    public static func fetched(_ places: [WalkingPlace], around: Coordinate) -> Kind {
+    public static func fetched(_ places: [WalkingPlace], around: Coordinate, osmFailed: Bool) -> Kind {
         let ranked = places
             .map { ($0, GeoMath.distance(around, $0.candidate.coordinate)) }
             .sorted { a, b in
@@ -183,6 +185,7 @@ public struct WalkLogEvent: Sendable, Equatable {
             top: places.filter { $0.tier == .top }.count,
             good: places.filter { $0.tier == .good }.count,
             wikiOnly: places.filter { $0.tier == .wikiOnly }.count,
-            places: Array(ranked))
+            places: Array(ranked),
+            osmFailed: osmFailed)
     }
 }

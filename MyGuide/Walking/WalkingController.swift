@@ -39,6 +39,10 @@ final class WalkingController {
     private(set) var lastFixAt: Date?
     /// Set on every delivered buzz; the map selects this place explicitly when the app is active (spec 12.2).
     private(set) var lastBuzz: (placeID: String, at: Date)?
+    /// Why the engine stayed quiet at the last fix; nil after a buzz, before the first decision and while off.
+    private(set) var lastQuietReason: QuietReason?
+    /// True while walking mode is on and the engine is quiet because every due place is used (spec 13.7).
+    var heardEverythingNearby: Bool { isOn && lastQuietReason == .allExcluded }
     /// The pause in progress: `auto` from the pause detector, `manual` from the owner's Pause (phone or watch), which
     /// holds until Resume. Nil while active. While paused: no buzzes, fetches, stop detection, track or route (spec 5.4).
     private(set) var pauseKind: WalkingPauseKind?
@@ -51,7 +55,7 @@ final class WalkingController {
     /// Called with the start's source once a start has succeeded (walking mode is on); not for a refused or cancelled
     /// start. A phone start launches the watch app through it (spec 5.3).
     @ObservationIgnored var onStarted: ((WalkSource) -> Void)?
-    /// The walking stories: prepared at buzz time, played, continued and skipped.
+    /// The walking stories: their text prepared at buzz time, played, continued and skipped.
     let stories: WalkingStories
 
     @ObservationIgnored private let memory: MemoryStore
@@ -246,9 +250,10 @@ final class WalkingController {
             trip = UUID()
         }
         tripID = trip
+        // Only places heard, read or skipped in the last 30 days (spec 13.1). A buzz earlier in the trip that was
+        // never read may come again (spec 13.3); within this run the engine excludes every place it buzzes.
         var excluded = Set<String>()
-        do { excluded.formUnion(try memory.retiredPlaceIDs()) } catch { fail("retired places failed", error) }
-        do { excluded.formUnion(try memory.placeIDsBuzzed(tripID: trip)) } catch { fail("buzzed places failed", error) }
+        do { excluded = try memory.retiredPlaceIDs(now: now) } catch { fail("retired places failed", error) }
 
         stopSpots = []
         do { stopSpots = try memory.stopSpots(tripID: trip) } catch { fail("stop spots failed", error) }
@@ -278,6 +283,7 @@ final class WalkingController {
         resetRoute()
         buzzCount = 0
         lastFixAt = nil
+        lastQuietReason = nil
         startedAt = now
         resumedAt = nil
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -330,6 +336,7 @@ final class WalkingController {
         fetchTask = nil
         feed.fetchCancelled()
         engine = nil
+        lastQuietReason = nil
         stopDetector = nil
         problems = []
         activity.endCurrent()
@@ -384,14 +391,21 @@ final class WalkingController {
         if let command = BuzzNotifier.command(for: response) { handle(command) }
     }
 
-    /// A level of a story about this place started playing: it never buzzes again this run (memory retires it for
-    /// later runs).
+    /// A level of a story about this place started playing, or its story was opened: it does not buzz again this run
+    /// (memory rests it for 30 days).
     func noteHeard(placeID: String) {
         engine?.exclude(placeID)
     }
 
-    /// Called by `WalkingStories` when a level of a `.chosen` story starts playing: the place never buzzes this run.
-    /// `WalkingStories` has already marked it heard in memory, which retires it for later runs (spec 12.1).
+    /// The reset button (spec 13.5), after memory's `resetPlaceNotifications()`: the running engine forgets every
+    /// exclusion, so every place nearby may buzz again in this run too. Nothing while walking mode is off.
+    func resetExclusions() {
+        engine?.clearExclusions()
+        if lastQuietReason == .allExcluded { lastQuietReason = nil }
+    }
+
+    /// Called by `WalkingStories` when a level of a `.chosen` story starts playing: the place does not buzz this run.
+    /// `WalkingStories` has already marked it heard in memory, which rests it for 30 days (spec 12.1, 13.1).
     func noteChosenHeard(_ place: Candidate) {
         engine?.exclude(place.id)
     }
@@ -688,9 +702,12 @@ final class WalkingController {
         case .buzz(let buzz):
             walkLog.log(.buzz(WalkLogBuzz(buzz)), at: now)
             walkLog.resetQuiet()
+            if lastQuietReason != nil { lastQuietReason = nil }
             deliver(buzz, position: position, direction: direction, at: now)
         case .quiet(let reason, let due):
             walkLog.logQuiet(reason, due: due, at: now)
+            // Set only on a change: every fix decides, and the panel redraws on each write.
+            if lastQuietReason != reason { lastQuietReason = reason }
         case nil:
             break
         }
@@ -879,7 +896,7 @@ final class WalkingController {
                    self.runToken == run, !Task.isCancelled {
                     let places = list.walkingPlaces
                     self.feed.fetchSucceeded(places, at: list.centre, now: .now)
-                    self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre))
+                    self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed))
                 } else if self.runToken == run {
                     self.feed.fetchCancelled()
                 }
@@ -899,7 +916,7 @@ final class WalkingController {
                 // A refresh already under way (the camera's) is joined; its list is centred where that one started.
                 let places = list.walkingPlaces
                 self.feed.fetchSucceeded(places, at: list.centre, now: .now)
-                self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre))
+                self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
                 // A real failure waits 60 s before the next try.
                 self.feed.fetchFailed(now: .now)

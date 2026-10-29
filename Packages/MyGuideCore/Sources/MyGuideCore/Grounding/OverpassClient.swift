@@ -2,7 +2,11 @@ import Foundation
 
 /// Fetches named historic places and buildings near a point from OpenStreetMap via Overpass.
 public struct OverpassClient: Sendable {
-    static let endpoint = URL(string: "https://overpass-api.de/api/interpreter")!
+    /// The main Overpass server, then a second one tried once when the first fails (spec 13.6).
+    static let endpoints = [
+        URL(string: "https://overpass-api.de/api/interpreter")!,
+        URL(string: "https://overpass.kumi.systems/api/interpreter")!,
+    ]
     static let userAgent = "MyGuide/0.1 (https://github.com/birgerlie/MyGuide)"
 
     private static let excludedAmenities: Set<String> = [
@@ -40,8 +44,33 @@ public struct OverpassClient: Sendable {
         """
     }
 
+    /// The places from the first endpoint; when it fails (HTTP error, timeout, malformed answer, runtime remark) the
+    /// same query goes once to the second, and when that fails too the first error is thrown. Cancellation (also
+    /// `URLError.cancelled`, or a cancelled task) is thrown at once and never retried.
     public func places(around: Coordinate, radius: Int, language: StoryLanguage) async throws -> [Candidate] {
-        var request = URLRequest(url: Self.endpoint)
+        var firstError: Error?
+        for endpoint in Self.endpoints {
+            do {
+                return try await places(from: endpoint, around: around, radius: radius, language: language)
+            } catch {
+                if Self.isCancellation(error) { throw error }
+                if firstError == nil { firstError = error }
+                if Task.isCancelled { break }
+            }
+        }
+        // `endpoints` is never empty, so the loop either returned or recorded an error before it ended.
+        throw firstError ?? GroundingFetchError.malformed
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let error = error as? URLError, error.code == .cancelled { return true }
+        return false
+    }
+
+    private func places(from endpoint: URL, around: Coordinate, radius: Int,
+                        language: StoryLanguage) async throws -> [Candidate] {
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 12
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")

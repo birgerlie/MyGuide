@@ -2,11 +2,36 @@ import MyGuideCore
 import SwiftUI
 
 /// The walking story that is playing or ready, above the capture controls: its title (tap to open it), Play/Stop,
-/// More and, for a buzz story, Skip.
+/// More and, for a buzz story, Skip. Above it, while the engine is quiet because every due place is used, a line
+/// says so (spec 13.7).
 struct WalkingPanel: View {
-    let stories: WalkingStories
+    let walking: WalkingController
+
+    @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
+
+    private var stories: WalkingStories { walking.stories }
 
     var body: some View {
+        VStack(spacing: 8) {
+            if walking.heardEverythingNearby {
+                Label(Self.heardEverythingText(storyLanguage), systemImage: "checkmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
+            }
+            storyRow
+        }
+    }
+
+    static func heardEverythingText(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Du har hørt om alt i nærheten" : "You've heard about everything nearby"
+    }
+
+    @ViewBuilder
+    private var storyRow: some View {
         if let story = stories.featuredStory {
             let playing = stories.listening?.id == story.id
             HStack(spacing: 12) {

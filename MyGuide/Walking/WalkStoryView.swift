@@ -3,7 +3,8 @@ import SwiftUI
 
 /// A walking story in the app (a tap on its notification, or the panel's title): title, every level's text with a
 /// speaker button, "Tell me more" and "Skip this place". The buttons send the same commands as the notifications,
-/// so this is also the last fallback when the lock screen fails.
+/// so this is also the last fallback when the lock screen fails. Opening a buzz or chosen story counts as reading it
+/// (spec 13.2), once per opening, as soon as its text shows.
 struct WalkStoryView: View {
     let stories: WalkingStories
     let id: UUID
@@ -11,6 +12,8 @@ struct WalkStoryView: View {
     /// The story as saved in memory, for one from an earlier run; read once when the screen opens.
     @State private var stored: WalkStory?
     @State private var loaded = false
+    /// The story this screen has marked read; at most once per opening.
+    @State private var markedRead: UUID?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -20,7 +23,16 @@ struct WalkStoryView: View {
             .task(id: id) {
                 stored = stories.storedStory(id)
                 loaded = true
+                markReadOnce()
             }
+            // A story still preparing when the screen opened is read once its text arrives.
+            .onChange(of: story != nil) { markReadOnce() }
+    }
+
+    private func markReadOnce() {
+        guard loaded, markedRead != id, let story else { return }
+        markedRead = id
+        stories.markRead(story)
     }
 
     /// The prepared copy gains levels as they arrive; the stored one covers stories no longer prepared.

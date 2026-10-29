@@ -70,7 +70,7 @@ struct HomeScreen: View {
                         MemoryUnavailableNotice(fallback: fallback).clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     WalkingStatusPill(controller: services.walking)
-                    if services.walking.isOn { WalkingPanel(stories: services.walking.stories) }
+                    if services.walking.isOn { WalkingPanel(walking: services.walking) }
                     content
                 }
                 .padding()

@@ -10,6 +10,7 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     private var calls = 0
     private var waiters: [CheckedContinuation<[Candidate], Error>] = []
     private var result: Result<[Candidate], Error>
+    private var osmFailed = false
     private let suspends: Bool
     private var released = false
 
@@ -21,7 +22,12 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     var count: Int { lock.withLock { calls } }
     var isWaiting: Bool { lock.withLock { !waiters.isEmpty } }
 
-    func set(_ result: Result<[Candidate], Error>) { lock.withLock { self.result = result } }
+    func set(_ result: Result<[Candidate], Error>, osmFailed: Bool = false) {
+        lock.withLock {
+            self.result = result
+            self.osmFailed = osmFailed
+        }
+    }
 
     func resume() {
         let (waiters, result) = lock.withLock { () -> ([CheckedContinuation<[Candidate], Error>], Result<[Candidate], Error>) in
@@ -34,15 +40,16 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
         for waiter in waiters { waiter.resume(with: result) }
     }
 
-    func candidates(around: Coordinate, language: StoryLanguage) async throws -> [Candidate] {
-        let (result, released) = lock.withLock { () -> (Result<[Candidate], Error>, Bool) in
+    func candidates(around: Coordinate, language: StoryLanguage) async throws -> PlaceSearchResult {
+        let (result, released, osmFailed) = lock.withLock { () -> (Result<[Candidate], Error>, Bool, Bool) in
             calls += 1
-            return (self.result, self.released)
+            return (self.result, self.released, self.osmFailed)
         }
-        guard suspends, !released else { return try result.get() }
-        return try await withCheckedThrowingContinuation { continuation in
+        guard suspends, !released else { return PlaceSearchResult(candidates: try result.get(), osmFailed: osmFailed) }
+        let candidates = try await withCheckedThrowingContinuation { continuation in
             lock.withLock { waiters.append(continuation) }
         }
+        return PlaceSearchResult(candidates: candidates, osmFailed: osmFailed)
     }
 }
 
@@ -722,5 +729,105 @@ private struct Boom: Error {}
         // A failed fetch after the restart keeps the stored list as the fallback.
         await #expect(throws: Boom.self) { try await restarted.refresh(at: .at(), language: .english) }
         #expect(await restarted.current(language: .english) == saved)
+    }
+
+    // MARK: - Carrying OpenStreetMap places forward (spec 13.6)
+
+    static func article(_ name: String, north: Double) -> Candidate {
+        Candidate(id: "wiki:en/\(name)", name: name, coordinate: .at(north: north), kind: "wikipedia",
+                  summary: "An article.", wikipediaTitle: "en:\(name)")
+    }
+
+    /// A first list at `.at()` with two OSM castles and an article at t0, then a refresh at `north` metres, `age`
+    /// seconds later, whose OSM part failed (only an article came back).
+    static func refreshAfterOSMFailure(north: Double, age: TimeInterval,
+                                       language: StoryLanguage = .english) async throws -> NearbyList {
+        let fetcher = StubFetcher(.success([castle("Burg", north: 30), castle("Far", north: -200),
+                                            article("Old article", north: 10)]))
+        let clock = LockedBox(t0)
+        let nearby = places(fetcher, clock: clock)
+        let first = try await nearby.refresh(at: .at(), language: language)
+        #expect(!first.osmFailed)
+        clock.set(t0 + age)
+        fetcher.set(.success([article("New article", north: north + 5)]), osmFailed: true)
+        return try await nearby.refresh(at: .at(north: north), language: language)
+    }
+
+    @Test func previousOSMPlacesCarriedForward() async throws {
+        // 6 days = 6 × 86 400 = 518 400 s ≤ 7 days (604 800 s); centre 400 m ≤ 500 m away.
+        let list = try await Self.refreshAfterOSMFailure(north: 400, age: 518_400)
+        #expect(list.osmFailed)
+        // "Burg" (north 30) is 400 − 30 = 370 m from the new centre: carried. "Far" (north −200) is 400 + 200 = 600 m
+        // away, beyond the 500 m search radius: left behind. The old article is not OSM: not carried.
+        #expect(list.candidates.map(\Candidate.id) == ["osm:node/Burg", "wiki:en/New article"])
+        #expect(list.fetchedAt == Self.t0 + 518_400 && list.centre == .at(north: 400))
+    }
+    @Test func previousOSMPlacesNotCarriedWhenTooFarOrTooOld() async throws {
+        // 600 m > 500 m.
+        let far = try await Self.refreshAfterOSMFailure(north: 600, age: 518_400)
+        #expect(far.osmFailed && far.candidates.map(\Candidate.id) == ["wiki:en/New article"])
+        // 8 days = 691 200 s > 604 800 s.
+        let old = try await Self.refreshAfterOSMFailure(north: 400, age: 691_200)
+        #expect(old.osmFailed && old.candidates.map(\Candidate.id) == ["wiki:en/New article"])
+        // Exactly 7 days (604 800 s) still carries; one second more does not.
+        let sevenDays = try await Self.refreshAfterOSMFailure(north: 400, age: 604_800)
+        #expect(sevenDays.candidates.map(\Candidate.id) == ["osm:node/Burg", "wiki:en/New article"])
+        let justOver = try await Self.refreshAfterOSMFailure(north: 400, age: 604_801)
+        #expect(justOver.candidates.map(\Candidate.id) == ["wiki:en/New article"])
+    }
+    @Test func previousListFromTheFutureIsNotCarried() async throws {
+        // A clock set back: the old list's age is unknown, so nothing is carried.
+        let list = try await Self.refreshAfterOSMFailure(north: 0, age: -120)
+        #expect(list.candidates.map(\Candidate.id) == ["wiki:en/New article"])
+    }
+    @Test func carriedPlacesMergeWithTheNewArticles() async throws {
+        // The carried castle and a new article about it (same title) become one candidate, the OSM one.
+        let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30, title: "en:Burg")]))
+        let clock = LockedBox(Self.t0)
+        let nearby = Self.places(fetcher, clock: clock)
+        try await nearby.refresh(at: .at(), language: .english)
+        clock.set(Self.t0 + 3_600)
+        let same = Candidate(id: "wiki:en/Burg", name: "Burg Castle", coordinate: .at(north: 31), kind: "wikipedia",
+                             summary: "The castle.", wikipediaTitle: "en:Burg")
+        fetcher.set(.success([same]), osmFailed: true)
+        let list = try await nearby.refresh(at: .at(north: 100), language: .english)
+        #expect(list.candidates.map(\Candidate.id) == ["osm:node/Burg"])
+        #expect(list.candidates.first?.summary == "The castle.")
+    }
+    @Test func nothingCarriedWhenOSMAnswers() async throws {
+        let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30)]))
+        let clock = LockedBox(Self.t0)
+        let nearby = Self.places(fetcher, clock: clock)
+        try await nearby.refresh(at: .at(), language: .english)
+        clock.set(Self.t0 + 3_600)
+        fetcher.set(.success([Self.castle("Tower", north: 120)]))
+        let list = try await nearby.refresh(at: .at(north: 100), language: .english)
+        #expect(!list.osmFailed && list.candidates.map(\Candidate.id) == ["osm:node/Tower"])
+    }
+    @Test func storedListIsCarriedAfterARelaunch() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = NearbyListStore(directory: directory)
+        try store.save(Self.list(language: .norwegian))
+        let fetcher = StubFetcher(.success([]))
+        fetcher.set(.success([]), osmFailed: true)
+        let clock = LockedBox(Self.t0 + 86_400)
+        let nearby = Self.places(fetcher, store: store, clock: clock)
+        let list = try await nearby.refresh(at: .at(north: 50), language: .norwegian)
+        #expect(list.osmFailed && list.candidates.map(\Candidate.id) == ["osm:node/Burg"])
+        // The other language's list is never used.
+        let english = try await nearby.refresh(at: .at(north: 50), language: .english)
+        #expect(english.candidates.isEmpty)
+    }
+    @Test func osmFailedDecodesAsFalseFromAnOldFile() throws {
+        let list = Self.list()
+        var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(list)) as? [String: Any])
+        #expect(json["osmFailed"] as? Bool == false)
+        json["osmFailed"] = nil
+        let old = try JSONDecoder().decode(NearbyList.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(old == list && !old.osmFailed)
+        var failed = list
+        failed.osmFailed = true
+        #expect(try JSONDecoder().decode(NearbyList.self, from: JSONEncoder().encode(failed)) == failed)
     }
 }

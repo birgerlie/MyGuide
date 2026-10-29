@@ -27,7 +27,8 @@ import Testing
             .fetched(count: 2, top: 1, good: 1, wikiOnly: 0, places: [
                 WalkLogPlace(id: "osm:node/1", name: "Akershus festning", tier: .top, coordinate: c),
                 WalkLogPlace(id: "wiki:en/2", name: "Rådhuset", tier: .good, coordinate: c),
-            ]),
+            ], osmFailed: false),
+            .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true),
             .fetchFailed(error: "timeout \"x\""),
             .quiet(.busy, due: [DuePlace(id: "osm:node/1", name: "Akershus festning", tier: .top, distance: 52, excluded: true)]),
             .quiet(.noneDue, due: []),
@@ -66,7 +67,7 @@ import Testing
     }
 
     @Test func everyCaseIsCovered() {
-        // 23 cases in Kind; the list above has 31 events (some cases twice). Distinct event names must be all 23.
+        // 23 cases in Kind; the list above has 32 events (some cases twice). Distinct event names must be all 23.
         let names = Set(Self.everyKind.map { Self.json(WalkLogEvent(at: Self.t0, kind: $0))["e"] as! String })
         #expect(names.count == 23)
     }
@@ -191,8 +192,9 @@ import Testing
         // 160 places at increasing distance: indices 0..9 top, 10..109 good, 110..159 wikiOnly; fed in reverse order.
         var places: [WalkingPlace] = []
         for i in 0..<160 { places.append(place(i, i < 10 ? .top : (i < 110 ? .good : .wikiOnly))) }
-        let kind = WalkLogEvent.fetched(places.reversed(), around: around)
-        guard case .fetched(let count, let top, let good, let wikiOnly, let listed) = kind else { Issue.record("not fetched"); return }
+        let kind = WalkLogEvent.fetched(places.reversed(), around: around, osmFailed: false)
+        guard case .fetched(let count, let top, let good, let wikiOnly, let listed, let osmFailed) = kind else { Issue.record("not fetched"); return }
+        #expect(!osmFailed)
         #expect(count == 160)
         #expect(top == 10)
         #expect(good == 100)
@@ -204,6 +206,24 @@ import Testing
         #expect(listed[110...].allSatisfy { $0.tier == .wikiOnly })
         #expect(listed.first?.id == "p0")
         #expect(listed.last?.id == "p149")
+    }
+
+    @Test func fetchedEventCarriesOSMFailedAndOldLinesDecode() throws {
+        let failed = WalkLogEvent.fetched([], around: Self.c, osmFailed: true)
+        #expect(failed == .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true))
+        let o = Self.json(WalkLogEvent(at: Self.t0, kind: failed))
+        #expect(o["osmFailed"] as? Bool == true)
+        let ok = Self.json(WalkLogEvent(at: Self.t0, kind: WalkLogEvent.fetched([], around: Self.c, osmFailed: false)))
+        #expect(ok["osmFailed"] as? Bool == false)
+        // A line written before osmFailed existed reads as no failure.
+        let old = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":1,"top":1,"good":0,"wikiOnly":0,"places":[{"id":"osm:node/1","name":"A","tier":1,"lat":59.9,"lon":10.7}]}"#
+        let kind = try #require(WalkLogCodec.event(from: Data(old.utf8))?.kind)
+        #expect(kind == .fetched(count: 1, top: 1, good: 0, wikiOnly: 0, places: [
+            WalkLogPlace(id: "osm:node/1", name: "A", tier: .top, coordinate: Coordinate(latitude: 59.9, longitude: 10.7)),
+        ], osmFailed: false))
+        // A present but unreadable value makes the line unreadable, like every other field.
+        let bad = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":"yes"}"#
+        #expect(WalkLogCodec.event(from: Data(bad.utf8)) == nil)
     }
 
     @Test func unknownEventIsUnreadable() {

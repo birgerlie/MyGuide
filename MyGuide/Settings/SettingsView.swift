@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var errorText: String?
     @State private var totals: UsageTotals?
     @State private var totalsFailed = false
+    @State private var confirmingReset = false
+    @State private var resetFailed = false
     @AppStorage(AppServices.storyLanguageKey) private var storyLanguage: StoryLanguage = .english
     @AppStorage(WalkingController.buzzesPerHourKey) private var buzzesPerHour = BuzzBudget.defaultPerHour
     @AppStorage(BackgroundPlaces.settingKey) private var prepareBackgroundPlaces = true
@@ -78,6 +80,17 @@ struct SettingsView: View {
                 }
                 NavigationLink("Buzz log") { BuzzLogView(services: services) }
                 NavigationLink("Walk log") { WalkLogListView(services: services) }
+                Button(ResetText.button(storyLanguage), role: .destructive) { confirmingReset = true }
+                    .confirmationDialog(ResetText.button(storyLanguage), isPresented: $confirmingReset,
+                                        titleVisibility: .visible) {
+                        Button(ResetText.confirm(storyLanguage), role: .destructive) { resetPlaceNotifications() }
+                        Button(ResetText.cancel(storyLanguage), role: .cancel) {}
+                    } message: {
+                        Text(ResetText.message(storyLanguage))
+                    }
+                if resetFailed {
+                    Text(ResetText.failed(storyLanguage)).font(.footnote).foregroundStyle(.red)
+                }
             } header: {
                 Text("Walking")
             } footer: {
@@ -117,6 +130,19 @@ struct SettingsView: View {
                 prepareBackgroundPlaces = on
                 if on { BackgroundPlaces.shared.settingTurnedOn() } else { BackgroundPlaces.shared.stop() }
             })
+    }
+
+    /// Spec 13.5: every place may notify again, in memory and in a walk already running; stories, diary and the
+    /// buzz log stay. A memory failure is logged and shown, and the running walk is then left as it was.
+    private func resetPlaceNotifications() {
+        do {
+            try services.memory.resetPlaceNotifications()
+            services.walking.resetExclusions()
+            resetFailed = false
+        } catch {
+            AppServices.logMemoryFailure("place notification reset failed", error)
+            resetFailed = true
+        }
     }
 
     private var trimmedDraft: String {
@@ -167,6 +193,31 @@ struct SettingsView: View {
             savedKeySuffix = nil
             errorText = "Couldn't read the Keychain: \(error)"
         }
+    }
+}
+
+/// The reset button's texts in the story language (spec 13.5).
+enum ResetText {
+    static func button(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Nullstill stedsvarsler" : "Reset place notifications"
+    }
+
+    static func message(_ language: StoryLanguage) -> String {
+        language == .norwegian
+            ? "Alle steder kan gi varsel igjen. Fortellinger og dagbok beholdes."
+            : "Every place can notify you again. Stories and diary are kept."
+    }
+
+    static func confirm(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Nullstill" : "Reset"
+    }
+
+    static func cancel(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Avbryt" : "Cancel"
+    }
+
+    static func failed(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Kunne ikke nullstille stedsvarslene." : "Couldn't reset the place notifications."
     }
 }
 
