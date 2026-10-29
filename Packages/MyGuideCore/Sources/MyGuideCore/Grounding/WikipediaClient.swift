@@ -87,7 +87,8 @@ public struct WikipediaClient: Sendable {
             kind: "wikipedia",
             summary: summary,
             wikipediaTitle: "\(code):\(page.title)",
-            wikidata: page.pageprops?.wikibase_item
+            wikidata: page.pageprops?.wikibase_item,
+            summaryLanguage: summary == nil ? nil : code
         )
     }
 

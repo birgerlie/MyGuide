@@ -15,10 +15,14 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
     /// The whitelisted OSM tags (`OverpassClient.keptTagKeys`); nil for Wikipedia-only candidates and for
     /// groundings stored before tags existed.
     public var tags: [String: String]?
+    /// Wikipedia language code of the article `summary` came from ("no", "en"); it can differ from the
+    /// `wikipediaTitle` language when a Wikipedia summary was merged into an OSM candidate. Nil for candidates
+    /// stored before it existed (the synthesized decoder reads optionals with decodeIfPresent).
+    public var summaryLanguage: String?
 
     public init(id: String, name: String, coordinate: Coordinate, kind: String,
                 summary: String? = nil, wikipediaTitle: String? = nil, wikidata: String? = nil,
-                tags: [String: String]? = nil) {
+                tags: [String: String]? = nil, summaryLanguage: String? = nil) {
         self.id = id
         self.name = name
         self.coordinate = coordinate
@@ -27,6 +31,7 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
         self.wikipediaTitle = wikipediaTitle
         self.wikidata = wikidata
         self.tags = tags
+        self.summaryLanguage = summaryLanguage
     }
 }
 

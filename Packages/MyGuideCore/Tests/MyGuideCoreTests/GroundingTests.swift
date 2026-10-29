@@ -126,10 +126,36 @@ import Testing
         #expect(merged.count == 1)
         #expect(merged[0].tags == ["historic": "city_gate"] && merged[0].summary == "Gate story.")
     }
+    @Test func mergeCarriesSummaryLanguageWithTheSummary() {
+        // OSM place titled in Italian; the Norwegian article (same Q id) donates its summary and its language.
+        var o = Self.cand("osm:way/1", n: 0, e: 0, name: "Pantheon", wiki: "it:Pantheon", q: "Q99")
+        o.tags = ["historic": "church"]
+        var w = Self.cand("wiki:no/5", n: 0, e: 1, name: "Pantheon i Roma", wiki: "no:Pantheon", q: "Q99",
+                          summary: "Pantheon er et tempel.")
+        w.summaryLanguage = "no"
+        let merged = CandidateRanker.merge(osm: [o], wiki: [w])
+        #expect(merged.count == 1)
+        #expect(merged[0].wikipediaTitle == "it:Pantheon")
+        #expect(merged[0].summary == "Pantheon er et tempel." && merged[0].summaryLanguage == "no")
+        // An OSM candidate with its own summary keeps it and its own (nil) language.
+        var own = o
+        own.summary = "Egen tekst."
+        let kept = CandidateRanker.merge(osm: [own], wiki: [w])
+        #expect(kept[0].summary == "Egen tekst." && kept[0].summaryLanguage == nil)
+    }
+    @Test func droppedTwinDonatesSummaryLanguage() {
+        // Same name within 50 m: the Wikipedia twin is dropped and donates summary + language.
+        let o = Self.cand("osm:way/1", n: 0, e: 0, name: "Hofburg")
+        var w = Self.cand("wiki:en/1", n: 5, e: 0, name: "Hofburg", summary: "Palace story.")
+        w.summaryLanguage = "en"
+        let merged = CandidateRanker.merge(osm: [o], wiki: [w])
+        #expect(merged.map(\.id) == ["osm:way/1"])
+        #expect(merged[0].summary == "Palace story." && merged[0].summaryLanguage == "en")
+    }
     @Test func candidateDecodesWithoutTags() throws {
         let json = #"{"id":"osm:node/1","name":"A","coordinate":{"latitude":1,"longitude":2},"kind":"historic=yes"}"#
         let c = try JSONDecoder().decode(Candidate.self, from: Data(json.utf8))
-        #expect(c.tags == nil && c.name == "A")
+        #expect(c.tags == nil && c.name == "A" && c.summaryLanguage == nil)
         let round = try JSONDecoder().decode(Candidate.self, from: JSONEncoder().encode(c))
         #expect(round == c)
     }

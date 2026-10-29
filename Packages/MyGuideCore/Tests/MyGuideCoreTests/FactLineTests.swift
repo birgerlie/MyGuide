@@ -4,9 +4,9 @@ import Testing
 
 @Suite struct FactLineTests {
     static func candidate(id: String = "osm:node/1", title: String? = nil, summary: String? = nil,
-                          tags: [String: String]? = nil) -> Candidate {
+                          tags: [String: String]? = nil, summaryLanguage: String? = nil) -> Candidate {
         Candidate(id: id, name: "X", coordinate: Coordinate(latitude: 59.9, longitude: 10.7), kind: "historic=church",
-                  summary: summary, wikipediaTitle: title, tags: tags)
+                  summary: summary, wikipediaTitle: title, tags: tags, summaryLanguage: summaryLanguage)
     }
 
     @Test func firstSentenceOfSameLanguageSummary() {
@@ -16,10 +16,11 @@ import Testing
     }
 
     @Test func summaryInOtherLanguageFallsToKindLabel() {
-        let c = Self.candidate(title: "en:Church", summary: "A church. Built long ago.", tags: ["historic": "church"])
+        let c = Self.candidate(title: "en:Church", summary: "A church on the old square. Built long ago.",
+                               tags: ["historic": "church"])
         #expect(FactLine.text(for: c, language: .norwegian) == "Kirke")
         // same candidate, English story: the summary is used
-        #expect(FactLine.text(for: c, language: .english) == "A church.")
+        #expect(FactLine.text(for: c, language: .english) == "A church on the old square.")
     }
 
     @Test func summaryWithoutArticleLanguageIsNotUsed() {
@@ -28,17 +29,17 @@ import Testing
     }
 
     @Test func wikiIDGivesLanguageWhenNoTitle() {
-        let c = Self.candidate(id: "wiki:en/12", summary: "Hello there. More.")
-        #expect(FactLine.text(for: c, language: .english) == "Hello there.")
+        let c = Self.candidate(id: "wiki:en/12", summary: "Hello there, old friend. More.")
+        #expect(FactLine.text(for: c, language: .english) == "Hello there, old friend.")
     }
 
     @Test func sentenceBoundaries() {
         func first(_ s: String) -> String? {
             FactLine.text(for: Self.candidate(title: "en:A", summary: s), language: .english)
         }
-        #expect(first("Is it old? Yes it is.") == "Is it old?")
-        #expect(first("Wow! Nice.") == "Wow!")
-        #expect(first("Built in 1890. 12 people lived here.") == "Built in 1890.")
+        #expect(first("Is it really very old? Yes it is.") == "Is it really very old?")
+        #expect(first("Wow, what a sight to see! Nice.") == "Wow, what a sight to see!")
+        #expect(first("Built in the year 1890. 12 people lived here.") == "Built in the year 1890.")
         // lowercase after the period is not a boundary
         #expect(first("Founded in the 13th c. by monks. Later rebuilt.") == "Founded in the 13th c. by monks.")
         // no terminator: whole text
@@ -46,10 +47,76 @@ import Testing
         // single sentence ending the text
         #expect(first("Only one.") == "Only one.")
         // Norwegian capital letters count
-        #expect(FactLine.text(for: Self.candidate(title: "no:A", summary: "Første. Åpnet 1900."), language: .norwegian)
-                == "Første.")
+        #expect(FactLine.text(for: Self.candidate(title: "no:A", summary: "Første kirke i byen. Åpnet 1900."),
+                              language: .norwegian) == "Første kirke i byen.")
         // empty / blank summary falls through
         #expect(first("   ") == nil)
+    }
+
+    @Test func abbreviationsDoNotEndTheSentence() {
+        func first(_ s: String) -> String? { FactLine.firstSentence(s) }
+        // "ca." before a digit is listed; "e.Kr." before a capital keeps the ordinary rule and ends the sentence.
+        #expect(first("Pantheon ble bygget ca. 125 e.Kr. Senere ble det en kirke.")
+                == "Pantheon ble bygget ca. 125 e.Kr.")
+        // single letter inside a bracket: "(f." → "f."
+        #expect(first("Ole Bull (f. 1810) var en fiolinist. Han reiste mye.") == "Ole Bull (f. 1810) var en fiolinist.")
+        #expect(first("St. Olavs kirke er en kirke. Den ligger i Oslo.") == "St. Olavs kirke er en kirke.")
+        // case-insensitive list entries
+        #expect(first("Huset har bl.a. Et tårn og en hage. Det er gammelt.") == "Huset har bl.a. Et tårn og en hage.")
+        #expect(first("Åpent fra kl. 10 til seint på kvelden. Gratis.") == "Åpent fra kl. 10 til seint på kvelden.")
+        #expect(first("Named for John F. Kennedy in the sixties. Later renamed.")
+                == "Named for John F. Kennedy in the sixties.")
+        #expect(first("The house of Dr. Watson stands here. It is old.") == "The house of Dr. Watson stands here.")
+        // a word that merely ends in a listed abbreviation's letters is not one: "Moscow." is a boundary
+        #expect(first("The road ended right in Moscow. Then winter came.") == "The road ended right in Moscow.")
+        // abbreviation at the very end: the whole text
+        #expect(first("Bygget av steinhoggere osv. ca.") == "Bygget av steinhoggere osv. ca.")
+    }
+
+    @Test func shortSentenceJoinsTheNext() {
+        func first(_ s: String) -> String? { FactLine.firstSentence(s) }
+        // Hand: "Built 1890." = 11 < 20 → passed over; "Built 1890. Rebuilt in 1920." = 11 + 1 + 16 = 28 → kept.
+        #expect(first("Built 1890. Rebuilt in 1920. Closed.") == "Built 1890. Rebuilt in 1920.")
+        // Boundary: "A sentence of 19 ch." … hand: "abcdefghijklmnopqr." = 18 + 1 = 19 < 20 → joined;
+        // "abcdefghijklmnopqrs." = 19 + 1 = 20 ≥ 20 → ends there.
+        let nineteen = "abcdefghijklmnopqr."
+        let twenty = "abcdefghijklmnopqrs."
+        #expect(nineteen.count == 19)
+        #expect(twenty.count == 20)
+        #expect(first(nineteen + " Next one here.") == nineteen + " Next one here.")
+        #expect(first(twenty + " Next one here.") == twenty)
+        // a short text that ends: returned whole, the length floor only applies while the text continues
+        #expect(first("Short.") == "Short.")
+        // short sentence and nothing qualifying after it: the whole text
+        #expect(first("Short. and lowercase on") == "Short. and lowercase on")
+    }
+
+    @Test func summaryLanguageWinsOverTitle() {
+        // OSM place with an Italian article title, but the merged summary came from no.wikipedia: Norwegian sentence.
+        let it = Self.candidate(title: "it:Pantheon", summary: "Pantheon er et romersk tempel. Det ble bygget av Hadrian.",
+                                tags: ["historic": "church"], summaryLanguage: "no")
+        #expect(FactLine.text(for: it, language: .norwegian) == "Pantheon er et romersk tempel.")
+        #expect(FactLine.articleLanguage(it) == "no")
+        // Norwegian title, English summary, Norwegian story: the kind label, not the English sentence.
+        let en = Self.candidate(title: "no:Pantheon", summary: "The Pantheon is a Roman temple. Built by Hadrian.",
+                                tags: ["historic": "church"], summaryLanguage: "en")
+        #expect(FactLine.text(for: en, language: .norwegian) == "Kirke")
+        #expect(FactLine.text(for: en, language: .english) == "The Pantheon is a Roman temple.")
+        // empty summaryLanguage falls back to the title rule
+        #expect(FactLine.articleLanguage(Self.candidate(title: "de:Foo", summaryLanguage: "")) == "de")
+    }
+
+    @Test func candidateStoredWithoutSummaryLanguageStillWorks() throws {
+        // JSON as stored before the field existed.
+        let json = #"{"id":"osm:node/1","name":"X","coordinate":{"latitude":59.9,"longitude":10.7},"kind":"historic=church","summary":"Kirken ble bygget i middelalderen. Mer.","wikipediaTitle":"no:Kirken"}"#
+        let c = try JSONDecoder().decode(Candidate.self, from: Data(json.utf8))
+        #expect(c.summaryLanguage == nil)
+        #expect(FactLine.text(for: c, language: .norwegian) == "Kirken ble bygget i middelalderen.")
+        // and it round-trips with the field set
+        var withLanguage = c
+        withLanguage.summaryLanguage = "no"
+        let back = try JSONDecoder().decode(Candidate.self, from: JSONEncoder().encode(withLanguage))
+        #expect(back == withLanguage)
     }
 
     @Test func longSentenceCutAtWord() {

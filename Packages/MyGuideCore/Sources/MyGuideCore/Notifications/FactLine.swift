@@ -4,7 +4,7 @@ import Foundation
 public enum FactLine {
     public static let maxLength = 140
 
-    /// First sentence of the summary when the article's language is the story language;
+    /// First sentence of the summary when the summary's article language (`articleLanguage`) is the story language;
     /// else kind label (+ " · fra 1697" / " · fredet"); else nil.
     public static func text(for candidate: Candidate, language: StoryLanguage) -> String? {
         if let summary = candidate.summary, articleLanguage(candidate) == language.wikipediaCode,
@@ -20,8 +20,11 @@ public enum FactLine {
         return label
     }
 
-    /// "no:Foo" → "no"; "wiki:en/12" → "en"; nil otherwise. The title wins over the id.
+    /// The language of the article `summary` came from. `summaryLanguage` wins (a merged OSM place can carry an
+    /// "it:" title and a Norwegian summary); else "no:Foo" → "no"; "wiki:en/12" → "en"; nil otherwise. The title
+    /// wins over the id.
     public static func articleLanguage(_ candidate: Candidate) -> String? {
+        if let code = candidate.summaryLanguage, !code.isEmpty { return code }
         if let title = candidate.wikipediaTitle, let colon = title.firstIndex(of: ":") {
             let code = title[..<colon]
             if !code.isEmpty { return String(code) }
@@ -82,8 +85,21 @@ public enum FactLine {
 
     // MARK: - Shared with NotificationText
 
+    /// A sentence shorter than this (in characters) is joined with the next one while the text continues, so a
+    /// stray fragment like "Built 1890." or an unlisted abbreviation never stands alone.
+    static let minimumSentenceLength = 20
+
+    /// Lower-cased abbreviations whose "." never ends a sentence, even before a capital or a digit ("ca. 125",
+    /// "St. Olav"). Any single letter before "." ("f. 1810", "John F. Kennedy") counts too. "e.Kr.", "f.Kr." and
+    /// "osv." are left out on purpose: they usually close a sentence ("bygget ca. 125 e.Kr. Senere …"), so they
+    /// keep the ordinary rule.
+    static let abbreviations: Set<String> = [
+        "ca.", "f.", "d.", "st.", "bl.a.", "dvs.", "mr.", "dr.", "nr.", "jf.", "kl.",
+    ]
+
     /// Up to and including the first ./!/? followed by whitespace + uppercase/digit, or by the end of the text.
-    /// "St. Olav" is split wrongly: a known limit.
+    /// A "." closing an abbreviation is not a boundary, and a boundary that would leave fewer than
+    /// `minimumSentenceLength` characters is passed over. The whole text when no boundary qualifies.
     static func firstSentence(_ text: String) -> String? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return nil }
@@ -93,9 +109,24 @@ public enum FactLine {
             if j == chars.count { return String(chars[...i]) }
             guard chars[j].isWhitespace else { continue }
             while j < chars.count, chars[j].isWhitespace { j += 1 }
-            if j == chars.count || chars[j].isUppercase || chars[j].isNumber { return String(chars[...i]) }
+            guard j == chars.count || chars[j].isUppercase || chars[j].isNumber else { continue }
+            if chars[i] == ".", isAbbreviation(chars, endingAt: i) { continue }
+            // i + 1 = characters up to and including the terminator.
+            if i + 1 < minimumSentenceLength { continue }
+            return String(chars[...i])
         }
         return t
+    }
+
+    /// The whitespace-delimited token ending at `end` (a "."), stripped of leading non-letters such as "(" or «,
+    /// is a listed abbreviation or one letter + ".".
+    private static func isAbbreviation(_ chars: [Character], endingAt end: Int) -> Bool {
+        var start = end
+        while start > 0, !chars[start - 1].isWhitespace { start -= 1 }
+        while start < end, !chars[start].isLetter { start += 1 }
+        let token = String(chars[start...end]).lowercased()
+        if token.count == 2, token.first?.isLetter == true { return true }
+        return abbreviations.contains(token)
     }
 
     /// At most `maxLength` characters: longer text is cut at the last space at or before index maxLength − 1, plus "…".

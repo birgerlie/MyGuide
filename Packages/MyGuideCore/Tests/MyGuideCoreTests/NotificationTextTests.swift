@@ -34,14 +34,15 @@ import Testing
     // MARK: Stop excerpt (spec 12.9: the first two lines of level 1, up to 2 sentences, at most 160 characters)
 
     @Test func stopExcerptKeepsTwoSentencesThatFit() {
-        // Hand: "Du står ved torget." = 19, "Her var det marked." = 19; 19 + 1 + 19 = 39 ≤ 160 → both, the third is left out.
-        #expect(NotificationText.stopExcerpt("Du står ved torget. Her var det marked. I dag er det parkering.")
-                == "Du står ved torget. Her var det marked.")
+        // Hand: "Du står ved det gamle torget." = 29, "Her var det marked før." = 23; 29 + 1 + 23 = 53 ≤ 160
+        // → both, the third is left out.
+        #expect(NotificationText.stopExcerpt("Du står ved det gamle torget. Her var det marked før. I dag er det parkering.")
+                == "Du står ved det gamle torget. Her var det marked før.")
     }
 
     @Test func stopExcerptJoinsParagraphsWithOneSpace() {
-        #expect(NotificationText.stopExcerpt("  Første setning.\n\nAndre setning! Tredje.  ")
-                == "Første setning. Andre setning!")
+        #expect(NotificationText.stopExcerpt("  Den første setningen her.\n\nDen andre setningen her! Tredje.  ")
+                == "Den første setningen her. Den andre setningen her!")
     }
 
     @Test func stopExcerptSingleSentenceAndNoPunctuation() {
@@ -70,6 +71,14 @@ import Testing
         let cut = NotificationText.stopExcerpt(long)
         #expect(cut == Array(repeating: "ordet", count: 26).joined(separator: " ") + "…")
         #expect(cut?.count == 156)
+    }
+
+    @Test func stopExcerptDoesNotSplitAtAbbreviations() {
+        // "St." and "ca." are not boundaries, so the excerpt's sentences are whole ones.
+        // Hand: first "St. Olavs kirke ble bygget ca. 1250 av kongen." = 46; rest "Den brant i 1700. Mer her." →
+        // "Den brant i 1700." = 17 < 20 → joined with "Mer her." → 17 + 1 + 8 = 26; 46 + 1 + 26 = 73 ≤ 160 → both.
+        #expect(NotificationText.stopExcerpt("St. Olavs kirke ble bygget ca. 1250 av kongen. Den brant i 1700. Mer her.")
+                == "St. Olavs kirke ble bygget ca. 1250 av kongen. Den brant i 1700. Mer her.")
     }
 
     @Test func stopExcerptOfEmptyTextIsNil() {

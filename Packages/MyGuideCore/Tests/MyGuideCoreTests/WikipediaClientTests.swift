@@ -34,7 +34,8 @@ import Foundation
         let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .english)
         #expect(c.map(\.id) == ["wiki:en/1", "wiki:en/3", "wiki:en/4"])
         #expect(c[0] == Candidate(id: "wiki:en/1", name: "Hofburg", coordinate: .init(latitude: 48.2086, longitude: 16.3671),
-                                  kind: "wikipedia", summary: "Hofburg is old.", wikipediaTitle: "en:Hofburg", wikidata: "Q2"))
+                                  kind: "wikipedia", summary: "Hofburg is old.", wikipediaTitle: "en:Hofburg", wikidata: "Q2",
+                                  summaryLanguage: "en"))
         #expect(http.requests.count == 1)  // 3 results ≥ 3 → no English fallback needed anyway
         #expect(http.requests[0].value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
     }
@@ -47,6 +48,7 @@ import Foundation
         let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
         // Norwegian entries win on equal wikidata; English-only Q3 is added
         #expect(c.map(\.id) == ["wiki:no/10", "wiki:no/11", "wiki:en/3"])
+        #expect(c.map(\.summaryLanguage) == ["no", "no", "en"])
         #expect(http.requests.count == 2)
     }
     @Test func norwegianWithThreeResultsIgnoresFallback() async throws {
@@ -132,6 +134,12 @@ import Foundation
         let http = StubHTTPClient { _ in (200, Data(#"{"query":{}}"#.utf8)) }
         let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .english)
         #expect(c.isEmpty)
+    }
+    @Test func blankExtractHasNoSummaryLanguage() async throws {
+        let page = #"{"pageid":1,"title":"T","extract":"   ","coordinates":[{"lat":1,"lon":2}]}"#
+        let http = StubHTTPClient { _ in (200, Self.body([page])) }
+        let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .english)
+        #expect(c.count == 1 && c[0].summary == nil && c[0].summaryLanguage == nil)
     }
     @Test func longSummaryIsTruncated() async throws {
         let long = Array(repeating: "word", count: 400).joined(separator: " ")

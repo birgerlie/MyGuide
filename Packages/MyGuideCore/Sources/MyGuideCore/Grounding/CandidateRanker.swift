@@ -20,7 +20,10 @@ public enum CandidateRanker {
                 kept.append(c)
                 return
             }
-            if kept[twin].summary == nil { kept[twin].summary = c.summary }
+            if kept[twin].summary == nil {
+                kept[twin].summary = c.summary
+                kept[twin].summaryLanguage = c.summaryLanguage
+            }
             if kept[twin].wikidata == nil { kept[twin].wikidata = c.wikidata }
             if kept[twin].wikipediaTitle == nil { kept[twin].wikipediaTitle = c.wikipediaTitle }
             if kept[twin].tags == nil { kept[twin].tags = c.tags }
@@ -35,7 +38,10 @@ public enum CandidateRanker {
                 let sameTitle = o.wikipediaTitle != nil && o.wikipediaTitle == w.wikipediaTitle
                 guard sameQ || sameTitle else { continue }
                 consumed.insert(i)
-                if o.summary == nil { o.summary = w.summary }
+                if o.summary == nil {
+                    o.summary = w.summary
+                    o.summaryLanguage = w.summaryLanguage
+                }
             }
             add(o)
         }
