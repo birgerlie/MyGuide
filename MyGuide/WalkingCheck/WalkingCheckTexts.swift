@@ -59,12 +59,12 @@ enum WalkingCheckTexts {
 
     // MARK: Background location
 
-    /// "Tillatelse: Alltid · 12 posisjoner, 10 i bakgrunnen, lengste opphold 4 s"; the counts only once a run began.
+    /// "Tillatelse: Alltid · 12 posisjonsmålinger, 10 i bakgrunnen, lengste opphold 4 s"; the counts only once a run began.
     static func locationStatus(authorization: CLAuthorizationStatus, counts: (total: Int, background: Int, gap: Int)?,
                                _ language: StoryLanguage) -> String {
         let no = language == .norwegian
         let fixes = counts.map { c in
-            no ? " · \(c.total) posisjoner, \(c.background) i bakgrunnen, lengste opphold \(c.gap) s"
+            no ? " · \(c.total) posisjonsmålinger, \(c.background) i bakgrunnen, lengste opphold \(c.gap) s"
                 : " · \(c.total) fixes, \(c.background) in background, longest gap \(c.gap) s"
         } ?? ""
         return "\(no ? "Tillatelse" : "Authorization"): \(describe(authorization, language))\(fixes)"
@@ -84,19 +84,19 @@ enum WalkingCheckTexts {
 
     static func backgroundPassed(fixes: Int, gap: Int, _ language: StoryLanguage) -> String {
         language == .norwegian
-            ? "\(fixes) posisjoner i bakgrunnen, lengste opphold \(gap) s"
+            ? "\(fixes) posisjonsmålinger i bakgrunnen, lengste opphold \(gap) s"
             : "\(fixes) fixes while in background, longest gap \(gap) s"
     }
 
     static func locationNotGranted(_ language: StoryLanguage) -> String { SelfCheckTexts.locationNotGranted(language) }
 
     static func noBackgroundFixes(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Ingen posisjoner kom i bakgrunnen" : "No fixes arrived while in background"
+        language == .norwegian ? "Ingen posisjonsmålinger kom i bakgrunnen" : "No fixes arrived while in background"
     }
 
     static func tooFewBackgroundFixes(_ fixes: Int, needed: Int, _ language: StoryLanguage) -> String {
         language == .norwegian
-            ? "Bare \(fixes) posisjoner i bakgrunnen (trenger \(needed))"
+            ? "Bare \(fixes) posisjonsmålinger i bakgrunnen (trenger \(needed))"
             : "Only \(fixes) fixes while in background (need \(needed))"
     }
 
@@ -107,7 +107,7 @@ enum WalkingCheckTexts {
     }
 
     static func tellMe(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Fortell" : "Tell me"
+        language == .norwegian ? "Lytt" : "Tell me"
     }
 
     static func skip(_ language: StoryLanguage) -> String {
@@ -119,7 +119,7 @@ enum WalkingCheckTexts {
     }
 
     static func testBody(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Trykk Fortell på klokken" : "Tap Tell me on your watch"
+        language == .norwegian ? "Trykk Lytt på klokken" : "Tap Tell me on your watch"
     }
 
     static func scheduleFailed(_ description: String, _ language: StoryLanguage) -> String {
@@ -132,7 +132,7 @@ enum WalkingCheckTexts {
 
     static func notificationScheduled(inS seconds: Int, _ language: StoryLanguage) -> String {
         language == .norwegian
-            ? "Varsel om \(seconds) s. Lås telefonen og trykk Fortell på klokken."
+            ? "Varsel om \(seconds) s. Lås telefonen og trykk Lytt på klokken."
             : "Notification in \(seconds) s. Lock the phone and tap Tell me on the watch."
     }
 
@@ -146,7 +146,7 @@ enum WalkingCheckTexts {
 
     static func noActionWithin(_ seconds: Int, _ language: StoryLanguage) -> String {
         language == .norwegian
-            ? "Ingen Fortell eller Hopp over innen \(seconds) s"
+            ? "Ingen Lytt eller Hopp over innen \(seconds) s"
             : "No Tell me or Skip within \(seconds) s"
     }
 
@@ -155,7 +155,7 @@ enum WalkingCheckTexts {
     }
 
     static func skippedDetail(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Hoppet over – trykk Fortell for å teste lyden" : "Skipped — tap Tell me to test audio"
+        language == .norwegian ? "Hoppet over – trykk Lytt for å teste lyden" : "Skipped — tap Tell me to test audio"
     }
 
     static func openedWithoutAction(_ language: StoryLanguage) -> String {
@@ -187,12 +187,12 @@ enum WalkingCheckTexts {
     }
 
     static func noWatchTell(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Ingen Fortell fra klokken ennå" : "No Tell me received from the watch yet"
+        language == .norwegian ? "Ingen Lytt fra klokken ennå" : "No Tell me received from the watch yet"
     }
 
-    /// "Fortell fra klokken: spiller tonen" / "Tell me from the watch: playing the tone".
+    /// "Lytt fra klokken: spiller tonen" / "Tell me from the watch: playing the tone".
     static func watchTell(_ status: String, _ language: StoryLanguage) -> String {
-        "\(language == .norwegian ? "Fortell fra klokken" : "Tell me from the watch"): \(status.lowercased())"
+        "\(language == .norwegian ? "Lytt fra klokken" : "Tell me from the watch"): \(status.lowercased())"
     }
 
     // MARK: Live Activity
@@ -226,7 +226,7 @@ enum WalkingCheckTexts {
     /// "Startet. Lås telefonen; den oppdateres om 60 s." and, without the location run, the hint to start it first.
     static func activityStarted(updateInS seconds: Int, locationRunning: Bool, _ language: StoryLanguage) -> String {
         if language == .norwegian {
-            let hint = locationRunning ? "" : " Start Posisjon i bakgrunnen først, ellers kan appen bli satt på pause."
+            let hint = locationRunning ? "" : " Start posisjon i bakgrunnen først, ellers kan appen bli satt på pause."
             return "Startet. Lås telefonen; den oppdateres om \(seconds) s.\(hint)"
         }
         let hint = locationRunning ? "" : " Start Background location first, or the app may be suspended."

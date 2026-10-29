@@ -274,7 +274,7 @@ struct StoryView: View {
                     guard let fix = location.fix() else { return }
                     model.useCurrentPosition(fix.coordinate, accuracy: fix.accuracy)
                 }
-                .buttonStyle(.themePrimary())
+                .buttonStyle(.themePrimary(.coral))
                 .disabled(fix == nil)
                 if fix == nil {
                     Text(ScreenText.waitingForGPS(language))

@@ -102,7 +102,8 @@ struct WalkLogRunView: View {
             ForEach(Array(data.path.enumerated()), id: \.offset) { _, segment in
                 if segment.count >= 2 {
                     MapPolyline(coordinates: segment.map(coordinate))
-                        .stroke(Theme.Colour.forest, lineWidth: 4)
+                        // Adaptive: forest on the light map, ivory on the dark one.
+                        .stroke(Theme.Colour.text, lineWidth: 4)
                 }
             }
             ForEach(data.places, id: \.id) { place in
@@ -110,7 +111,7 @@ struct WalkLogRunView: View {
                     Marker(place.name, coordinate: coordinate(place.coordinate)).tint(Theme.Colour.coral)
                 } else {
                     Annotation(place.name, coordinate: coordinate(place.coordinate), anchor: .center) {
-                        Circle().fill(Theme.Colour.forest.opacity(0.6)).frame(width: 8, height: 8)
+                        Circle().fill(Theme.Colour.text.opacity(0.6)).frame(width: 8, height: 8)
                     }
                     .annotationTitles(.hidden)
                 }
@@ -118,12 +119,12 @@ struct WalkLogRunView: View {
             ForEach(Array(data.stops.enumerated()), id: \.offset) { _, stop in
                 Marker(SettingsTexts.stopMarker(storyLanguage), systemImage: "mappin.and.ellipse",
                        coordinate: coordinate(stop))
-                    .tint(Theme.Colour.forest)
+                    .tint(Theme.Colour.text)
             }
             ForEach(Array(data.pauses.enumerated()), id: \.offset) { _, pause in
                 Annotation(SettingsTexts.pausedMarker(storyLanguage), coordinate: coordinate(pause)) {
                     Image(systemName: "pause.circle.fill").font(.title2)
-                        .foregroundStyle(Theme.Colour.forest, Theme.Colour.ivory)
+                        .foregroundStyle(Theme.Colour.text, Theme.Colour.background)
                 }
             }
         }

@@ -78,8 +78,7 @@ struct DayStoryScreen: View {
         }
     }
 
-    /// No pages: what is wrong in Playfair on forest green, and the one way on as the primary button (ivory in the
-    /// dark appearance, with forest text).
+    /// No pages: what is wrong in Playfair on forest green, and the one way on as the coral button with forest text.
     private func emptyState(_ title: String, systemImage: String, action: String,
                             perform: @escaping () -> Void) -> some View {
         ContentUnavailableView {
@@ -90,7 +89,7 @@ struct DayStoryScreen: View {
             }
         } actions: {
             Button(action, action: perform)
-                .buttonStyle(.themePrimary())
+                .buttonStyle(.themePrimary(.coral))
                 .fixedSize()
         }
         .foregroundStyle(Theme.Colour.ivory)

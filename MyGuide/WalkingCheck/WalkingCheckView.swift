@@ -19,13 +19,13 @@ struct WalkingCheckView: View {
                         if model.locationRunning { model.stopLocation() } else { model.startLocation() }
                     }
                 }
-                row(WalkingCheckTexts.buzzFromWatch(storyLanguage), status: model.buzzStatus, result: model.buzzResult) {
+                row(WalkingCheckTexts.buzzFromWatch(storyLanguage), status: model.buzzStatus ?? WalkingCheckTexts.notStarted(storyLanguage), result: model.buzzResult) {
                     Button(model.buzzPending ? WalkingCheckTexts.cancel(storyLanguage)
                                              : WalkingCheckTexts.sendTestNotification(storyLanguage)) {
                         if model.buzzPending { model.cancelBuzz() } else { Task { await model.startBuzz() } }
                     }
                 }
-                row(WalkingCheckTexts.liveActivity(storyLanguage), status: model.activityStatus,
+                row(WalkingCheckTexts.liveActivity(storyLanguage), status: model.activityStatus ?? WalkingCheckTexts.notStarted(storyLanguage),
                     result: model.activityResult) {
                     Button(model.activityRunning ? WalkingCheckTexts.end(storyLanguage)
                                                  : WalkingCheckTexts.start(storyLanguage)) {
@@ -33,7 +33,8 @@ struct WalkingCheckView: View {
                     }
                 }
                 row(WalkingCheckTexts.watch(storyLanguage), status: watchStatus, result: model.watchTellResult) {
-                    Text(model.watchTellStatus).font(Theme.Font.caption).opacity(0.75)
+                    Text(model.watchTellStatus ?? WalkingCheckTexts.noWatchTell(storyLanguage))
+                        .font(Theme.Font.caption).opacity(0.75)
                 }
             }
             .themedRows()

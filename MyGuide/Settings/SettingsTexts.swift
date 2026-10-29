@@ -318,9 +318,9 @@ enum SettingsTexts {
         language == .norwegian ? "Ingen turer logget ennå" : "No walks logged yet"
     }
 
-    /// "1 h 05 min · 1.3 km · 4 varsler".
+    /// "1 h 05 min · 1.3 km · 4 stedsvarsler".
     static func walkLine(duration: String, distance: String, buzzes: Int, _ language: StoryLanguage) -> String {
-        "\(duration) · \(distance) · \(buzzes) \(language == .norwegian ? "varsler" : "buzzes")"
+        "\(duration) · \(distance) · \(buzzes) \(language == .norwegian ? "stedsvarsler" : "place buzzes")"
     }
 
     static func inProgress(_ language: StoryLanguage) -> String {
@@ -358,7 +358,7 @@ enum SettingsTexts {
     }
 
     static func hideFixes(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Skjul posisjoner" : "Hide fixes"
+        language == .norwegian ? "Skjul posisjonsmålinger" : "Hide fixes"
     }
 
     static func timeline(_ language: StoryLanguage) -> String {
@@ -399,9 +399,10 @@ enum SettingsTexts {
     }
 
     static func buzzes(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Varsler" : "Buzzes"
+        language == .norwegian ? "Stedsvarsler" : "Place buzzes"
     }
 
+    /// iOS's own word for notifications; buzzes are «Stedsvarsler».
     static func notifications(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Varslinger" : "Notifications"
     }
@@ -424,11 +425,16 @@ enum SettingsTexts {
     static func stopReason(_ reason: WalkStopReason, _ language: StoryLanguage) -> String {
         let no = language == .norwegian
         switch reason {
-        case .user: return no ? "Stoppet av deg" : "Stopped by you"
-        case .timeLimit: return no ? "Slått av etter 4 timer med gåing" : "Turned off after 4 hours of walking"
-        case .lowBattery: return no ? "Slått av: batteriet under 15 %" : "Turned off: battery below 15%"
-        case .pausedTooLong: return no ? "Slått av etter en time uten gåing" : "Turned off after an hour without walking"
-        case .locationDenied: return no ? "Stoppet: ingen tilgang til posisjon" : "Stopped: location access denied"
+        // The automatic ones read as the auto-off notification does (`AutoOff.message`).
+        case .user: return no ? "Du stoppet gåmodus." : "You stopped walking mode."
+        case .timeLimit: return no ? "Gåmodus slo seg av etter 4 timer." : "Walking mode turned off after 4 hours."
+        case .lowBattery:
+            return no ? "Gåmodus slo seg av: batteriet er under 15 %." : "Walking mode turned off: battery below 15%."
+        case .pausedTooLong:
+            return no ? "Gåmodus slo seg av etter en time uten at du gikk."
+                : "Walking mode turned off after an hour without walking."
+        case .locationDenied:
+            return no ? "Gåmodus stoppet: ingen tilgang til posisjon." : "Walking mode stopped: location access denied."
         }
     }
 }

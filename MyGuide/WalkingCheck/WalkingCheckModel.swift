@@ -28,16 +28,19 @@ final class WalkingCheckModel: NSObject {
 
     // Buzz from the watch
     private(set) var buzzPending = false
-    private(set) var buzzStatus = WalkingCheckTexts.notStarted(AppServices.currentStoryLanguage())
+    /// nil until the test runs: the view words that as «Ikke startet» in the story language of the moment.
+    private(set) var buzzStatus: String?
     private(set) var buzzResult: CheckResult?
 
     // Live Activity
     private(set) var activityRunning = false
-    private(set) var activityStatus = WalkingCheckTexts.notStarted(AppServices.currentStoryLanguage())
+    /// nil until the test runs (worded by the view).
+    private(set) var activityStatus: String?
     private(set) var activityResult: CheckResult?
 
     // Watch
-    private(set) var watchTellStatus = WalkingCheckTexts.noWatchTell(AppServices.currentStoryLanguage())
+    /// nil until a Tell me arrives from the watch (worded by the view).
+    private(set) var watchTellStatus: String?
     private(set) var watchTellResult: CheckResult?
 
     @ObservationIgnored private let manager = CLLocationManager()

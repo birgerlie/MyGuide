@@ -56,12 +56,12 @@ enum SelfCheckTexts {
 
     static func fix(accuracyM: Int, _ language: StoryLanguage) -> String {
         language == .norwegian
-            ? "Posisjon ±\(accuracyM) m, kompassretning tilgjengelig"
+            ? "Posisjonsmåling ±\(accuracyM) m, kompassretning tilgjengelig"
             : "Fix ±\(accuracyM) m, heading available"
     }
 
     static func noFix(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Ingen posisjon innen 15 s" : "No location fix within 15 s"
+        language == .norwegian ? "Ingen posisjonsmåling innen 15 s" : "No location fix within 15 s"
     }
 
     static func locationDenied(_ language: StoryLanguage) -> String {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // The design package on the app's list and form screens (spec 15): the diary, History, Settings and its sub-screens,
 // and the checks. The theme background and text colour in light and dark mode, Inter for the interface, the screen
@@ -13,6 +14,12 @@ enum ScreenChrome {
     /// A switch that is on: coral (a marking, design package) in both appearances. The theme accent would be ivory in
     /// dark mode, where the white knob all but vanishes on it; the knob's position still says on or off.
     static let toggleTint = Theme.Colour.coral
+    /// List dividers: stone in light mode; in dark mode stone would glare on forest, so the text colour at 20 %.
+    static let separator = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0xFF / 255, green: 0xF8 / 255, blue: 0xE9 / 255, alpha: 0.2)
+            : UIColor(red: 0xDD / 255, green: 0xD8 / 255, blue: 0xCD / 255, alpha: 1)
+    })
     /// The screen title in the navigation bar.
     static let titleFont = Font.custom(Theme.FontName.display, size: 20, relativeTo: .headline)
 }
@@ -43,10 +50,10 @@ extension View {
             .tint(Theme.Colour.accent)
     }
 
-    /// The rows of a section (apply to the `Section` or the `ForEach`): the row surface and stone dividers.
+    /// The rows of a section (apply to the `Section` or the `ForEach`): the row surface and the dividers.
     func themedRows() -> some View {
         listRowBackground(ScreenChrome.rowFill)
-            .listRowSeparatorTint(Theme.Colour.stone)
+            .listRowSeparatorTint(ScreenChrome.separator)
     }
 }
 

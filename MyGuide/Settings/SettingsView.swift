@@ -35,7 +35,7 @@ struct SettingsView: View {
                     .autocorrectionDisabled()
                     .frame(minHeight: Theme.minimumTouchHeight)
                 Button(SettingsTexts.save(storyLanguage)) { save() }
-                    .buttonStyle(.themePrimary())
+                    .buttonStyle(.themePrimary(.coral))
                     .disabled(trimmedDraft.isEmpty)
                 if hasSavedKey {
                     Button(SettingsTexts.removeKey(storyLanguage), role: .destructive) { remove() }
