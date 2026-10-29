@@ -175,6 +175,43 @@ import Testing
         #expect(merged.map(\.id) == ["osm:way/1", "osm:way/2"])
         #expect(merged.allSatisfy { $0.summary == "Palace story." })
     }
+    @Test func aCandidateNearTwoKeptTwinsGoesToTheFirst() {
+        // Two "Tower"s 60 m apart (> 50 m): both kept. An article "Tower" at 30 m is within 50 m of both
+        // (30 m and 30 m): it is dropped and donates its summary to the first kept twin only.
+        let osm = [Self.cand("osm:node/1", n: 0, e: 0, name: "Tower"),
+                   Self.cand("osm:node/2", n: 0, e: 60, name: "tower")]
+        let wiki = [Self.cand("wiki:en/1", n: 0, e: 30, name: "Tower", wiki: "en:Tower", summary: "Tower story.")]
+        let merged = CandidateRanker.merge(osm: osm, wiki: wiki)
+        #expect(merged.map(\.id) == ["osm:node/1", "osm:node/2"])
+        #expect(merged[0].summary == "Tower story." && merged[0].wikipediaTitle == "en:Tower")
+        #expect(merged[1].summary == nil && merged[1].wikipediaTitle == nil)
+    }
+    @Test func theEarlierArticleSuppliesTheSummaryWhicheverWayItMatched() {
+        // The OSM place matches article B by Wikidata id and the earlier article A by title: A (index 0) comes first
+        // in article order and supplies the summary; both are consumed, neither is appended.
+        let o = Self.cand("osm:way/1", n: 0, e: 0, name: "Castle", wiki: "en:A", q: "QB")
+        var a = Self.cand("wiki:en/1", n: 500, e: 0, name: "A", wiki: "en:A", summary: "A story.")
+        a.summaryLanguage = "en"
+        var b = Self.cand("wiki:de/2", n: 900, e: 0, name: "B", q: "QB", summary: "B story.")
+        b.summaryLanguage = "de"
+        let merged = CandidateRanker.merge(osm: [o], wiki: [a, b])
+        #expect(merged.map(\.id) == ["osm:way/1"])
+        #expect(merged[0].summary == "A story." && merged[0].summaryLanguage == "en")
+        // The other order of articles: B now comes first and supplies it.
+        let swapped = CandidateRanker.merge(osm: [o], wiki: [b, a])
+        #expect(swapped.map(\.id) == ["osm:way/1"])
+        #expect(swapped[0].summary == "B story." && swapped[0].summaryLanguage == "de")
+    }
+    @Test func aFirstMatchWithoutSummaryLeavesItToTheNextMatch() {
+        // Article 0 matches by Wikidata but has no summary; article 1 matches by title and has one: it is taken.
+        let o = Self.cand("osm:way/1", n: 0, e: 0, name: "Church", wiki: "en:Church", q: "Q1")
+        let first = Self.cand("wiki:en/1", n: 500, e: 0, name: "Q1 page", q: "Q1")
+        var second = Self.cand("wiki:en/2", n: 900, e: 0, name: "Church page", wiki: "en:Church", summary: "Church story.")
+        second.summaryLanguage = "en"
+        let merged = CandidateRanker.merge(osm: [o], wiki: [first, second])
+        #expect(merged.map(\.id) == ["osm:way/1"])
+        #expect(merged[0].summary == "Church story." && merged[0].summaryLanguage == "en")
+    }
     @Test func cancelledTaskThrowsEvenWhenSourceFailsWithOtherError() async {
         let s = service(geoFail: true)
         let capture = Self.capture(heading: 0, acc: 10)
