@@ -331,3 +331,27 @@ The owner decided:
    - When both fail, the previous list's OpenStreetMap places are carried forward if that list is at most 7 days old and its centre is within 500 m.
 7. **Honest status.** When the engine is quiet because every due place is used, the walking panel says «Du har hørt om alt i nærheten» / «You've heard about everything nearby».
 8. **Lean towards more.** When a rule in this section is a judgement call, prefer more notifications over fewer; limits can be tightened later from walk logs. *(Owner: «bedre med for mye enn for lite i starten, vi kan heller begrense etterhvert».)* The tier rules are unchanged; widening them is not part of this section.
+
+## 14. Landing page after the owner's sketch (2026-10-29)
+
+The owner's sketch is `docs/design/landing-sketch.png`. It replaces the layout list in section 5. Data, selection
+and card rules stay as written.
+
+- **Map full screen.** A «MyGuide» pill in Playfair at the top left. Round compass (north) and locate buttons at
+  the top right. The owner's dot with its view cone. Forest symbol markers. The selected place is a coral pin with
+  its name in a small ivory label.
+- **Camera button.** A large round coral button with a forest camera symbol at the bottom right of the map, with
+  the label «Hva ser jeg på?» / «What am I looking at?» under it. It opens the camera.
+- **Bottom sheet**, draggable, with a grabber, in ivory:
+  - «Rundt deg» / «Around you» in Playfair;
+  - the place card: picture on the left (none without one), the name in Playfair, «50 m · foran til høyre», and a
+    round coral «Lytt» with a forest play symbol and the word under it;
+  - a wide coral «Gå en tur» / «Go for a walk» button with a walking figure and a chevron, which starts walking
+    mode. The line under it reads «Gå fritt, så forteller jeg om det du passerer» / «Walk freely and I'll tell you
+    about what you pass». *(Claude's call: «velg en tematur» waits for tours.)*
+  - While walking, the button's place shows the walking panel: status, pause, stop, and the «hørt om alt» line.
+- **Tab bar:** «Utforsk» / «Explore» (map symbol) and «Dagbok» / «Diary» (book symbol). *(Claude's call: «Turer»
+  comes with the tour modes; a dead tab is worse than none.)* History is reached from the diary. Settings moves to
+  a gear in the diary's top bar.
+- Parks and fountains are not shown (12.8). The map is MapKit muted and cannot look like the illustration's
+  drawn trees; colours, symbols and the sheet follow the sketch.

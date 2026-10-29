@@ -579,6 +579,12 @@ The rules (spec 6.2 with 12.3, 6.3, 6.4):
 
 ### Task 8: «Rundt deg» map screen replaces the home content (app)
 
+> **Superseded layout:** spec section 14, with the sketch `docs/design/landing-sketch.png`, replaces the layout
+> details below. Data, selection, card states and image handling stay. Add `MyGuide/Home/RootTabs.swift`, a tab
+> bar with Utforsk and Dagbok. HomeScreen becomes the Utforsk tab. The diary tab gets the history link and the
+> settings gear. HomeScreen remains the single owner of LocationProvider (Task 7 ruling), with
+> `locationWanted` true while the Utforsk tab is showing its root.
+
 **Files:**
 - Create: `MyGuide/Around/AroundMap.swift` (map, markers, cone)
 - Create: `MyGuide/Around/AroundPlaceCard.swift`
