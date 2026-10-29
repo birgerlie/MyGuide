@@ -35,8 +35,16 @@ public struct OverpassClient: Sendable {
 
     static func query(around: Coordinate, radius: Int) -> String {
         // String(format:) with %f uses the POSIX decimal point regardless of the user's locale.
-        let a = "around:\(radius),\(String(format: "%.6f", around.latitude)),\(String(format: "%.6f", around.longitude))"
-        return """
+        query(filter: "around:\(radius),\(String(format: "%.6f", around.latitude)),\(String(format: "%.6f", around.longitude))")
+    }
+
+    /// The same tags as `query(around:radius:)`, inside a box (Overpass order: south, west, north, east).
+    static func query(boundingBox box: (south: Double, west: Double, north: Double, east: Double)) -> String {
+        query(filter: [box.south, box.west, box.north, box.east].map { String(format: "%.6f", $0) }.joined(separator: ","))
+    }
+
+    private static func query(filter a: String) -> String {
+        """
         [out:json][timeout:10];
         (
           nwr(\(a))["historic"]["name"];
@@ -65,11 +73,22 @@ public struct OverpassClient: Sendable {
     /// error and one short line per endpoint tried, for the walk log. Cancellation is thrown as it is.
     public func placesReportingEndpoints(around: Coordinate, radius: Int,
                                          language: StoryLanguage) async throws -> [Candidate] {
+        try await placesReportingEndpoints(query: Self.query(around: around, radius: radius), language: language)
+    }
+
+    /// `placesReportingEndpoints(around:radius:language:)` for the places inside a box (a tour area), with the same
+    /// endpoint fallback, logging and errors.
+    public func placesReportingEndpoints(in box: (south: Double, west: Double, north: Double, east: Double),
+                                         language: StoryLanguage) async throws -> [Candidate] {
+        try await placesReportingEndpoints(query: Self.query(boundingBox: box), language: language)
+    }
+
+    private func placesReportingEndpoints(query: String, language: StoryLanguage) async throws -> [Candidate] {
         var firstError: Error?
         var endpointErrors: [String] = []
         for endpoint in Self.endpoints {
             do {
-                return try await places(from: endpoint, around: around, radius: radius, language: language)
+                return try await places(from: endpoint, query: query, language: language)
             } catch {
                 if Self.isCancellation(error) { throw error }
                 let host = endpoint.host() ?? endpoint.absoluteString
@@ -89,8 +108,7 @@ public struct OverpassClient: Sendable {
         return false
     }
 
-    private func places(from endpoint: URL, around: Coordinate, radius: Int,
-                        language: StoryLanguage) async throws -> [Candidate] {
+    private func places(from endpoint: URL, query: String, language: StoryLanguage) async throws -> [Candidate] {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 12
@@ -98,7 +116,7 @@ public struct OverpassClient: Sendable {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
-        let encoded = Self.query(around: around, radius: radius).addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
         request.httpBody = Data("data=\(encoded)".utf8)
 
         let (data, response) = try await http.send(request)

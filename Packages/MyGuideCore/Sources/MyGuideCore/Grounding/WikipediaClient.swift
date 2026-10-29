@@ -12,8 +12,17 @@ public struct WikipediaClient: Sendable {
         self.http = http
     }
 
+    /// The geosearch radius range (metres) and the largest result count the API allows; a bigger area takes several
+    /// searches.
+    public static let minGeosearchRadius = 10
+    public static let maxGeosearchRadius = 10_000
+    public static let maxGeosearchLimit = 500
+
     /// `exlimit` stays 20: the API maximum for intro extracts (pages beyond it come back without a summary).
+    /// `radius` is kept within the geosearch range and `limit` at most its maximum, so no request asks for more than
+    /// the API gives.
     static func url(lang: String, around: Coordinate, radius: Int, limit: Int = 20) -> URL {
+        let radius = min(max(radius, minGeosearchRadius), maxGeosearchRadius), limit = min(limit, maxGeosearchLimit)
         // String(format:) with %f uses the POSIX decimal point regardless of the user's locale.
         let coord = "\(String(format: "%.6f", around.latitude))%7C\(String(format: "%.6f", around.longitude))"
         var components = URLComponents()

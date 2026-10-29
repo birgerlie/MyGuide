@@ -69,7 +69,8 @@ public struct WalkingPlaceSource: Sendable {
     }
 
     /// The work's result; cancellation (including `URLError.cancelled`, as phase 1 treats it) is thrown instead.
-    private static func outcome<T: Sendable>(_ work: @Sendable () async throws -> T) async throws -> Result<T, Error> {
+    /// `TourPlaceSource` shares it, so tours fail the same way.
+    static func outcome<T: Sendable>(_ work: @Sendable () async throws -> T) async throws -> Result<T, Error> {
         do {
             return .success(try await work())
         } catch is CancellationError {
