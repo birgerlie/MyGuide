@@ -467,3 +467,68 @@ Owner: «følg iphonens språk, ta det etter denne runden».
    frontmost, and skips one it has already shown through WatchConnectivity (same buzz id), so a buzz is felt once.
 4. A third Overpass endpoint is added as a last fallback: `https://maps.mail.ru/osm/tools/overpass/api/interpreter`.
    The second endpoint's failure is logged with its error.
+
+## 19. Ranking places without OpenStreetMap (walk logs 29 Oct 18:25–19:01 and 20:00–20:31)
+
+Owner: «innimellom syntes jeg det var rart. spesielt når det var mange severdigheter virket det som den ikke helt
+prioriterte riktig og den hoppet litt». Approved plan: «go» (2026-10-30).
+
+**What the logs show:**
+- OpenStreetMap failed on all 13 fetches, so every place was `wikiOnly` and nothing was ranked.
+- The app already sends a descriptive User-Agent. Tested 30 Oct 08:00:
+  - overpass-api.de answered a tiny query after 40 s; the app gives up after 12 s;
+  - kumi, private.coffee, lz4/z mirrors, openstreetmap.ru and osm.jp timed out or refused;
+  - mail.ru answered 504.
+
+  Public Overpass cannot be relied on.
+- Without tiers, the first place within 60 m wins. Wikipedia has articles about organisations placed at a
+  building's coordinates:
+  - «Jesuittordenen» and «Il Gesù» buzzed 5 s apart (same spot);
+  - «École française de Rome» won over «Palazzo Farnese» by 4 m.
+- The first fetch at 18:25 timed out. Places arrived 2.5 min later, after Palazzo Venezia and Piazza Venezia had
+  been passed at 40–48 m. A failed fetch waits 60 s before the next try.
+- The log does not record what the map showed, so «den hoppet» on the map cannot be checked.
+
+**Decisions:**
+1. **Wikidata facts.** Every candidate with a Wikidata id gets facts from one SPARQL request per 50 ids to
+   `https://query.wikidata.org/sparql`, run as soon as the Wikipedia list is in (8 s timeout, same User-Agent).
+   - **Sitelinks:** the number of Wikipedia language editions, used as importance.
+   - **Class**, from `P31/P279*`:
+     - `place`: subclass of architectural structure Q811979, square Q174782, park Q22698, archaeological site
+       Q839954, monument Q4989906, work of art Q838948, or fountain Q483453;
+     - `area`: street Q79007, neighbourhood Q123705 or administrative territorial entity Q56061 (an area wins
+       over place, since streets are structures in Wikidata);
+     - `nonPlace`: organisation Q43229, human Q5, event Q1656682 or group of humans Q16334295, and none of the
+       above;
+     - `unknown`: none of these.
+
+   Facts are cached by Wikidata id for 30 days, in memory and on disk (Caches). A failed lookup changes nothing:
+   candidates keep today's tiers.
+2. **Tiers with facts** *(the threshold of 30 sitelinks is Claude's call)*:
+   - **OSM tags decide as today when present.** A `nonPlace` Wikipedia-only candidate is dropped.
+   - **Wikipedia-only candidates:**
+     - `place` with 30 or more sitelinks → `top`;
+     - `place` with fewer → `good`;
+     - `area` → `wikiOnly`;
+     - `unknown` → `wikiOnly`.
+   - **Example, worked from the 30 Oct lookup:**
+     - Il Gesù (40), Palazzo Venezia (32) and Piazza Venezia (38) are `top`;
+     - Largo di Torre Argentina (21) and Teatro Argentina (27) are `good`;
+     - Via delle Botteghe Oscure is `wikiOnly`;
+     - Jesuittordenen, École française and Liberatores are dropped.
+
+   This applies to the nearby list (walking, map, camera's place list) and to tours.
+3. **Order among due places:** tier, then sitelinks (more first, none counts as 0), then distance.
+4. **Same spot:** when a place buzzes, every other place within 25 m of it is excluded for the run too, so one
+   spot buzzes once.
+5. **OpenStreetMap does not hold the list back.** Once Wikipedia (and Wikidata) are in, OpenStreetMap gets at
+   most 5 s more. After that the list is used without it, marked `osmFailed` with the error "slow", and the
+   existing 60 s OSM retry applies.
+6. **Faster start:**
+   - while the walk has no places, a failed fetch is retried after 15 s, not 60 s;
+   - at start, a stored nearby list centred within 250 m and at most 7 days old is used at once until the fresh
+     one arrives. It is logged as `fetched` with `"stale": true`.
+7. **The map's selection is logged while walking:** `shown` with place id, name and why (`heading`, `tap`,
+   `buzz`, `cleared`). Only changes are logged, so the next walk can be compared with what was shown.
+8. The `fetched` log line gains `facts` (how many candidates got facts) and `dropped` (names removed as
+   `nonPlace`).
