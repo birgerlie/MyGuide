@@ -1,6 +1,6 @@
 """The guide service: health, App Attest challenge and attest -> bearer token, token authentication (spec 5).
 
-The proxy routes (Task 6) use `authenticate`, `client_ip`, `json_error` and `HTTPError` from here.
+The proxy routes (`proxy.py`, spec 6) are registered here and use `authenticate`, `read_body` and `HTTPError`.
 Nothing here stores or logs a token, an IP address, a challenge or a request body.
 """
 from __future__ import annotations
@@ -223,11 +223,14 @@ def create_app(state: State) -> Starlette:
         finally:
             await state.aclose()
 
+    from . import proxy  # here, not at the top: proxy imports this module
+
     return Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
             Route("/v1/attest/challenge", challenge, methods=["POST"]),
             Route("/v1/attest", attest, methods=["POST"]),
+            *proxy.routes(state),  # after the attest routes: they match first
         ],
         exception_handlers={HTTPError: on_http_error, StarletteHTTPException: on_starlette_error},
         lifespan=lifespan,
