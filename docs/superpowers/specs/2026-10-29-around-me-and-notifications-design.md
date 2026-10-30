@@ -496,8 +496,9 @@ prioriterte riktig og den hoppet litt». Approved plan: «go» (2026-10-30).
    - **Class**, from `P31/P279*`:
      - `place`: subclass of architectural structure Q811979, square Q174782, park Q22698, archaeological site
        Q839954, monument Q4989906, work of art Q838948, or fountain Q483453;
-     - `area`: street Q79007, neighbourhood Q123705 or administrative territorial entity Q56061 (an area wins
-       over place, since streets are structures in Wikidata);
+     - `area`: street Q79007 (wins over place, since streets are structures in Wikidata), or neighbourhood
+       Q123705 / administrative territorial entity Q56061 when it is not also a place (castles, city gates and
+       walls reach Q56061 through odd subclass chains; final review 30 Oct);
      - `nonPlace`: organisation Q43229, human Q5, event Q1656682 or group of humans Q16334295, and none of the
        above;
      - `unknown`: none of these.
@@ -519,13 +520,15 @@ prioriterte riktig og den hoppet litt». Approved plan: «go» (2026-10-30).
 
    This applies to the nearby list (walking, map, camera's place list) and to tours.
 3. **Order among due places:** tier, then sitelinks (more first, none counts as 0), then distance.
-4. **Same spot:** when a place buzzes, every other place within 25 m of it is excluded for the run too, so one
-   spot buzzes once.
+4. **Same spot:** when a place buzzes (or is heard, chosen on the map, or is a tour stop), every other place
+   within 25 m of it, and every place with the same Wikidata id, is excluded for the run too, so one spot buzzes
+   once.
 5. **OpenStreetMap does not hold the list back.** Once Wikipedia (and Wikidata) are in, OpenStreetMap gets at
    most 5 s more. After that the list is used without it, marked `osmFailed` with the error "slow", and the
    existing 60 s OSM retry applies.
 6. **Faster start:**
-   - while the walk has no places, a failed fetch is retried after 15 s, not 60 s;
+   - while the walk has no places, a failed fetch is retried after 15 s, then 30 s, then 60 s (reset on success),
+     not 60 s;
    - at start, a stored nearby list centred within 250 m and at most 7 days old is used at once until the fresh
      one arrives. It is logged as `fetched` with `"stale": true`.
 7. **The map's selection is logged while walking:** `shown` with place id, name and why (`heading`, `tap`,
