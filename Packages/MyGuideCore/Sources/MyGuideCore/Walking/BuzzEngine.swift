@@ -68,8 +68,8 @@ public enum BuzzDecision: Sendable, Equatable {
 /// - **Order** among places that may buzz: tier, then Wikidata sitelinks (more first, none counts as 0), then
 ///   distance (spec 19.3).
 /// - **Hold** (spec 20.3, 20.5.1): the first place in that order waits while a better-ranked (tier, then sitelinks),
-///   not excluded place is inside its own due radius from the walker and may not buzz yet; at most `maxHold` from the
-///   first fix that held it, while it stays tracked.
+///   not excluded place that may not buzz yet is inside its own due radius from the walker, or is approaching within
+///   `holdRadius` of it; at most `maxHold` from the first fix that held it, while it stays tracked.
 /// - **Budget and override**: the budget paces buzzes; a top-tier place the walker is passing by (tracked, at least
 ///   `overrideMinDistance` away and `overridePassingMargin` beyond its closest) can override the budget at most once
 ///   per `overrideInterval`.
@@ -102,6 +102,9 @@ public struct BuzzEngine: Sendable {
     /// Beyond `dueRadius`, a place buzzes once its distance has grown this much (metres) from its closest (spec
     /// 20.2.3).
     public static let passedMargin = 5.0
+    /// A better place approaching within this far (metres, inclusive) of the first due place holds it too, inside
+    /// its own radius or not (spec 20.3, 20.5.1 as amended).
+    public static let holdRadius = 60.0
     /// A hold lasts at most this long (spec 20.3).
     public static let maxHold: TimeInterval = 30
     /// The least time from the last buzz of the engine to a buzz of a top place or one with at least
@@ -181,6 +184,8 @@ public struct BuzzEngine: Sendable {
     private var lastOverride: Date?
     /// When the engine last buzzed (normal or override).
     private var lastBuzz: Date?
+    /// Every place of the last usable fix (by id) with its distance then, to tell an approaching place.
+    private var lastDistance: [String: Double] = [:]
     /// Tracked places (by id) with the smallest distance seen while tracked.
     private var closest: [String: Double] = [:]
     /// Tracked places (by id) held for a better place, with the time of the first fix that held them.
@@ -288,6 +293,8 @@ public struct BuzzEngine: Sendable {
         }
         closest = stillDue
         trackedAtLastDecision = Set(stillDue.keys)
+        let previousDistance = lastDistance
+        lastDistance = distances
         heldSince = heldSince.filter { stillDue[$0.key] != nil }
 
         let ordered = due.sorted { Self.orderKey($0.place, $0.distance) < Self.orderKey($1.place, $1.distance) }
@@ -336,7 +343,8 @@ public struct BuzzEngine: Sendable {
             if !gapPassed(first.place) {
                 waitsForGap = true
             } else if budget.canSpend(at: now) {
-                if isHeld(first.place, places: places, distances: distances, closest: stillDue, now: now) {
+                if isHeld(first.place, places: places, distances: distances, closest: stillDue,
+                          previous: previousDistance, now: now) {
                     held = true
                 } else if budget.spend(at: now) {
                     return .buzz(buzz(first.place, first.distance, first.bearing, course, usedOverride: false, now: now))
@@ -381,21 +389,28 @@ public struct BuzzEngine: Sendable {
         (place.tier, -(place.candidate.sitelinks ?? 0), distance)
     }
 
-    /// True when `place` must wait for a better one (spec 20.3, 20.3.2, 20.4.2, 20.5.1): a place of `places` that
-    /// ranks above it, is not excluded, is inside its own due radius from the walker and may not buzz yet (`mayBuzz`,
-    /// with its smallest tracked distance from `closest`): approaching, with no previous distance, or waiting for its
-    /// closest approach. How far it is from `place` does not matter. Notes the first fix that held `place`; false once
-    /// `maxHold` has passed since (or when that fix is dated after `now`, the clock set back).
+    /// True when `place` must wait for a better one (spec 20.3, 20.3.2, 20.4.2, 20.5.1 as amended): a place of
+    /// `places` that ranks above it, is not excluded, may not buzz yet (`mayBuzz`, with its smallest tracked distance
+    /// from `closest`), and either
+    /// - is inside its own due radius from the walker (approaching, new or waiting for its closest approach: inside
+    ///   its radius it is tracked, so all three reduce to "not passed"), however far it is from `place`; or
+    /// - is approaching (closer than at the last fix, `previous`) within `holdRadius` of `place`, inside its own
+    ///   radius or not.
+    /// Notes the first fix that held `place`; false once `maxHold` has passed since (or when that fix is dated after
+    /// `now`, the clock set back).
     private mutating func isHeld(_ place: WalkingPlace, places: [WalkingPlace], distances: [String: Double],
-                                 closest: [String: Double], now: Date) -> Bool {
+                                 closest: [String: Double], previous: [String: Double], now: Date) -> Bool {
         let rank = Rank(tier: place.tier, sitelinks: place.candidate.sitelinks)
         let better = places.contains { other in
             guard other.candidate.id != place.candidate.id,
                   Rank(tier: other.tier, sitelinks: other.candidate.sitelinks) < rank,
-                  let distance = distances[other.candidate.id], distance <= Self.dueRadius(for: other),
-                  // Inside its radius it is tracked, so approaching, new and waiting all reduce to "not passed".
+                  let distance = distances[other.candidate.id],
                   !Self.mayBuzz(other, distance: distance, closest: closest[other.candidate.id] ?? distance)
             else { return false }
+            let insideItsRadius = distance <= Self.dueRadius(for: other)
+            let approachingNearby = previous[other.candidate.id].map { distance < $0 } == true
+                && GeoMath.distance(other.candidate.coordinate, place.candidate.coordinate) <= Self.holdRadius
+            guard insideItsRadius || approachingNearby else { return false }
             return !isExcluded(other)
         }
         guard better else { return false }

@@ -621,19 +621,24 @@ import Testing
         #expect(e.evaluate(places: places, position: .at(north: 73), accuracy: 5, course: 0, now: Self.t0 + 40)?.place
                 == Self.holdA)
     }
-    @Test func noHoldWhileTheBetterPlaceIsOutsideItsRadius() {
-        // Spec 20.5.1 replaced "approaching within 60 m of the lesser place". First fix at 45 N: B 105 m, outside its
-        // 80 m → A (55 m) buzzes at once.
+    @Test func noHoldWhileTheBetterPlaceIsOutsideItsRadiusAndNotANearbyApproach() {
+        // First fix at 45 N: B 105 m, outside its 80 m, no previous distance → A (55 m) buzzes at once.
         var e = Self.engine()
         #expect(e.evaluate(places: [Self.holdA, Self.holdB], position: .at(north: 45), accuracy: 5, course: 0,
                            now: Self.t0)?.place == Self.holdA)
-        // Approaching from outside does not hold either: t0 at 30 N (B 120 m), t0+5 at 50 N: A 50 m due, B 100 m,
-        // closer but outside → A buzzes.
+        // Approaching from outside holds only within 60 m of A (the neighbour rule, kept by the amended 20.5.1):
+        // t0 at 30 N, t0+5 at 50 N: A 50 m due. B at 150 N (50 m from A): 120 → 100 m, closer → held. B at 161 N
+        // (61 m from A): 131 → 111 m, closer but too far from A and outside its radius → A buzzes.
         var f = Self.engine()
         let places = [Self.holdA, Self.holdB]
         _ = f.decide(places: places, position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
-        #expect(f.evaluate(places: places, position: .at(north: 50), accuracy: 5, course: 0, now: Self.t0 + 5)?.place
-                == Self.holdA)
+        let held = f.decide(places: places, position: .at(north: 50), accuracy: 5, course: 0, now: Self.t0 + 5)
+        guard case .quiet(.held, _) = held else { Issue.record("expected held, got \(held)"); return }
+        var g = Self.engine()
+        let farB = Self.place("B", .top, north: 161)
+        _ = g.decide(places: [Self.holdA, farB], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+        #expect(g.evaluate(places: [Self.holdA, farB], position: .at(north: 50), accuracy: 5, course: 0,
+                           now: Self.t0 + 5)?.place == Self.holdA)
     }
     @Test func noHoldForALowerRankedOrOutsideOrExcludedPlace() {
         // Lower ranked: A good with 10 sitelinks, B good with 5 (50 m beyond) → A buzzes at once.
@@ -1372,5 +1377,45 @@ import Testing
         e.setBusy(false, at: Self.t0 + 10)
         #expect(e.evaluate(places: [Self.z, q], position: .at(north: -40), accuracy: 5, course: 180,
                            now: Self.t0 + 15) == nil)
+    }
+
+    // MARK: The old neighbour rule still holds too (20.5.1 as amended)
+
+    /// Sant'Agata (Wiki-only, 9) at 12 m N; San Crisogono (good, 22, radius 60) at 61 N: 61 − 12 = 49 m from Sant'Agata.
+    static let agata = place("agata", .wikiOnly, north: 12, sitelinks: 9)
+    static let crisogono = place("crisogono", .good, north: 61, sitelinks: 22)
+
+    @Test func aBetterPlaceApproachingWithinSixtyMetresHoldsEvenOutsideItsOwnRadius() {
+        // t0 at 5 m S, only San Crisogono listed: 66 m. t0+5 at the origin: Sant'Agata 12 m (due); San Crisogono 61 m,
+        // 1 m outside its own 60 m radius (the walker-radius rule does not apply), but approaching (66 → 61) and 49 m
+        // from Sant'Agata (≤ 60) → Sant'Agata held.
+        var e = Self.engine()
+        _ = e.decide(places: [Self.crisogono], position: .at(north: -5), accuracy: 5, course: 0, now: Self.t0)
+        let d = e.decide(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 5)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
+    }
+    @Test func theNeighbourRuleNeedsAPreviousDistanceThatShrank() {
+        // First decision with both (no previous distance): San Crisogono outside its radius → no hold, Sant'Agata
+        // buzzes. Receding (60.5 → 61, walker moving south from 0.5 m N; never inside its 60 m): no hold either.
+        var e = Self.engine()
+        #expect(e.evaluate(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0,
+                           now: Self.t0)?.place == Self.agata)
+        var f = Self.engine()
+        _ = f.decide(places: [Self.crisogono], position: .at(north: 0.5), accuracy: 5, course: 180, now: Self.t0)
+        #expect(f.evaluate(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 180,
+                           now: Self.t0 + 5)?.place == Self.agata)
+    }
+    @Test func theNeighbourRuleKeepsTheThirtySecondCap() {
+        // The walker creeps north 0.1 m per fix from the origin, so San Crisogono stays above 60 m and approaching:
+        // held from t0+5; at t0+34 (29 s) still held; at t0+35 (30 s) Sant'Agata buzzes.
+        var e = Self.engine()
+        _ = e.decide(places: [Self.crisogono], position: .at(north: -5), accuracy: 5, course: 0, now: Self.t0)
+        for (y, dt) in [(0.0, 5.0), (0.1, 34)] {
+            let d = e.decide(places: [Self.agata, Self.crisogono], position: .at(north: y), accuracy: 5, course: 0,
+                             now: Self.t0 + dt)
+            guard case .quiet(.held, _) = d else { Issue.record("expected held at +\(dt), got \(d)"); return }
+        }
+        #expect(e.evaluate(places: [Self.agata, Self.crisogono], position: .at(north: 0.2), accuracy: 5, course: 0,
+                           now: Self.t0 + 35)?.place == Self.agata)
     }
 }
