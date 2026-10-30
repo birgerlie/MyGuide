@@ -21,6 +21,11 @@ import Foundation
         let line = sparql(request).split(separator: "\n").first { $0.contains("VALUES ?item") }!
         return line.components(separatedBy: "wd:Q").count - 1
     }
+    /// The ids a request asked for, in order.
+    static func askedIds(_ request: URLRequest) -> [String] {
+        let line = sparql(request).split(separator: "\n").first { $0.contains("VALUES ?item") }!
+        return line.split(separator: " ").filter { $0.hasPrefix("wd:Q") }.map { String($0.dropFirst(3)) }
+    }
     static func ids(_ count: Int) -> [String] { (1...count).map { "Q\($0)" } }
 
     @Test func queryContainsEveryClassAndOnlyValidIds() {
@@ -108,12 +113,30 @@ import Foundation
 
     @Test func failedBatchIsLeftOutOthersSucceed() async throws {
         let http = StubHTTPClient { r in
-            Self.sparql(r).contains("wd:Q1 ")
+            // The batch holding Q1 (the first 50 ids) fails; the batch of Q51...Q60 answers.
+            Self.askedIds(r).contains("Q1")
                 ? (500, Data())
                 : (200, Self.body([Self.row("Q51", n: 5, place: true)]))
         }
         let f = try await WikidataClient(http: http).facts(for: Self.ids(60))
         #expect(f == ["Q51": PlaceFacts(sitelinks: 5, placeClass: .place)])
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(60))
+        // Only the 10 ids of the successful batch are answered; one batch failed.
+        #expect(answer.answered == Set(Self.ids(60).suffix(10)) && answer.failedBatches == 1)
+    }
+
+    @Test func answeredIdsWithoutRowAreReported() async throws {
+        let http = StubHTTPClient { _ in (200, Self.body([Self.row("Q1", n: 3, place: true)])) }
+        let a = try await WikidataClient(http: http).lookup(ids: ["Q1", "Q2"])
+        #expect(a.facts.keys.sorted() == ["Q1"] && a.answered == ["Q1", "Q2"] && a.failedBatches == 0)
+    }
+
+    @Test func idValidationIsAsciiOnly() {
+        let bad = ["Q1\u{0301}", "Q0\u{0301}", "Q1\u{200D}", "Q\u{FF11}\u{FF12}", "Q\u{0661}\u{0662}", "Q", "q1", "", "Q-1", "Q1 ", "1"]
+        for id in bad { #expect(!WikidataClient.isValid(id), "accepted \(id.unicodeScalars.map(\.value))") }
+        for id in ["Q1", "Q0", "Q42", "Q4010851"] { #expect(WikidataClient.isValid(id)) }
+        let q = WikidataClient.query(ids: bad + ["Q7"])
+        #expect(q.contains("VALUES ?item { wd:Q7 }"))
     }
 
     @Test func malformedBodyIsLeftOut() async throws {

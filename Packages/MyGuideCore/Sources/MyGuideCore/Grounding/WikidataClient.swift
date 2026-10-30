@@ -21,37 +21,65 @@ public struct WikidataClient: Sendable {
         self.http = http
     }
 
+    /// The outcome of a lookup: the facts found, the ids whose batch succeeded (an answered id without facts is
+    /// unknown to Wikidata), and how many batches failed (for the caller to log; core has no logging dependency).
+    public struct Answer: Sendable, Equatable {
+        public var facts: [String: PlaceFacts] = [:]
+        public var answered: Set<String> = []
+        public var failedBatches = 0
+
+        public init(facts: [String: PlaceFacts] = [:], answered: Set<String> = [], failedBatches: Int = 0) {
+            self.facts = facts
+            self.answered = answered
+            self.failedBatches = failedBatches
+        }
+    }
+
     /// Facts for up to any number of ids (batched by 50, batches run concurrently, at most 4 batches = 200 ids;
     /// ids beyond are left out). A failed batch is left out of the result; never throws except CancellationError.
     public func facts(for ids: [String]) async throws -> [String: PlaceFacts] {
+        try await lookup(ids: ids).facts
+    }
+
+    /// Like `facts(for:)`, and also reports which ids were answered and how many batches failed.
+    public func lookup(ids: [String]) async throws -> Answer {
         var seen = Set<String>()
         let valid = ids.filter { Self.isValid($0) && seen.insert($0).inserted }.prefix(Self.batchSize * Self.maxBatches)
         let batches = stride(from: 0, to: valid.count, by: Self.batchSize).map {
             Array(valid.dropFirst($0).prefix(Self.batchSize))
         }
         let http = http
-        return try await withThrowingTaskGroup(of: [String: PlaceFacts].self) { group in
+        return try await withThrowingTaskGroup(of: (batch: [String], facts: [String: PlaceFacts]?).self) { group in
             for batch in batches {
                 group.addTask {
                     do {
-                        return try await Self.fetch(batch, http: http)
+                        return (batch, try await Self.fetch(batch, http: http))
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        return [:]
+                        return (batch, nil)
                     }
                 }
             }
-            var merged: [String: PlaceFacts] = [:]
-            for try await part in group { merged.merge(part) { first, _ in first } }
+            var answer = Answer()
+            for try await part in group {
+                guard let facts = part.facts else {
+                    answer.failedBatches += 1
+                    continue
+                }
+                answer.answered.formUnion(part.batch)
+                answer.facts.merge(facts) { first, _ in first }
+            }
             try Task.checkCancellation()
-            return merged
+            return answer
         }
     }
 
-    /// "Q" and at least one digit, nothing else.
+    /// "Q" followed by one or more ASCII digits, nothing else. Checked on the UTF-8 bytes: a `Character` comparison
+    /// would accept a digit with a combining mark or joiner, which makes a malformed IRI that fails its whole batch.
     static func isValid(_ id: String) -> Bool {
-        id.count >= 2 && id.first == "Q" && id.dropFirst().allSatisfy { $0 >= "0" && $0 <= "9" }
+        let bytes = id.utf8
+        return bytes.count >= 2 && bytes.first == UInt8(ascii: "Q") && bytes.dropFirst().allSatisfy { (48...57).contains($0) }
     }
 
     /// The SPARQL for `ids` (invalid ones skipped): one row per item with its sitelink count and one boolean per
@@ -91,7 +119,7 @@ public struct WikidataClient: Sendable {
         return try parse(data)
     }
 
-    private struct Answer: Decodable {
+    private struct Reply: Decodable {
         struct Value: Decodable { var value: String }
         struct Row: Decodable {
             var item: Value
@@ -106,9 +134,9 @@ public struct WikidataClient: Sendable {
 
     /// Rows without a readable id or count are skipped; the first row of an item wins.
     static func parse(_ data: Data) throws -> [String: PlaceFacts] {
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw GroundingFetchError.malformed }
+        guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else { throw GroundingFetchError.malformed }
         var facts: [String: PlaceFacts] = [:]
-        for row in answer.results.bindings {
+        for row in reply.results.bindings {
             guard let id = row.item.value.split(separator: "/").last.map(String.init), isValid(id),
                   let n = Int(row.n.value), facts[id] == nil else { continue }
             let kind: PlaceClass
