@@ -1192,7 +1192,8 @@ final class WalkingController {
                     self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
                                              fetchedAt: list.fetchedAt)
                     self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
-                                                          osmErrors: list.osmErrors))
+                                                          osmErrors: list.osmErrors, facts: list.factsCount,
+                                                          dropped: list.dropped, factsFailed: list.factsFailed))
                 } else if self.runToken == run {
                     self.feed.fetchCancelled()
                 }
@@ -1215,7 +1216,8 @@ final class WalkingController {
                 self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
                                          fetchedAt: list.fetchedAt)
                 self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
-                                                      osmErrors: list.osmErrors))
+                                                      osmErrors: list.osmErrors, facts: list.factsCount,
+                                                      dropped: list.dropped, factsFailed: list.factsFailed))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
                 // A real failure waits 60 s before the next try.
                 self.feed.fetchFailed(now: .now)

@@ -171,3 +171,58 @@ extension Array where Element == Candidate {
         }
     }
 }
+
+/// How a place source gets Wikidata facts: through a `PlaceFactsCache` and a `WikidataClient` in the app, or any
+/// closure in tests. Without one, a source tiers by tags and articles alone, as before facts existed.
+public struct PlaceFactsLookup: Sendable {
+    private let lookup: @Sendable ([String]) async throws -> WikidataClient.Answer
+
+    public init(_ lookup: @escaping @Sendable ([String]) async throws -> WikidataClient.Answer) {
+        self.lookup = lookup
+    }
+
+    public init(cache: PlaceFactsCache, client: WikidataClient) {
+        self.init { ids in try await cache.lookup(ids: ids, client: client) }
+    }
+
+    /// The facts for `ids`; an empty answer for no ids, without a call. Never throws except CancellationError (also
+    /// for `URLError.cancelled`): any other error is an answer without facts that counts as one failed batch, so a
+    /// failing lookup leaves every tier as it was.
+    func answer(for ids: [String]) async throws -> WikidataClient.Answer {
+        guard !ids.isEmpty else { return WikidataClient.Answer() }
+        do {
+            return try await lookup(ids)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            return WikidataClient.Answer(failedBatches: 1)
+        }
+    }
+
+    /// The Wikidata ids of `candidates`, each once, those without OSM tags first: their tier depends on the facts,
+    /// while an OSM candidate only gains sitelinks for the buzz order, so they go first when the client has to leave
+    /// ids out (more than `WikidataClient.batchSize * maxBatches`).
+    static func ids(of candidates: [Candidate]) -> [String] {
+        var seen = Set<String>()
+        let untagged = candidates.filter { !PlaceTiers.hasOSMTags($0) }
+        let tagged = candidates.filter { PlaceTiers.hasOSMTags($0) }
+        return (untagged + tagged).compactMap(\.wikidata).filter { seen.insert($0).inserted }
+    }
+}
+
+/// Candidates with their Wikidata facts applied, and what the walk log says about them (spec 19.8).
+struct PlaceFactsEnrichment: Sendable, Equatable {
+    var candidates: [Candidate]
+    /// Candidates that received facts.
+    var factsCount: Int
+    /// Names of the candidates the tiering drops as `nonPlace` (`PlaceTiers.isDroppedAsNonPlace`), in list order.
+    var dropped: [String]
+
+    init(_ candidates: [Candidate], facts: [String: PlaceFacts]) {
+        self.candidates = candidates.applying(facts)
+        factsCount = candidates.filter { $0.wikidata.map { facts[$0] != nil } ?? false }.count
+        dropped = self.candidates.filter(PlaceTiers.isDroppedAsNonPlace).map(\.name)
+    }
+}

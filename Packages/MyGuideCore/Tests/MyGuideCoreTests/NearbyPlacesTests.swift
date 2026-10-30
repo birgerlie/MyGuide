@@ -12,6 +12,7 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     private var result: Result<[Candidate], Error>
     private var osmFailed = false
     private var osmErrors: [String] = []
+    private var facts: (count: Int, dropped: [String], failed: Int) = (0, [], 0)
     private let suspends: Bool
     private var released = false
 
@@ -31,6 +32,10 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
         }
     }
 
+    func setFacts(count: Int, dropped: [String], failed: Int) {
+        lock.withLock { facts = (count, dropped, failed) }
+    }
+
     func resume() {
         let (waiters, result) = lock.withLock { () -> ([CheckedContinuation<[Candidate], Error>], Result<[Candidate], Error>) in
             defer {
@@ -43,18 +48,20 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     }
 
     func candidates(around: Coordinate, language: StoryLanguage) async throws -> PlaceSearchResult {
-        let (result, released, osmFailed, osmErrors) = lock.withLock {
-            () -> (Result<[Candidate], Error>, Bool, Bool, [String]) in
+        let (result, released, osmFailed, osmErrors, facts) = lock.withLock {
+            () -> (Result<[Candidate], Error>, Bool, Bool, [String], (count: Int, dropped: [String], failed: Int)) in
             calls += 1
-            return (self.result, self.released, self.osmFailed, self.osmErrors)
+            return (self.result, self.released, self.osmFailed, self.osmErrors, self.facts)
         }
         guard suspends, !released else {
-            return PlaceSearchResult(candidates: try result.get(), osmFailed: osmFailed, osmErrors: osmErrors)
+            return PlaceSearchResult(candidates: try result.get(), osmFailed: osmFailed, osmErrors: osmErrors,
+                                     factsCount: facts.count, dropped: facts.dropped, factsFailed: facts.failed)
         }
         let candidates = try await withCheckedThrowingContinuation { continuation in
             lock.withLock { waiters.append(continuation) }
         }
-        return PlaceSearchResult(candidates: candidates, osmFailed: osmFailed, osmErrors: osmErrors)
+        return PlaceSearchResult(candidates: candidates, osmFailed: osmFailed, osmErrors: osmErrors,
+                                 factsCount: facts.count, dropped: facts.dropped, factsFailed: facts.failed)
     }
 }
 
@@ -813,6 +820,36 @@ private struct Boom: Error {}
         old["osmErrors"] = nil
         let decodedOld = try JSONDecoder().decode(NearbyList.self, from: JSONSerialization.data(withJSONObject: old))
         #expect(decodedOld.osmErrors.isEmpty && decodedOld.osmFailed)
+    }
+    @Test func listKeepsTheFactsCountsAndOldFilesDecodeWithout() async throws {
+        let fetcher = StubFetcher(.success([Self.article("A", north: 0)]))
+        fetcher.setFacts(count: 4, dropped: ["Jesuittordenen"], failed: 1)
+        let nearby = Self.places(fetcher, clock: LockedBox(Self.t0))
+        let list = try await nearby.refresh(at: .at(), language: .english)
+        #expect(list.factsCount == 4 && list.dropped == ["Jesuittordenen"] && list.factsFailed == 1)
+        let back = try JSONDecoder().decode(NearbyList.self, from: JSONEncoder().encode(list))
+        #expect(back == list)
+        // A stored list written before the fields existed reads with 0 / [] / 0.
+        var old = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(list)) as? [String: Any])
+        old["factsCount"] = nil
+        old["dropped"] = nil
+        old["factsFailed"] = nil
+        let decodedOld = try JSONDecoder().decode(NearbyList.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(decodedOld.factsCount == 0 && decodedOld.dropped.isEmpty && decodedOld.factsFailed == 0)
+        #expect(decodedOld.candidates == list.candidates)
+    }
+    @Test func walkingPlacesUseTheCandidatesFacts() {
+        // A Wikipedia-only nonPlace candidate stays in the stored list but never walks; a place with 30 sitelinks is top.
+        var gesu = Self.article("Il Gesù", north: 0)
+        gesu.sitelinks = 30
+        gesu.placeClass = .place
+        var order = Self.article("Jesuittordenen", north: 0)
+        order.sitelinks = 119
+        order.placeClass = .nonPlace
+        let list = NearbyList(centre: .at(), fetchedAt: Self.t0, language: .english, candidates: [gesu, order],
+                              articleTexts: [:])
+        #expect(list.walkingPlaces.map(\.candidate.name) == ["Il Gesù"])
+        #expect(list.walkingPlaces.map(\.tier) == [.top])
     }
     @Test func nothingCarriedWhenOSMAnswers() async throws {
         let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30)]))

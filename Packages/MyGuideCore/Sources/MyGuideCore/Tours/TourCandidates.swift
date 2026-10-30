@@ -79,18 +79,22 @@ public struct TourPlaceSearch: Sendable, Equatable {
 }
 
 /// Fetches the tiered places of a tour area: one Overpass box query (`OverpassClient.tourQuery`) and one Wikipedia
-/// geosearch per tile of the area, merged with `CandidateRanker` and tiered with `PlaceTiers`. Places outside the
-/// area may be included (tiles and boxes overreach); `TourCandidates.select` keeps the area's own.
+/// geosearch per tile of the area, merged with `CandidateRanker`, given their Wikidata facts, and tiered with
+/// `PlaceTiers` (spec 19.2: a Wikipedia-only `nonPlace` is never a tour candidate). Places outside the area may be
+/// included (tiles and boxes overreach); `TourCandidates.select` keeps the area's own.
 public struct TourPlaceSource: Sendable {
     /// Results per geosearch tile: the API maximum, since one tile may cover several square kilometres.
     public static let wikiLimit = WikipediaClient.maxGeosearchLimit
 
     private let overpass: OverpassClient
     private let wikipedia: WikipediaClient
+    private let facts: PlaceFactsLookup?
 
-    public init(overpass: OverpassClient, wikipedia: WikipediaClient) {
+    /// Without `facts`, places keep the tiers of tags and articles alone.
+    public init(overpass: OverpassClient, wikipedia: WikipediaClient, facts: PlaceFactsLookup? = nil) {
         self.overpass = overpass
         self.wikipedia = wikipedia
+        self.facts = facts
     }
 
     /// `search(in:language:)`'s places alone.
@@ -101,7 +105,10 @@ public struct TourPlaceSource: Sendable {
     /// Both sources concurrently, failing like `WalkingPlaceSource`: one failing → the other's places, with the failure
     /// reported in the result; both failing → the OpenStreetMap error is thrown (an `OverpassFailure` when every
     /// endpoint answered with an error). Wikipedia counts as failed only when every tile failed; single failed tiles
-    /// are counted in `failedTiles`. Cancellation always propagates.
+    /// are counted in `failedTiles`. The merged candidates then get their Wikidata facts (Wikipedia-only ones first
+    /// when there are more ids than one lookup takes); a failed lookup leaves the tiers as they were. Unlike walking,
+    /// OpenStreetMap is awaited fully: a tour is planned once, and its 30 s query is worth the wait. Cancellation
+    /// always propagates.
     public func search(in area: TourArea, language: StoryLanguage) async throws -> TourPlaceSearch {
         let box = area.boundingBox, tiles = area.wikipediaTiles
         async let osm = WalkingPlaceSource.outcome {
@@ -113,7 +120,7 @@ public struct TourPlaceSource: Sendable {
         try Task.checkCancellation()
 
         var result = TourPlaceSearch(places: [], osmFailed: false, osmErrors: [], failedTiles: 0, tileCount: tiles.count)
-        let candidates: [Candidate]
+        var candidates: [Candidate]
         switch (osmResult, wikiResult) {
         case (.failure(let error), .failure):
             throw error
@@ -130,6 +137,10 @@ public struct TourPlaceSource: Sendable {
             result.failedTiles = found.failedTiles
             result.osmCapped = osm.capped
             candidates = CandidateRanker.merge(osm: osm.candidates, wiki: found.articles)
+        }
+        if let facts {
+            let answer = try await facts.answer(for: PlaceFactsLookup.ids(of: candidates))
+            candidates = candidates.applying(answer.facts)
         }
         result.places = candidates.compactMap { candidate in
             PlaceTiers.tier(for: candidate).map { WalkingPlace(candidate: candidate, tier: $0) }

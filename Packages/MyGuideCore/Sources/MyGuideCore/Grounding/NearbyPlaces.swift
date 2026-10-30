@@ -154,7 +154,9 @@ public actor NearbyPlaces {
                                           candidates: candidates,
                                           articleTexts: carriedArticleTexts(for: candidates, around: position,
                                                                             language: language),
-                                          osmFailed: found.osmFailed, osmErrors: found.osmErrors)
+                                          osmFailed: found.osmFailed, osmErrors: found.osmErrors,
+                                          factsCount: found.factsCount, dropped: found.dropped,
+                                          factsFailed: found.factsFailed)
                     generation[language, default: 0] += 1
                     keep(list)
                     lastOutcome[language] = .success(list)

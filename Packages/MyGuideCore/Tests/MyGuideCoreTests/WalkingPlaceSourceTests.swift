@@ -167,4 +167,295 @@ import Testing
         let wikiDown = try await source(Self.stub(wiki: { (500, Data()) })).candidates(around: here, language: .english)
         #expect(!wikiDown.osmFailed && wikiDown.candidates.map(\.name) == ["Burg", "Bank Austria", "Old Stone"])
     }
+
+    // MARK: - Wikidata facts and the OpenStreetMap grace (spec 19.2, 19.5)
+
+    /// Il Gesù (Q1, a church), Jesuittordenen (Q2, an order at the same spot) and Via del Plebiscito (Q3, a street),
+    /// all within 500 m of `here`.
+    static let romeWikiBody = #"""
+    {"query":{"pages":[
+     {"pageid":1,"title":"Il Gesù","coordinates":[{"lat":48.2084,"lon":16.3731}],"extract":"A church.","pageprops":{"wikibase_item":"Q1"}},
+     {"pageid":2,"title":"Jesuittordenen","coordinates":[{"lat":48.2084,"lon":16.3731}],"extract":"An order.","pageprops":{"wikibase_item":"Q2"}},
+     {"pageid":3,"title":"Via del Plebiscito","coordinates":[{"lat":48.2085,"lon":16.3735}],"extract":"A street.","pageprops":{"wikibase_item":"Q3"}}
+    ]}}
+    """#
+    /// A castle with its own Wikidata item (Q20) whose class says organisation, and a plain place without an id.
+    static let osmWithIdBody = #"""
+    {"elements":[
+     {"type":"node","id":1,"lat":48.2086,"lon":16.3671,"tags":{"name":"Burg","historic":"castle","wikidata":"Q20"}},
+     {"type":"node","id":2,"lat":48.2090,"lon":16.3680,"tags":{"name":"Museum","tourism":"museum"}}
+    ]}
+    """#
+    static let romeFacts: [String: PlaceFacts] = [
+        "Q1": PlaceFacts(sitelinks: 40, placeClass: .place),
+        "Q2": PlaceFacts(sitelinks: 119, placeClass: .nonPlace),
+        "Q3": PlaceFacts(sitelinks: 7, placeClass: .area),
+        "Q20": PlaceFacts(sitelinks: 55, placeClass: .nonPlace),
+    ]
+
+    /// A lookup answering from `known` (an id without facts is still answered), recording the ids of every call.
+    static func lookup(_ known: [String: PlaceFacts] = romeFacts, delay: Duration = .zero,
+                       calls: LockedBox<[[String]]> = LockedBox([])) -> PlaceFactsLookup {
+        PlaceFactsLookup { ids in
+            calls.withValue { $0.append(ids) }
+            if delay > .zero { try await Task.sleep(for: delay) }
+            return WikidataClient.Answer(facts: known.filter { ids.contains($0.key) }, answered: Set(ids))
+        }
+    }
+
+    func source(_ http: any HTTPClient, facts: PlaceFactsLookup?, grace: Duration = .seconds(5)) -> WalkingPlaceSource {
+        WalkingPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http), facts: facts,
+                           osmGrace: grace)
+    }
+
+    @Test func factsTierWikipediaOnlyPlacesAndDropNonPlaces() async throws {
+        let empty = #"{"elements":[]}"#
+        let http = Self.stub(osm: { (200, Data(empty.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        let src = source(http, facts: Self.lookup())
+        let result = try await src.candidates(around: here, language: .english)
+        // Q1, Q2 and Q3 got facts: 3. Jesuittordenen is nonPlace without tags → dropped.
+        #expect(result.factsCount == 3)
+        #expect(result.dropped == ["Jesuittordenen"])
+        #expect(result.factsFailed == 0)
+        #expect(!result.osmFailed)
+        // The untiered candidate stays in the list (the camera's place list uses it); only the tiers drop it.
+        #expect(result.candidates.map(\.name) == ["Il Gesù", "Jesuittordenen", "Via del Plebiscito"])
+        let places = try await src.places(around: here, language: .english)
+        // Il Gesù: place, 40 ≥ 30 → top. Via del Plebiscito: area → wikiOnly.
+        #expect(places.map(\.candidate.name) == ["Il Gesù", "Via del Plebiscito"])
+        #expect(places.map(\.tier) == [.top, .wikiOnly])
+        #expect(places.first?.candidate.sitelinks == 40)
+    }
+    @Test func failingFactsLeaveTiersAsToday() async throws {
+        let empty = #"{"elements":[]}"#
+        let http = Self.stub(osm: { (200, Data(empty.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        let failing = PlaceFactsLookup { _ in throw URLError(.timedOut) }
+        let result = try await source(http, facts: failing).candidates(around: here, language: .english)
+        #expect(result.factsCount == 0 && result.dropped.isEmpty)
+        // The error counts as one failed batch.
+        #expect(result.factsFailed == 1)
+        let tiers = result.candidates.compactMap(PlaceTiers.tier(for:))
+        // All three are Wikipedia-only without facts: wikiOnly, as without a lookup.
+        #expect(tiers == [.wikiOnly, .wikiOnly, .wikiOnly])
+        let without = try await source(http, facts: nil).candidates(around: here, language: .english)
+        #expect(result.candidates == without.candidates)
+        #expect(without.factsCount == 0 && without.dropped.isEmpty && without.factsFailed == 0)
+    }
+    @Test func cacheAndClientWiringAndWikidataDown() async throws {
+        let empty = #"{"elements":[]}"#
+        let wikidataUp = LockedBox(true)
+        let http = StubHTTPClient { request in
+            if Self.isOverpass(request) { return (200, Data(empty.utf8)) }
+            if request.url?.host == "query.wikidata.org" {
+                guard wikidataUp.value else { return (503, Data()) }
+                return (200, WikidataClientTests.body([WikidataClientTests.row("Q1", n: 40, place: true),
+                                                       WikidataClientTests.row("Q2", n: 119, nonplace: true),
+                                                       WikidataClientTests.row("Q3", n: 7, area: true)]))
+            }
+            return (200, Data(Self.romeWikiBody.utf8))
+        }
+        let client = WikidataClient(http: http)
+        // Down first: nothing is stored, tiers as today, one failed batch (3 ids fit one batch of 50).
+        wikidataUp.set(false)
+        let down = try await source(http, facts: PlaceFactsLookup(cache: PlaceFactsCache(directory: nil), client: client))
+            .candidates(around: here, language: .english)
+        #expect(down.factsCount == 0 && down.dropped.isEmpty && down.factsFailed == 1)
+        wikidataUp.set(true)
+        let up = try await source(http, facts: PlaceFactsLookup(cache: PlaceFactsCache(directory: nil), client: client))
+            .candidates(around: here, language: .english)
+        #expect(up.factsCount == 3 && up.dropped == ["Jesuittordenen"] && up.factsFailed == 0)
+    }
+    @Test func osmCandidatesGetSitelinksButKeepTagTiers() async throws {
+        let calls = LockedBox<[[String]]>([])
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        let result = try await source(http, facts: Self.lookup(calls: calls)).candidates(around: here, language: .english)
+        let burg = try #require(result.candidates.first { $0.name == "Burg" })
+        // Its item is nonPlace with 55 sitelinks, but historic=castle decides: top, and it is not dropped.
+        #expect(burg.sitelinks == 55 && burg.placeClass == .nonPlace)
+        #expect(PlaceTiers.tier(for: burg) == .top)
+        #expect(result.dropped == ["Jesuittordenen"])
+        // Q1, Q2, Q3 and Q20: 4 candidates got facts.
+        #expect(result.factsCount == 4)
+        // First the Wikipedia ids as soon as Wikipedia answered, then only the OSM id that was not asked yet.
+        #expect(calls.value == [["Q1", "Q2", "Q3"], ["Q20"]])
+    }
+    @Test func noSecondLookupWhenTheFirstHadFailedBatches() async throws {
+        let calls = LockedBox<[[String]]>([])
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        let failing = PlaceFactsLookup { ids in
+            calls.withValue { $0.append(ids) }
+            return WikidataClient.Answer(failedBatches: 1)
+        }
+        let result = try await source(http, facts: failing).candidates(around: here, language: .english)
+        #expect(calls.value == [["Q1", "Q2", "Q3"]])
+        #expect(result.factsFailed == 1 && result.factsCount == 0)
+    }
+    @Test func osmIdsAreLookedUpWhenWikipediaFails() async throws {
+        let calls = LockedBox<[[String]]>([])
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (500, Data()) })
+        let result = try await source(http, facts: Self.lookup(calls: calls)).candidates(around: here, language: .english)
+        #expect(calls.value == [["Q20"]])
+        #expect(result.factsCount == 1 && result.dropped.isEmpty && !result.osmFailed)
+    }
+    @Test func idsWithoutTagsComeFirstEachOnce() {
+        let tagged = Candidate(id: "osm:node/1", name: "A", coordinate: here, kind: "x", wikidata: "Q9",
+                               tags: ["historic": "castle"])
+        let untagged = Candidate(id: "wiki:en/1", name: "B", coordinate: here, kind: "wikipedia", wikidata: "Q8")
+        let emptyTags = Candidate(id: "osm:node/2", name: "C", coordinate: here, kind: "x", wikidata: "Q7", tags: [:])
+        let none = Candidate(id: "wiki:en/2", name: "D", coordinate: here, kind: "wikipedia")
+        let twin = Candidate(id: "wiki:de/1", name: "B", coordinate: here, kind: "wikipedia", wikidata: "Q8")
+        #expect(PlaceFactsLookup.ids(of: [tagged, untagged, none, emptyTags, twin]) == ["Q8", "Q7", "Q9"])
+    }
+    @Test func noLookupCallWithoutIds() async throws {
+        let calls = LockedBox<[[String]]>([])
+        let http = Self.stub(wiki: { (200, Data(#"{"query":{"pages":[]}}"#.utf8)) })
+        let result = try await source(http, facts: Self.lookup(calls: calls)).candidates(around: here, language: .english)
+        // Neither Wikipedia (no articles) nor OSM (no wikidata tags in osmBody) has an id.
+        #expect(calls.value.isEmpty && result.factsCount == 0)
+    }
+
+    @Test func slowOverpassIsCutOffAfterTheGrace() async throws {
+        // Overpass would take 60 s; Wikipedia answers after 0.3 s, then OSM gets 0.3 s more: about 0.6 s in all,
+        // never less (both are sleeps), and far below the 60 s.
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) {
+                try await Task.sleep(for: .seconds(60))
+                return (200, Data(Self.osmBody.utf8))
+            }
+            try await Task.sleep(for: .milliseconds(300))
+            return (200, Data(Self.wikiBody.utf8))
+        }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let result = try await source(http, facts: nil, grace: .milliseconds(300)).candidates(around: here, language: .english)
+        let elapsed = clock.now - start
+        #expect(elapsed >= .milliseconds(600))
+        #expect(elapsed < .seconds(5))
+        #expect(result.osmFailed)
+        #expect(result.osmErrors == ["slow"])
+        #expect(result.candidates.map(\.name) == ["Stephansdom"])
+        // Cancelled, not failed over: only the first endpoint was asked.
+        #expect(http.requests.filter(Self.isOverpass).count == 1)
+    }
+    @Test func graceStartsWhenTheFactsAreIn() async throws {
+        // Wikipedia answers at once; the facts take 1.0 s; Overpass answers at 1.5 s; grace 1.2 s.
+        // Grace from the facts: deadline 1.0 + 1.2 = 2.2 s > 1.5 s → OSM is used. (Counted from Wikipedia it would
+        // have ended at 1.2 s < 1.5 s and lost the castle.)
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) {
+                try await Task.sleep(for: .milliseconds(1500))
+                return (200, Data(Self.osmBody.utf8))
+            }
+            return (200, Data(Self.wikiBody.utf8))
+        }
+        let result = try await source(http, facts: Self.lookup(delay: .seconds(1)), grace: .milliseconds(1200))
+            .candidates(around: here, language: .english)
+        #expect(!result.osmFailed && result.osmErrors.isEmpty)
+        #expect(result.candidates.map(\.name).contains("Burg"))
+    }
+    @Test func overpassAnsweringFirstNeedsNoGrace() async throws {
+        // OSM at once, Wikipedia after 0.2 s, grace 60 s: the result comes when Wikipedia is in, not after the grace.
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) { return (200, Data(Self.osmBody.utf8)) }
+            try await Task.sleep(for: .milliseconds(200))
+            return (200, Data(Self.wikiBody.utf8))
+        }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let result = try await source(http, facts: nil, grace: .seconds(60)).candidates(around: here, language: .english)
+        #expect(clock.now - start < .seconds(5))
+        #expect(!result.osmFailed && result.candidates.count == 4)
+    }
+    @Test func wikipediaFailingWaitsForOverpassFully() async throws {
+        // Wikipedia fails at once; Overpass takes 0.5 s, more than the 0.05 s grace, and is still awaited.
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) {
+                try await Task.sleep(for: .milliseconds(500))
+                return (200, Data(Self.osmBody.utf8))
+            }
+            return (500, Data())
+        }
+        let result = try await source(http, facts: nil, grace: .milliseconds(50)).candidates(around: here, language: .english)
+        #expect(!result.osmFailed)
+        #expect(result.candidates.map(\.name) == ["Burg", "Bank Austria", "Old Stone"])
+    }
+    @Test func bothFailingAfterADelayStillThrowsTheOSMError() async throws {
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) {
+                try await Task.sleep(for: .milliseconds(200))
+                return (502, Data())
+            }
+            return (500, Data())
+        }
+        await #expect(throws: OverpassFailure.self) {
+            _ = try await source(http, facts: nil, grace: .milliseconds(50)).candidates(around: here, language: .english)
+        }
+    }
+    @Test func overpassFailingWithinTheGraceKeepsItsErrors() async throws {
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) {
+                try await Task.sleep(for: .milliseconds(100))
+                return (502, Data())
+            }
+            return (200, Data(Self.wikiBody.utf8))
+        }
+        let result = try await source(http, facts: nil, grace: .seconds(30)).candidates(around: here, language: .english)
+        #expect(result.osmFailed)
+        #expect(result.osmErrors == ["overpass-api.de: HTTP 502", "overpass.kumi.systems: HTTP 502", "maps.mail.ru: HTTP 502"])
+    }
+    @Test func cancellationDuringTheGraceThrows() async {
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) {
+                try await Task.sleep(for: .seconds(60))
+                return (200, Data(Self.osmBody.utf8))
+            }
+            return (200, Data(Self.wikiBody.utf8))
+        }
+        let src = source(http, facts: nil, grace: .seconds(30))
+        let here = self.here
+        let task = Task { try await src.candidates(around: here, language: .english) }
+        // Wikipedia answers at once; the search is then waiting out the grace.
+        try? await Task.sleep(for: .milliseconds(200))
+        task.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+    }
+    @Test func cancellationFromTheFactsLookupPropagates() async {
+        let cancelled = PlaceFactsLookup { _ in throw CancellationError() }
+        await #expect(throws: CancellationError.self) {
+            _ = try await source(Self.stub(), facts: cancelled).candidates(around: here, language: .english)
+        }
+        let urlCancelled = PlaceFactsLookup { _ in throw URLError(.cancelled) }
+        await #expect(throws: CancellationError.self) {
+            _ = try await source(Self.stub(), facts: urlCancelled).candidates(around: here, language: .english)
+        }
+    }
+    @Test func defaultGraceIsFiveSeconds() {
+        #expect(WalkingPlaceSource.osmGrace == .seconds(5))
+        #expect(PlaceSearchResult.slow == "slow")
+    }
+}
+
+/// Like `StubHTTPClient`, but the handler is async, so a request can take time (or never answer until cancelled).
+final class AsyncStubHTTPClient: HTTPClient, @unchecked Sendable {
+    private let handler: @Sendable (URLRequest) async throws -> (Int, Data)
+    private let recorded = LockedBox<[URLRequest]>([])
+
+    init(_ handler: @escaping @Sendable (URLRequest) async throws -> (Int, Data)) {
+        self.handler = handler
+    }
+
+    var requests: [URLRequest] { recorded.value }
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        recorded.withValue { $0.append(request) }
+        let (status, data) = try await handler(request)
+        let response = HTTPURLResponse(url: request.url ?? URL(string: "https://stub.invalid")!, statusCode: status,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+        return (data, response)
+    }
+
+    func lines(_ request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, HTTPURLResponse) {
+        let (data, response) = try await send(request)
+        return (AsyncThrowingStream(lines: ServerSentEventLineSplitter.lines(in: data)), response)
+    }
 }

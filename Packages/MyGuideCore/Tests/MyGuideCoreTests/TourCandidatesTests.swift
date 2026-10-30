@@ -279,4 +279,56 @@ import Testing
         // One tile: the Norwegian request plus its concurrent English fallback.
         #expect(Set(Self.wikiRequests(http).compactMap { $0.url?.host }) == ["no.wikipedia.org", "en.wikipedia.org"])
     }
+
+    // MARK: - Wikidata facts (spec 19.2)
+
+    /// Dom (Q10) and an order placed at the same coordinates (Q11).
+    static let wikiWithOrderBody = #"""
+    {"query":{"pages":[
+     {"pageid":10,"title":"Dom","coordinates":[{"lat":0.002,"lon":0.002}],"extract":"A cathedral.","pageprops":{"wikibase_item":"Q10"}},
+     {"pageid":11,"title":"Domkapitel","coordinates":[{"lat":0.002,"lon":0.002}],"extract":"A chapter.","pageprops":{"wikibase_item":"Q11"}}
+    ]}}
+    """#
+
+    @Test func nonPlaceWikipediaCandidateIsNoTourCandidate() async throws {
+        let http = Self.stub(wiki: { _ in (200, Data(Self.wikiWithOrderBody.utf8)) })
+        let asked = LockedBox<[[String]]>([])
+        let facts = PlaceFactsLookup { ids in
+            asked.withValue { $0.append(ids) }
+            return WikidataClient.Answer(facts: ["Q10": PlaceFacts(sitelinks: 64, placeClass: .place),
+                                                 "Q11": PlaceFacts(sitelinks: 3, placeClass: .nonPlace)],
+                                         answered: Set(ids))
+        }
+        let source = TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http),
+                                     facts: facts)
+        let places = try await source.places(in: area, language: .english)
+        // Burg: castle → top. Dom: place with 64 ≥ 30 sitelinks → top (wikiOnly without facts). Domkapitel: dropped.
+        #expect(places.map(\.candidate.name) == ["Burg", "Dom"])
+        #expect(places.map(\.tier) == [.top, .top])
+        #expect(places.last?.candidate.sitelinks == 64)
+        let candidates = TourCandidates.select(places, in: area, heardWithin30Days: [])
+        #expect(!candidates.contains { $0.place.candidate.name == "Domkapitel" })
+        // One lookup for the merged candidates' ids (the OSM ones here carry none).
+        #expect(asked.value == [["Q10", "Q11"]])
+        // Without facts Domkapitel is a wikiOnly candidate like Dom.
+        let plain = try await Self.source(http).places(in: area, language: .english)
+        #expect(plain.map(\.candidate.name) == ["Burg", "Dom", "Domkapitel"])
+        #expect(plain.map(\.tier) == [.top, .wikiOnly, .wikiOnly])
+    }
+    @Test func failingFactsLeaveTourTiersAsToday() async throws {
+        let http = Self.stub(wiki: { _ in (200, Data(Self.wikiWithOrderBody.utf8)) })
+        let failing = PlaceFactsLookup { _ in throw URLError(.timedOut) }
+        let source = TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http),
+                                     facts: failing)
+        let withFailure = try await source.search(in: area, language: .english)
+        let plain = try await Self.source(http).search(in: area, language: .english)
+        #expect(withFailure == plain)
+    }
+    @Test func factsCancellationPropagatesFromTours() async {
+        let http = Self.stub()
+        let cancelled = PlaceFactsLookup { _ in throw CancellationError() }
+        let source = TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http),
+                                     facts: cancelled)
+        await #expect(throws: CancellationError.self) { _ = try await source.places(in: area, language: .english) }
+    }
 }

@@ -21,12 +21,18 @@ public struct NearbyList: Sendable, Equatable, Codable {
     /// True when OpenStreetMap failed for this fetch (both Overpass endpoints); its OSM candidates, if any, were
     /// carried from the previous list (spec 13.6). False in a file written before the field existed.
     public var osmFailed: Bool
-    /// When `osmFailed`: one short line per Overpass endpoint tried, for the walk log; empty otherwise and in a file
-    /// written before the field existed.
+    /// When `osmFailed`: one short line per Overpass endpoint tried, or `PlaceSearchResult.slow` when OpenStreetMap
+    /// ran out of time, for the walk log; empty otherwise and in a file written before the field existed.
     public var osmErrors: [String]
+    /// For the walk log (spec 19.8), as in `PlaceSearchResult`: candidates that received Wikidata facts, the names
+    /// dropped as `nonPlace`, and the Wikidata batches that failed. 0 / empty / 0 in a file written before they existed.
+    public var factsCount: Int
+    public var dropped: [String]
+    public var factsFailed: Int
 
     public init(centre: Coordinate, fetchedAt: Date, language: StoryLanguage, candidates: [Candidate],
-                articleTexts: [String: String], osmFailed: Bool = false, osmErrors: [String] = []) {
+                articleTexts: [String: String], osmFailed: Bool = false, osmErrors: [String] = [],
+                factsCount: Int = 0, dropped: [String] = [], factsFailed: Int = 0) {
         self.centre = centre
         self.fetchedAt = fetchedAt
         self.language = language
@@ -34,6 +40,9 @@ public struct NearbyList: Sendable, Equatable, Codable {
         self.articleTexts = articleTexts
         self.osmFailed = osmFailed
         self.osmErrors = osmErrors
+        self.factsCount = factsCount
+        self.dropped = dropped
+        self.factsFailed = factsFailed
     }
 
     public init(from decoder: Decoder) throws {
@@ -45,6 +54,9 @@ public struct NearbyList: Sendable, Equatable, Codable {
         articleTexts = try c.decode([String: String].self, forKey: .articleTexts)
         osmFailed = try c.decodeIfPresent(Bool.self, forKey: .osmFailed) ?? false
         osmErrors = try c.decodeIfPresent([String].self, forKey: .osmErrors) ?? []
+        factsCount = try c.decodeIfPresent(Int.self, forKey: .factsCount) ?? 0
+        dropped = try c.decodeIfPresent([String].self, forKey: .dropped) ?? []
+        factsFailed = try c.decodeIfPresent(Int.self, forKey: .factsFailed) ?? 0
     }
 
     /// At most `freshAge` old (less than `osmFailedRetryAge` when OpenStreetMap failed) and centred within
