@@ -139,9 +139,10 @@ import Testing
         #expect(r[0].wikipediaTitle == "de:Y")
     }
     @Test func heritageBuildingKeepsBothTagsAndTiersGood() async throws {
-        let body = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"Old House","historic":"building","heritage":"2"}}]}"#
+        // With a Wikidata id: a good-tagged place without article and id is Wiki-only (spec 20.5).
+        let body = #"{"elements":[{"type":"node","id":1,"lat":1,"lon":2,"tags":{"name":"Old House","historic":"building","heritage":"2","wikidata":"Q9"}}]}"#
         let r = try await OverpassClient(http: StubHTTPClient { _ in (200, Data(body.utf8)) }).places(around: vienna, radius: 250, language: .english)
-        #expect(r[0].tags == ["historic": "building", "heritage": "2"])
+        #expect(r[0].tags == ["historic": "building", "heritage": "2", "wikidata": "Q9"])
         #expect(PlaceTiers.tier(for: r[0]) == .good)
     }
 

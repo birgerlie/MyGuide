@@ -157,7 +157,7 @@ public struct WalkLogEvent: Sendable, Equatable {
         /// (spec 13.6); false in a line written before the field existed. `osmErrors`: one short line per Overpass
         /// endpoint tried when it failed ("overpass-api.de: timed out", or "slow" when it ran out of time); empty
         /// otherwise and in older lines. `facts`: how many candidates got Wikidata facts; `dropped`: the names of the
-        /// Wikipedia-only candidates dropped as `nonPlace`; `factsFailed`: Wikidata batches that failed (spec 19.8).
+        /// Wikipedia-only candidates dropped for their Wikidata class; `factsFailed`: Wikidata batches that failed (spec 19.8).
         /// All three are 0 or empty in lines written before they existed. `stale`: a stored list standing in at the
         /// start of a walk until the fresh one arrives (spec 19.6); false in lines written before it existed.
         case fetched(count: Int, top: Int, good: Int, wikiOnly: Int, places: [WalkLogPlace], osmFailed: Bool,

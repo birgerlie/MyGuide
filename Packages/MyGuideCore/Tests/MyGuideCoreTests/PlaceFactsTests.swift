@@ -94,12 +94,29 @@ import Foundation
         let stamp = t0.timeIntervalSince1970
         try Data(#"{"Q1":{"facts":{"sitelinks":58,"placeClass":"area"},"fetchedAt":\#(stamp)}}"#.utf8).write(to: legacy)
         #expect(PlaceFactsCache.fileName != "place-facts.json")
-        #expect(PlaceFactsCache.legacyFileNames == ["place-facts.json"])
+        #expect(PlaceFactsCache.legacyFileNames.contains("place-facts.json"))
         let (client, http) = Self.client()
         let f = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
         #expect(f == ["Q1": Self.place10] && http.requests.count == 1)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(PlaceFactsCache.fileName).path))
+    }
+
+    @Test func answersStoredUnderTheSecondClassRuleAreDiscarded() async throws {
+        // Spec 20.6 changed the classes (settlement, hill, island, organisations that are works of art): a fresh
+        // answer in place-facts-v2.json is ignored, asked again, and the old file removed.
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let v2 = dir.appendingPathComponent("place-facts-v2.json")
+        let stamp = t0.timeIntervalSince1970
+        try Data(#"{"Q1":{"facts":{"sitelinks":83,"placeClass":"place"},"fetchedAt":\#(stamp)}}"#.utf8).write(to: v2)
+        #expect(PlaceFactsCache.fileName == "place-facts-v3.json")
+        #expect(PlaceFactsCache.legacyFileNames == ["place-facts.json", "place-facts-v2.json"])
+        let (client, http) = Self.client()
+        let f = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
+        #expect(f == ["Q1": Self.place10] && http.requests.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: v2.path))
     }
 
     @Test func cappedLookupPassesTheCapToTheClient() async throws {

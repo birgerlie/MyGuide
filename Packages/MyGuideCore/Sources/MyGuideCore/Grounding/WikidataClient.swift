@@ -12,10 +12,19 @@ public struct WikidataClient: Sendable {
     /// Requests in flight at once, whatever the cap.
     static let maxConcurrentBatches = 4
 
-    /// Instance-of classes (through subclass-of) that make an item a place (spec 19.1).
-    static let placeClasses = ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q838948", "Q483453"]
+    /// Instance-of classes (through subclass-of) that make an item a place (spec 19.1): architectural structure,
+    /// square, park, archaeological site, monument, fountain, and hill and island (spec 20.6).
+    static let placeClasses = ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q483453", "Q54050", "Q23442"]
+    /// Work of art: a place too, unless the item is also an organisation, person or event. An order of chivalry
+    /// is a decoration in Wikidata (order of chivalry → state order → state decoration → decoration → work of art),
+    /// so religious orders such as the Sovereign Military Order of Malta reached `place` this way (spec 20.6, live
+    /// check 30 Oct). Kept as its own flag: a SPARQL test per direct class was 4–10 times slower (beyond the 8 s
+    /// timeout).
+    static let artClasses = ["Q838948"]
     /// Streets: `area` even when also a place, since streets are structures in Wikidata (spec 19.1).
     static let streetClasses = ["Q79007"]
+    /// Human settlements: `settlement`, below street and place (spec 20.6).
+    static let settlementClasses = ["Q486972"]
     /// Neighbourhoods and administrative territorial entities: `area` only when not also a place, since castles,
     /// city gates and walls reach Q56061 through odd subclass chains (spec 19.1).
     static let areaClasses = ["Q123705", "Q56061"]
@@ -106,12 +115,14 @@ public struct WikidataClient: Sendable {
         }
         let items = ids.filter(isValid).map { "wd:" + $0 }.joined(separator: " ")
         return """
-        SELECT ?item ?n ?street ?area ?place ?nonplace WHERE {
+        SELECT ?item ?n ?street ?settlement ?area ?place ?art ?nonplace WHERE {
           VALUES ?item { \(items) }
           ?item wikibase:sitelinks ?n .
           \(flag("street", streetClasses))
+          \(flag("settlement", settlementClasses))
           \(flag("area", areaClasses))
           \(flag("place", placeClasses))
+          \(flag("art", artClasses))
           \(flag("nonplace", nonPlaceClasses))
         }
         """
@@ -141,28 +152,34 @@ public struct WikidataClient: Sendable {
             var item: Value
             var n: Value
             var street: Value?
+            var settlement: Value?
             var area: Value?
             var place: Value?
+            var art: Value?
             var nonplace: Value?
         }
         struct Results: Decodable { var bindings: [Row] }
         var results: Results
     }
 
-    /// Rows without a readable id or count are skipped; the first row of an item wins. Class precedence (spec 19.1):
-    /// street → `area`; else place → `place`; else neighbourhood or administrative area → `area`; else `nonPlace`;
-    /// else `unknown`.
+    /// Rows without a readable id or count are skipped; the first row of an item wins; a missing flag is false.
+    /// Class precedence (spec 19.1, 20.6): street → `area`; else place, or work of art that is not also a non-place
+    /// → `place`; else settlement → `settlement`; else neighbourhood or administrative area → `area`; else
+    /// `nonPlace`; else `unknown`.
     static func parse(_ data: Data) throws -> [String: PlaceFacts] {
         guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else { throw GroundingFetchError.malformed }
         var facts: [String: PlaceFacts] = [:]
         for row in reply.results.bindings {
             guard let id = row.item.value.split(separator: "/").last.map(String.init), isValid(id),
                   let n = Int(row.n.value), facts[id] == nil else { continue }
+            func flag(_ value: Reply.Value?) -> Bool { value?.value == "true" }
+            let nonPlace = flag(row.nonplace)
             let kind: PlaceClass
-            if row.street?.value == "true" { kind = .area }
-            else if row.place?.value == "true" { kind = .place }
-            else if row.area?.value == "true" { kind = .area }
-            else if row.nonplace?.value == "true" { kind = .nonPlace }
+            if flag(row.street) { kind = .area }
+            else if flag(row.place) || (flag(row.art) && !nonPlace) { kind = .place }
+            else if flag(row.settlement) { kind = .settlement }
+            else if flag(row.area) { kind = .area }
+            else if nonPlace { kind = .nonPlace }
             else { kind = .unknown }
             facts[id] = PlaceFacts(sitelinks: n, placeClass: kind)
         }

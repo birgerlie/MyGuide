@@ -1,12 +1,16 @@
 import Foundation
 
-/// What a Wikidata item is, for ranking (spec 19.1). Precedence: a street is `area` (even when also a place); else a
-/// place is `place`; else a neighbourhood or administrative area is `area`; else `nonPlace`; else `unknown`.
+/// What a Wikidata item is, for ranking (spec 19.1, 20.6). Precedence: a street is `area` (even when also a place);
+/// else a place is `place` (a work of art only when it is not also an organisation, person or event); else a human
+/// settlement is `settlement`; else a neighbourhood or administrative area is `area`; else `nonPlace`; else `unknown`.
 public enum PlaceClass: String, Sendable, Codable {
-    /// A building, monument, church, castle … (`WikidataClient.placeClasses`).
+    /// A building, monument, church, castle, hill, island … (`WikidataClient.placeClasses`).
     case place
     /// A street, neighbourhood or administrative area: a place, but not a spot to stand at. (A square is a `place`.)
     case area
+    /// An area that is a human settlement (a city, a district, a rione); spec 20.6 counts it as an area, kept apart
+    /// because a Wikipedia-only settlement is always dropped, while another area with enough sitelinks stays.
+    case settlement
     /// An organisation, person or event; never worth a buzz on its own.
     case nonPlace
     /// None of the known classes.
@@ -34,10 +38,11 @@ public actor PlaceFactsCache {
     public static let lifetime: TimeInterval = 30 * 24 * 3600
     /// How long "Wikidata has no such item" is remembered.
     public static let negativeLifetime: TimeInterval = 7 * 24 * 3600
-    /// Version 2: a place that is also an administrative area is `place` (final review 30 Oct).
-    static let fileName = "place-facts-v2.json"
+    /// Version 2: a place that is also an administrative area is `place` (final review 30 Oct). Version 3: hills,
+    /// islands and settlements, and an organisation that is a place only as a work of art is `nonPlace` (spec 20.6).
+    static let fileName = "place-facts-v3.json"
     /// Files of earlier formats, deleted when the cache first loads.
-    static let legacyFileNames = ["place-facts.json"]
+    static let legacyFileNames = ["place-facts.json", "place-facts-v2.json"]
 
     private struct Entry: Codable {
         /// Nil: Wikidata answered but has no row for the id.
@@ -238,15 +243,14 @@ struct PlaceFactsEnrichment: Sendable, Equatable {
     var candidates: [Candidate]
     /// Candidates that received facts.
     var factsCount: Int
-    /// Names of the candidates the tiering drops as `nonPlace` (`PlaceTiers.isDroppedAsNonPlace`), in list order.
-    /// A blank name is left out: the name rule drops that candidate, not its class.
+    /// Names of the candidates the tiering drops for their Wikidata class (`PlaceTiers.isDroppedByClass`: a
+    /// non-place, a settlement or a small area), in list order. A blank name is left out: the name rule drops that
+    /// candidate, not its class.
     var dropped: [String]
 
     init(_ candidates: [Candidate], facts: [String: PlaceFacts]) {
         self.candidates = candidates.applying(facts)
         factsCount = candidates.filter { $0.wikidata.map { facts[$0] != nil } ?? false }.count
-        dropped = self.candidates.filter {
-            PlaceTiers.isDroppedAsNonPlace($0) && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }.map(\.name)
+        dropped = self.candidates.filter(PlaceTiers.isDroppedByClass).map(\.name)
     }
 }

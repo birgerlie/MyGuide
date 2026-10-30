@@ -3,10 +3,12 @@ import Testing
 @testable import MyGuideCore
 
 @Suite struct PlaceTierTests {
+    /// An OSM candidate with a Wikidata id but no facts, so the tag rules alone decide (spec 20.5 makes a good-tagged
+    /// place without article and without Wikidata id Wiki-only; `wikidata: nil` tests that).
     static func c(_ tags: [String: String]?, kind: String = "x", name: String = "Place", wiki: String? = nil,
-                  summary: String? = nil, id: String = "osm:node/1") -> Candidate {
+                  summary: String? = nil, id: String = "osm:node/1", wikidata: String? = "Q1") -> Candidate {
         Candidate(id: id, name: name, coordinate: .init(latitude: 0, longitude: 0), kind: kind,
-                  summary: summary, wikipediaTitle: wiki, wikidata: nil, tags: tags)
+                  summary: summary, wikipediaTitle: wiki, wikidata: wikidata, tags: tags)
     }
     @Test func top() {
         #expect(PlaceTiers.tier(for: Self.c(["historic": "castle"])) == .top)
@@ -147,6 +149,7 @@ import Testing
         #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 0)) == .good)
         #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 100)) == .wikiOnly)
         #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 44)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 0)) == .wikiOnly)
         // No facts: today's rule (an article without tags is Wiki-only).
         #expect(PlaceTiers.tier(for: Self.wiki(nil)) == .wikiOnly)
         // A class without a sitelink count (never written by the cache) counts as 0 sitelinks.
@@ -170,24 +173,97 @@ import Testing
         var withArticle = church
         withArticle.wikipediaTitle = "it:Chiesa del Gesù"
         #expect(PlaceTiers.tier(for: withArticle) == .top)
-        #expect(!PlaceTiers.isDroppedAsNonPlace(church))
+        #expect(!PlaceTiers.isDroppedByClass(church))
         // A `place` item with many sitelinks does not lift a never-listed OSM place: the tags decide.
         let bank = Candidate(id: "osm:node/2", name: "Bank", coordinate: .init(latitude: 0, longitude: 0), kind: "x",
                              wikidata: "Q2", tags: ["amenity": "bank"], sitelinks: 90, placeClass: .place)
         #expect(PlaceTiers.tier(for: bank) == nil)
-        // A plain historic=yes without an article stays untiered even with a `place` item.
+        // A plain historic=yes without an article stays untiered with a `place` item below 30 sitelinks (spec 20.5
+        // lifts one with 30 or more: `osmPlaceWithThirtySitelinksIsAtLeastTop`).
         let stone = Candidate(id: "osm:node/3", name: "Stone", coordinate: .init(latitude: 0, longitude: 0), kind: "x",
-                              wikidata: "Q3", tags: ["historic": "yes"], sitelinks: 50, placeClass: .place)
+                              wikidata: "Q3", tags: ["historic": "yes"], sitelinks: 29, placeClass: .place)
         #expect(PlaceTiers.tier(for: stone) == nil)
     }
     @Test func blankNameNeverBuzzesEvenAsATopPlace() {
         #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 99, name: "  ")) == nil)
     }
-    @Test func droppedAsNonPlaceOnlyWithoutTags() {
-        #expect(PlaceTiers.isDroppedAsNonPlace(Self.wiki(.nonPlace, sitelinks: 5)))
-        #expect(PlaceTiers.isDroppedAsNonPlace(Self.wiki(.nonPlace, sitelinks: 5, tags: [:])))
-        #expect(!PlaceTiers.isDroppedAsNonPlace(Self.wiki(.nonPlace, sitelinks: 5, tags: ["historic": "yes"])))
-        #expect(!PlaceTiers.isDroppedAsNonPlace(Self.wiki(.place, sitelinks: 5)))
-        #expect(!PlaceTiers.isDroppedAsNonPlace(Self.wiki(nil)))
+    @Test func droppedByClassOnlyWithoutTags() {
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5)))
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, tags: [:])))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, tags: ["historic": "yes"])))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.place, sitelinks: 5)))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(nil)))
+        // Spec 20.6: settlements and small areas are dropped too; a big area and an unknown item are not.
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.settlement, sitelinks: 344)))
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.area, sitelinks: 19)))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.area, sitelinks: 20)))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.unknown, sitelinks: 0)))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.settlement, sitelinks: 344, tags: ["place": "city"])))
+        // A blank name is dropped by the name rule, not by its class.
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, name: " ")))
+    }
+
+    // MARK: - Spec 20.6: areas and settlements without tags
+
+    @Test func wikipediaOnlyAreaNeedsTwentySitelinksAndSettlementsAreDropped() {
+        // An area is Wiki-only from 20 sitelinks inclusive (Via del Corso, 30), dropped below (19); a settlement
+        // (Rome 344, the rione Pigna 21) is dropped whatever its sitelinks.
+        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 30)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 20)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 19)) == nil)
+        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: nil)) == nil)
+        #expect(PlaceTiers.tier(for: Self.wiki(.settlement, sitelinks: 344)) == nil)
+        #expect(PlaceTiers.tier(for: Self.wiki(.settlement, sitelinks: 21)) == nil)
+        #expect(PlaceTiers.areaSitelinks == 20)
+    }
+
+    // MARK: - Spec 20.5: OSM tags and facts
+
+    /// An OSM candidate with tags, optional article, Wikidata id and facts.
+    static func osm(_ tags: [String: String], wiki: String? = nil, wikidata: String? = "Q1",
+                    _ placeClass: PlaceClass? = nil, sitelinks: Int? = nil) -> Candidate {
+        Candidate(id: "osm:way/1", name: "Place", coordinate: .init(latitude: 0, longitude: 0), kind: "x",
+                  wikipediaTitle: wiki, wikidata: wikidata, tags: tags, sitelinks: sitelinks, placeClass: placeClass)
+    }
+    @Test func osmPlaceWithThirtySitelinksIsAtLeastTop() {
+        // Piazza Venezia as an OSM candidate: place=square without historic, an article → Wiki-only by tags; its
+        // item is a place with 38 sitelinks → top. 30 is inclusive, 29 keeps the tag tier.
+        #expect(PlaceTiers.tier(for: Self.osm(["place": "square"], wiki: "it:Piazza Venezia", .place, sitelinks: 38)) == .top)
+        #expect(PlaceTiers.tier(for: Self.osm(["place": "square"], wiki: "it:X", .place, sitelinks: 30)) == .top)
+        #expect(PlaceTiers.tier(for: Self.osm(["place": "square"], wiki: "it:X", .place, sitelinks: 29)) == .wikiOnly)
+        // A church (good by tags, no article) with a 30-sitelink place item → top.
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "place_of_worship"], .place, sitelinks: 30)) == .top)
+        // Even untiered by tags (historic=yes, no article): a well-known place is top.
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "yes"], .place, sitelinks: 50)) == .top)
+        // Only a `place` item lifts: a non-place or unknown item with many sitelinks keeps the tag tier.
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "place_of_worship"], .nonPlace, sitelinks: 90)) == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["place": "square"], wiki: "it:X", .unknown, sitelinks: 90)) == .wikiOnly)
+        // The never-list and the minor-memorial rule still veto.
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "bank"], wiki: "it:X", .place, sitelinks: 90)) == nil)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "memorial", "memorial": "plaque"], wiki: "it:X", .place,
+                                              sitelinks: 90)) == .wikiOnly)
+    }
+    @Test func osmTopWithFewerThanFiveSitelinksIsGood() {
+        // Tempio C: historic=ruins (top by tags) with 1 sitelink → good. 5 is top again; no facts (nil) stays top.
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .place, sitelinks: 1)) == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .unknown, sitelinks: 4)) == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .place, sitelinks: 5)) == .top)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"])) == .top)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], wikidata: nil)) == .top)
+        // Good lifted to top by an article counts as tagged top: 4 sitelinks → good, 8 (Museo Nazionale del
+        // Palazzo di Venezia) stays top.
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "museum"], wiki: "it:X", .place, sitelinks: 4)) == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "museum"], wiki: "it:X", .place, sitelinks: 8)) == .top)
+        #expect(PlaceTiers.osmTopMinSitelinks == 5)
+    }
+    @Test func osmGoodWithoutArticleOrWikidataIsWikiOnly() {
+        // Fox Gallery: tourism=gallery, no article, no Wikidata id → Wiki-only. An empty id is no id. With an id
+        // (facts or not) it stays good; with an article it is lifted to top as before.
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wikidata: nil)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wikidata: "")) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"])) == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], .place, sitelinks: 2)) == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wiki: "it:X", wikidata: nil)) == .top)
+        #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial"], wikidata: nil)) == .wikiOnly)
     }
 }

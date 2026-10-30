@@ -11,7 +11,8 @@ public struct PlaceSearchResult: Sendable, Equatable {
     public var osmErrors: [String]
     /// Candidates that received Wikidata facts.
     public var factsCount: Int
-    /// Names of the Wikipedia-only candidates whose Wikidata item is `nonPlace`, which the tiering drops.
+    /// Names of the Wikipedia-only candidates the tiering drops for their Wikidata class (`nonPlace`, a settlement,
+    /// or an area with too few sitelinks; `PlaceTiers.isDroppedByClass`).
     public var dropped: [String]
     /// Wikidata batches that failed (their candidates keep their tiers without facts).
     public var factsFailed: Int

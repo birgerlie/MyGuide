@@ -213,17 +213,18 @@ import Testing
         let http = Self.stub(osm: { (200, Data(empty.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
         let src = source(http, facts: Self.lookup())
         let result = try await src.candidates(around: here, language: .english)
-        // Q1, Q2 and Q3 got facts: 3. Jesuittordenen is nonPlace without tags → dropped.
+        // Q1, Q2 and Q3 got facts: 3. Jesuittordenen is nonPlace without tags → dropped; Via del Plebiscito is an
+        // area with 7 < 20 sitelinks → dropped too (spec 20.6).
         #expect(result.factsCount == 3)
-        #expect(result.dropped == ["Jesuittordenen"])
+        #expect(result.dropped == ["Jesuittordenen", "Via del Plebiscito"])
         #expect(result.factsFailed == 0)
         #expect(!result.osmFailed)
         // The untiered candidate stays in the list (the camera's place list uses it); only the tiers drop it.
         #expect(result.candidates.map(\.name) == ["Il Gesù", "Jesuittordenen", "Via del Plebiscito"])
         let places = try await src.places(around: here, language: .english)
-        // Il Gesù: place, 40 ≥ 30 → top. Via del Plebiscito: area → wikiOnly.
-        #expect(places.map(\.candidate.name) == ["Il Gesù", "Via del Plebiscito"])
-        #expect(places.map(\.tier) == [.top, .wikiOnly])
+        // Il Gesù: place, 40 ≥ 30 → top. Via del Plebiscito: area with 7 < 20 sitelinks → dropped.
+        #expect(places.map(\.candidate.name) == ["Il Gesù"])
+        #expect(places.map(\.tier) == [.top])
         #expect(places.first?.candidate.sitelinks == 40)
     }
     @Test func failingFactsLeaveTiersAsToday() async throws {
@@ -263,7 +264,7 @@ import Testing
         wikidataUp.set(true)
         let up = try await source(http, facts: PlaceFactsLookup(cache: PlaceFactsCache(directory: nil), client: client))
             .candidates(around: here, language: .english)
-        #expect(up.factsCount == 3 && up.dropped == ["Jesuittordenen"] && up.factsFailed == 0)
+        #expect(up.factsCount == 3 && up.dropped == ["Jesuittordenen", "Via del Plebiscito"] && up.factsFailed == 0)
     }
     @Test func osmCandidatesGetSitelinksButKeepTagTiers() async throws {
         let calls = LockedBox<[[String]]>([])
@@ -273,7 +274,7 @@ import Testing
         // Its item is nonPlace with 55 sitelinks, but historic=castle decides: top, and it is not dropped.
         #expect(burg.sitelinks == 55 && burg.placeClass == .nonPlace)
         #expect(PlaceTiers.tier(for: burg) == .top)
-        #expect(result.dropped == ["Jesuittordenen"])
+        #expect(result.dropped == ["Jesuittordenen", "Via del Plebiscito"])
         // Q1, Q2, Q3 and Q20: 4 candidates got facts.
         #expect(result.factsCount == 4)
         // First the Wikipedia ids as soon as Wikipedia answered, then only the OSM id that was not asked yet.
@@ -460,6 +461,23 @@ import Testing
         #expect(enriched.dropped == ["Jesuittordenen"])
         // Both still got facts.
         #expect(enriched.factsCount == 2)
+    }
+    @Test func settlementsAndSmallAreasAreListedAsDropped() {
+        // Spec 20.6: Rome (settlement) and a 19-sitelink area are dropped and listed; a 20-sitelink area stays
+        // (Wiki-only), and an OSM-tagged settlement is the tags' business.
+        let rome = Candidate(id: "wiki:no/1", name: "Roma", coordinate: here, kind: "wikipedia", wikidata: "Q220")
+        let small = Candidate(id: "wiki:no/2", name: "Small gate", coordinate: here, kind: "wikipedia", wikidata: "Q2")
+        let big = Candidate(id: "wiki:no/3", name: "Via del Corso", coordinate: here, kind: "wikipedia", wikidata: "Q3")
+        let tagged = Candidate(id: "osm:node/4", name: "Borgo", coordinate: here, kind: "x", wikidata: "Q4",
+                               tags: ["place": "suburb"])
+        let enriched = PlaceFactsEnrichment([rome, small, big, tagged], facts: [
+            "Q220": PlaceFacts(sitelinks: 344, placeClass: .settlement),
+            "Q2": PlaceFacts(sitelinks: 19, placeClass: .area),
+            "Q3": PlaceFacts(sitelinks: 20, placeClass: .area),
+            "Q4": PlaceFacts(sitelinks: 21, placeClass: .settlement),
+        ])
+        #expect(enriched.dropped == ["Roma", "Small gate"])
+        #expect(enriched.factsCount == 4)
     }
     @Test func cancellationFromTheFactsLookupPropagates() async {
         let cancelled = PlaceFactsLookup { _ in throw CancellationError() }

@@ -29,7 +29,7 @@ public struct NearbyList: Sendable, Equatable, Codable {
     /// ran out of time, for the walk log; empty otherwise and in a file written before the field existed.
     public var osmErrors: [String]
     /// For the walk log (spec 19.8), as in `PlaceSearchResult`: candidates that received Wikidata facts, the names
-    /// dropped as `nonPlace`, and the Wikidata batches that failed. 0 / empty / 0 in a file written before they existed.
+    /// dropped for their Wikidata class, and the Wikidata batches that failed. 0 / empty / 0 in a file written before they existed.
     public var factsCount: Int
     public var dropped: [String]
     public var factsFailed: Int

@@ -446,8 +446,9 @@ private struct Boom: Error {}
     }
 
     @Test func walkingPlacesUseTiers() {
+        // With a Wikidata id: without article and id a good-tagged place is Wiki-only (spec 20.5).
         let church = Candidate(id: "osm:node/c", name: "Kirke", coordinate: .at(north: 10), kind: "amenity=place_of_worship",
-                               tags: ["name": "Kirke", "amenity": "place_of_worship"])
+                               wikidata: "Q5", tags: ["name": "Kirke", "amenity": "place_of_worship"])
         let wikiOnly = Candidate(id: "wiki:en/1", name: "Old Square", coordinate: .at(north: 20), kind: "wikipedia",
                                  wikipediaTitle: "en:Old_Square")
         let unnamed = Candidate(id: "osm:node/u", name: "  ", coordinate: .at(north: 40), kind: "historic=castle",

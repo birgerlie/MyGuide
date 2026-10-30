@@ -3,16 +3,18 @@ import Foundation
 @testable import MyGuideCore
 
 @Suite struct WikidataClientTests {
-    /// `street`: street Q79007; `area`: neighbourhood Q123705 or administrative territorial entity Q56061.
-    static func row(_ q: String, n: Int, street: Bool = false, area: Bool = false, place: Bool = false,
-                    nonplace: Bool = false) -> String {
+    /// `street`: street Q79007; `settlement`: human settlement Q486972; `area`: neighbourhood Q123705 or
+    /// administrative territorial entity Q56061; `art`: work of art Q838948.
+    static func row(_ q: String, n: Int, street: Bool = false, settlement: Bool = false, area: Bool = false,
+                    place: Bool = false, art: Bool = false, nonplace: Bool = false) -> String {
         func b(_ v: Bool) -> String { #"{"type":"literal","datatype":"http://www.w3.org/2001/XMLSchema#boolean","value":"\#(v)"}"# }
         return #"{"item":{"type":"uri","value":"http://www.wikidata.org/entity/\#(q)"},"#
             + #""n":{"type":"literal","datatype":"http://www.w3.org/2001/XMLSchema#integer","value":"\#(n)"},"#
-            + #""street":\#(b(street)),"area":\#(b(area)),"place":\#(b(place)),"nonplace":\#(b(nonplace))}"#
+            + #""street":\#(b(street)),"settlement":\#(b(settlement)),"area":\#(b(area)),"place":\#(b(place)),"#
+            + #""art":\#(b(art)),"nonplace":\#(b(nonplace))}"#
     }
     static func body(_ rows: [String]) -> Data {
-        Data(#"{"head":{"vars":["item","n","street","area","place","nonplace"]},"results":{"bindings":[\#(rows.joined(separator: ","))]}}"#.utf8)
+        Data(#"{"head":{"vars":["item","n","street","settlement","area","place","art","nonplace"]},"results":{"bindings":[\#(rows.joined(separator: ","))]}}"#.utf8)
     }
     /// The decoded SPARQL of a recorded request.
     static func sparql(_ request: URLRequest) -> String {
@@ -32,8 +34,8 @@ import Foundation
 
     @Test func queryContainsEveryClassAndOnlyValidIds() {
         let q = WikidataClient.query(ids: ["Q42", "bad", "Q", "Q1x", "q5", "Q7; DROP", "Q8"])
-        for c in ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q838948", "Q483453",
-                  "Q79007", "Q123705", "Q56061", "Q43229", "Q5", "Q1656682", "Q16334295"] {
+        for c in ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q838948", "Q483453", "Q54050", "Q23442",
+                  "Q79007", "Q486972", "Q123705", "Q56061", "Q43229", "Q5", "Q1656682", "Q16334295"] {
             #expect(q.contains("wd:\(c)"), "missing \(c)")
         }
         #expect(q.contains("VALUES ?item { wd:Q42 wd:Q8 }"))
@@ -116,11 +118,79 @@ import Foundation
 
     @Test func queryHasSeparateStreetAndAreaFlags() {
         let q = WikidataClient.query(ids: ["Q1"])
-        #expect(q.contains("SELECT ?item ?n ?street ?area ?place ?nonplace WHERE"))
+        #expect(q.contains("SELECT ?item ?n ?street ?settlement ?area ?place ?art ?nonplace WHERE"))
         let street = q.split(separator: "\n").first { $0.contains("AS ?street)") }.map(String.init) ?? ""
         let area = q.split(separator: "\n").first { $0.contains("AS ?area)") }.map(String.init) ?? ""
         #expect(street.contains("wd:Q79007") && !street.contains("wd:Q123705") && !street.contains("wd:Q56061"))
         #expect(area.contains("wd:Q123705") && area.contains("wd:Q56061") && !area.contains("wd:Q79007"))
+    }
+
+    // MARK: - Spec 20.6: hills, islands, settlements; organisations that are places only as works of art
+
+    /// The query's line that binds `name`.
+    static func flagLine(_ name: String) -> String {
+        WikidataClient.query(ids: ["Q1"]).split(separator: "\n").first { $0.contains("AS ?\(name))") }.map(String.init) ?? ""
+    }
+    @Test func hillAndIslandAreInThePlaceFlagAndArtHasItsOwn() {
+        let place = Self.flagLine("place"), art = Self.flagLine("art"), settlement = Self.flagLine("settlement")
+        for c in ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q483453", "Q54050", "Q23442"] {
+            #expect(place.contains("wd:\(c) ") || place.contains("wd:\(c)}"), "place misses \(c)")
+        }
+        #expect(!place.contains("wd:Q838948"))
+        #expect(art.contains("wd:Q838948") && art.components(separatedBy: "wd:Q").count - 1 == 1)
+        #expect(settlement.contains("wd:Q486972") && settlement.components(separatedBy: "wd:Q").count - 1 == 1)
+        #expect(!Self.flagLine("area").contains("wd:Q486972"))
+    }
+    @Test func settlementIsItsOwnClassBelowStreetAndPlace() throws {
+        let f = try WikidataClient.parse(Self.body([
+            Self.row("Q1", n: 344, settlement: true, area: true, nonplace: true), // Rome
+            Self.row("Q2", n: 17, settlement: true, area: true),                  // a rione
+            Self.row("Q3", n: 5, street: true, settlement: true),
+            Self.row("Q4", n: 5, settlement: true, place: true),
+        ]))
+        #expect(f["Q1"]?.placeClass == .settlement && f["Q2"]?.placeClass == .settlement)
+        #expect(f["Q3"]?.placeClass == .area && f["Q4"]?.placeClass == .place)
+    }
+    @Test func workOfArtIsAPlaceUnlessAlsoAnOrganisation() throws {
+        // The Sovereign Military Order of Malta reaches work of art through religious military order → order of
+        // chivalry → state order → state decoration → decoration (live WDQS, 30 Oct), and organisation directly.
+        let f = try WikidataClient.parse(Self.body([
+            Self.row("Q1", n: 3, art: true),
+            Self.row("Q2", n: 83, art: true, nonplace: true),
+            Self.row("Q3", n: 40, place: true, art: true, nonplace: true),
+            Self.row("Q4", n: 9, area: true, art: true, nonplace: true),
+        ]))
+        #expect(f["Q1"]?.placeClass == .place)
+        #expect(f["Q2"]?.placeClass == .nonPlace)
+        // A structure path still wins over the organisation (a church that is also a religious community).
+        #expect(f["Q3"]?.placeClass == .place)
+        #expect(f["Q4"]?.placeClass == .area)
+    }
+    @Test func rowsWithoutTheNewFlagsReadAsFalse() throws {
+        let old = #"{"item":{"type":"uri","value":"http://www.wikidata.org/entity/Q5"},"n":{"type":"literal","value":"7"},"#
+            + #""street":{"type":"literal","value":"false"},"area":{"type":"literal","value":"true"},"#
+            + #""place":{"type":"literal","value":"false"},"nonplace":{"type":"literal","value":"false"}}"#
+        #expect(try WikidataClient.parse(Self.body([old])) == ["Q5": PlaceFacts(sitelinks: 7, placeClass: .area)])
+    }
+    /// Flags from the live WDQS answers of 30 Oct (the query of spec 20.6 run on every id the replays met; the ids
+    /// are the real items).
+    @Test func recordedLiveClassesOfIteration1() throws {
+        let f = try WikidataClient.parse(Self.body([
+            Self.row("Q190353", n: 83, art: true, nonplace: true),            // Sovereign Military Order of Malta
+            Self.row("Q719794", n: 40, place: true, nonplace: true),          // Il Gesù
+            Self.row("Q34925", n: 68, place: true),                           // Capitoline Hill (hill)
+            Self.row("Q545404", n: 35, place: true),                          // Tiber Island (island)
+            Self.row("Q242839", n: 44),                                       // Campus Martius: P31 terrain only
+            Self.row("Q220", n: 344, settlement: true, area: true, nonplace: true), // Rome
+            Self.row("Q1329671", n: 21, settlement: true, area: true),        // Pigna (rione)
+        ]))
+        #expect(f["Q190353"] == PlaceFacts(sitelinks: 83, placeClass: .nonPlace))
+        #expect(f["Q719794"] == PlaceFacts(sitelinks: 40, placeClass: .place))
+        #expect(f["Q34925"] == PlaceFacts(sitelinks: 68, placeClass: .place))
+        #expect(f["Q545404"] == PlaceFacts(sitelinks: 35, placeClass: .place))
+        #expect(f["Q242839"] == PlaceFacts(sitelinks: 44, placeClass: .unknown))
+        #expect(f["Q220"] == PlaceFacts(sitelinks: 344, placeClass: .settlement))
+        #expect(f["Q1329671"] == PlaceFacts(sitelinks: 21, placeClass: .settlement))
     }
 
     @Test func skipsRowsWithoutUsableIdOrCount() throws {
