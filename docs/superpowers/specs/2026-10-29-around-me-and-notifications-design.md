@@ -594,3 +594,26 @@ of them about places with fewer than 10 sitelinks. Decisions *(Claude's calls)*:
    language (from the same SPARQL query).
 7. **Wikidata reliability.** A failed or timed-out batch is retried once, split into two halves run concurrently,
    each with the 8 s timeout.
+
+### 20.3 Iteration 3 (replay after 20.2)
+
+Without OSM the streams read like a guidebook: R1 has 26 buzzes (41/h) and none of them under 10 sitelinks. What
+is left is landmarks lost to the gap, to lesser neighbours or to a story playing. Decisions *(Claude's calls)*:
+
+1. **The gap follows importance, not tier:**
+   - 30 s before a `top` place or one with at least 25 sitelinks;
+   - 120 s before one with 15–24 sitelinks;
+   - 240 s before anything else (fewer than 15, or `wikiOnly`).
+2. **Hold for closest approach.** While a better-ranked place is due and waiting for its closest approach (20.2.3),
+   lesser places are held too. The hold is limited to 30 s, as in 20.1.3.
+3. **«Behind you».** When a story ends (busy → free), a place with at least 30 sitelinks that was due while busy,
+   is not excluded and is still within 120 m buzzes once, within 60 s of the end, ignoring the gap.
+4. **OSM minor items:**
+   - an OSM candidate with fewer than 10 sitelinks is at most `wikiOnly`;
+   - one with no Wikidata id is dropped, unless it is tagged `historic=castle|ruins|archaeological_site|monument`.
+5. **Famous art in squares.** A work of art with at least 30 sitelinks is not excluded by the same-spot or complex
+   rule of a different item. The same Wikidata id still excludes.
+6. **Wikidata batches** are 25 ids, run concurrently (at most 4 in flight), with a 10 s timeout. The split retry
+   stays.
+7. The walking `perHour` default is unchanged. The owner sets it (60 now), and the gaps above keep dense routes
+   near 30/h.
