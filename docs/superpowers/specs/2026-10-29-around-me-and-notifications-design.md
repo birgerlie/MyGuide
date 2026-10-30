@@ -652,3 +652,25 @@ then tuning stops until the owner's field test *(Claude's call)*:
    and was never told.
 3. **No change to the gap between neighbours in one piazza** (Sant'Agnese after Navona, the Synagogue after
    Porticus Octaviae). The walker has just heard about the place next door.
+
+### 20.6 Fixes from the tuning review (2026-10-30)
+
+1. **«Behind you» only after a real story, only for places passed.** The app is busy while a story is prepared,
+   which takes a few seconds after every buzz. «Behind you» therefore applies only when busy lasted at least 20 s,
+   and only to a remembered place whose distance has grown at least 5 m from its closest. It respects the 30 s
+   minimum since the last buzz.
+2. **Ordering.** «Behind you» is compared with the place that would actually buzz.
+3. **One overall deadline for facts while walking:** 12 s from the start of the first lookup, covering retries and
+   the second lookup for OSM ids. Whatever has not answered by then stays without facts.
+4. **OSM objects without a Wikidata id are kept**, at most `wikiOnly`, instead of dropped. The 20.3.4 drop was
+   tuned only on walks where OSM never answered. The castle/ruins/archaeological site/monument exception keeps
+   its tag tier.
+5. **Clock and jitter:**
+   - the skip pause and the override interval use the same clock-back guard as the other timers;
+   - "approaching" needs the distance to shrink by at least 2 m.
+6. **Log:**
+   - a buzz says whether it was «behind you» (`behind: true`);
+   - a `held` quiet line names the place that holds.
+7. **Merge without Wikidata id.** An English article without a Wikidata id is a duplicate when a story-language
+   article has the same normalised title within 100 m.
+8. A skip ends any pending «behind you» on purpose: the owner just asked for quiet.
