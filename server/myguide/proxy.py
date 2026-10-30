@@ -24,7 +24,7 @@ from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
-from . import db
+from . import db, retention
 from .app import HTTPError, authenticate, read_body
 from .config import KINDS, Settings
 from .limits import Admission, admit, allowance, count_refused, settle, utc_day
@@ -328,6 +328,7 @@ async def _forward_stream(state: State, call: _Call, url: str, payload: bytes) -
 def routes(state: State) -> list[Route]:
     async def proxy(request: Request) -> Response:
         settings = state.settings  # one snapshot for admission and settlement, whatever a reload does
+        retention.prune_if_new_day(state)  # no transaction is open here
         conn = db.connect(state.db_path)
         try:
             device = authenticate(request, conn)

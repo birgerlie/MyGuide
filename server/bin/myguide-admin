@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /opt/myguide/venv/bin/python -m myguide.admin --env /etc/myguide/env --db /srv/myguide/guide.db "$@"

@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import db
+from . import db, retention
 from .attest import AttestError, verify_attestation
 from .state import State
 
@@ -226,6 +226,7 @@ def create_app(state: State) -> Starlette:
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        retention.prune_if_new_day(state)
         try:
             yield
         finally:
