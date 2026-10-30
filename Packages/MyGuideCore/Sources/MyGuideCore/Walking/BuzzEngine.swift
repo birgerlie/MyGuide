@@ -54,9 +54,13 @@ public enum BuzzDecision: Sendable, Equatable {
 
 /// Decides which nearby place, if any, deserves a buzz right now (design 7.4).
 /// A place is "due" from 60 m until it is more than 120 m away; the budget paces buzzes, and a top-tier place
-/// the walker is passing by can override the budget at most once per 10 minutes.
+/// the walker is passing by can override the budget at most once per 10 minutes. Due places are ordered by tier, then
+/// Wikidata sitelinks (more first, none counts as 0), then distance (spec 19.3). A buzz also excludes every place
+/// within `sameSpotRadius` of the buzzed one, so one spot buzzes once (spec 19.4).
 public struct BuzzEngine: Sendable {
     public static let dueRadius = 60.0, dropRadius = 120.0
+    /// Places at most this far (metres, inclusive) from a buzzed place are excluded with it.
+    public static let sameSpotRadius = 25.0
     public static let overrideMinDistance = 90.0, overridePassingMargin = 10.0
     public static let overrideInterval: TimeInterval = 600, skipQuiet: TimeInterval = 60
     public static let maxFixAccuracy = 50.0
@@ -123,7 +127,7 @@ public struct BuzzEngine: Sendable {
         }
         closest = stillDue
 
-        let ordered = due.sorted { ($0.place.tier, $0.distance) < ($1.place.tier, $1.distance) }
+        let ordered = due.sorted { Self.orderKey($0.place, $0.distance) < Self.orderKey($1.place, $1.distance) }
         let duePlaces = ordered.map {
             DuePlace(id: $0.place.candidate.id, name: $0.place.candidate.name, tier: $0.place.tier,
                      distance: $0.distance, excluded: excluded.contains($0.place.candidate.id))
@@ -137,24 +141,34 @@ public struct BuzzEngine: Sendable {
         if candidates.isEmpty { return .quiet(.allExcluded, due: duePlaces) }
 
         if let first = candidates.first, budget.canSpend(at: now), budget.spend(at: now) {
-            return .buzz(buzz(first.place, first.distance, first.bearing, course, usedOverride: false))
+            return .buzz(buzz(first.place, first.distance, first.bearing, course, usedOverride: false, among: places))
         }
 
-        // The first top-tier candidate (tier/distance order) that is far enough and has been passed; the interval
+        // The first top-tier candidate (in the due order) that is far enough and has been passed; the interval
         // check is not part of the choice.
         if let top = candidates.first(where: {
             $0.place.tier == .top && $0.distance >= Self.overrideMinDistance
                 && $0.distance > (closest[$0.place.candidate.id] ?? $0.distance) + Self.overridePassingMargin
         }), lastOverride.map({ now.timeIntervalSince($0) >= Self.overrideInterval }) ?? true {
             lastOverride = now
-            return .buzz(buzz(top.place, top.distance, top.bearing, course, usedOverride: true))
+            return .buzz(buzz(top.place, top.distance, top.bearing, course, usedOverride: true, among: places))
         }
         return .quiet(.budget, due: duePlaces)
     }
 
+    /// The due order: tier, then sitelinks (more first, nil as 0), then distance.
+    private static func orderKey(_ place: WalkingPlace, _ distance: Double) -> (PlaceTier, Int, Double) {
+        (place.tier, -(place.candidate.sitelinks ?? 0), distance)
+    }
+
+    /// Excludes `place` and every place of `places` within `sameSpotRadius` of it (due or not), then builds the buzz.
     private mutating func buzz(_ place: WalkingPlace, _ distance: Double, _ bearing: Double,
-                               _ course: Double?, usedOverride: Bool) -> Buzz {
+                               _ course: Double?, usedOverride: Bool, among places: [WalkingPlace]) -> Buzz {
         excluded.insert(place.candidate.id)
+        for other in places
+        where GeoMath.distance(place.candidate.coordinate, other.candidate.coordinate) <= Self.sameSpotRadius {
+            excluded.insert(other.candidate.id)
+        }
         return Buzz(id: makeID(), place: place, distance: distance, bearing: bearing,
                     title: place.candidate.name,
                     detail: BuzzText.detail(distance: distance, bearing: bearing, course: course),
