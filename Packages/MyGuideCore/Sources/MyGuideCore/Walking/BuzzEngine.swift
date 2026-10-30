@@ -55,8 +55,10 @@ public enum BuzzDecision: Sendable, Equatable {
 /// Decides which nearby place, if any, deserves a buzz right now (design 7.4).
 /// A place is "due" from 60 m until it is more than 120 m away; the budget paces buzzes, and a top-tier place
 /// the walker is passing by can override the budget at most once per 10 minutes. Due places are ordered by tier, then
-/// Wikidata sitelinks (more first, none counts as 0), then distance (spec 19.3). A buzz also excludes every place
-/// within `sameSpotRadius` of the buzzed one, so one spot buzzes once (spec 19.4).
+/// Wikidata sitelinks (more first, none counts as 0), then distance (spec 19.3). The engine remembers where it buzzed
+/// this run: every place within `sameSpotRadius` of a buzzed spot counts as excluded at each later decision, whatever
+/// its id, so one spot buzzes once even when a later list names it differently (an OSM id after a Wikipedia-only list)
+/// (spec 19.4).
 public struct BuzzEngine: Sendable {
     public static let dueRadius = 60.0, dropRadius = 120.0
     /// Places at most this far (metres, inclusive) from a buzzed place are excluded with it.
@@ -70,6 +72,8 @@ public struct BuzzEngine: Sendable {
 
     private var budget: BuzzBudget
     private var excluded: Set<String>
+    /// Coordinates of the places buzzed this run (by the engine or noted with `excludeSpot`).
+    private var buzzedSpots: [Coordinate] = []
     private var lastSkip: Date?
     private var lastOverride: Date?
     /// Due places (by id) with the smallest distance seen while due.
@@ -90,10 +94,17 @@ public struct BuzzEngine: Sendable {
         excluded.insert(placeID)
     }
 
+    /// A place buzzed outside the engine (a tour stop) stands at `coordinate`: every place within `sameSpotRadius`
+    /// of it counts as excluded from now on, as for the engine's own buzzes.
+    public mutating func excludeSpot(_ coordinate: Coordinate) {
+        buzzedSpots.append(coordinate)
+    }
+
     /// Every place may buzz again (the reset button, spec 13.5): forgets the places retired at start and those
-    /// buzzed, heard or skipped this run. The budget, the skip pause and the due set are kept.
+    /// buzzed, heard or skipped this run, and the buzzed spots. The budget, the skip pause and the due set are kept.
     public mutating func clearExclusions() {
         excluded.removeAll()
+        buzzedSpots.removeAll()
     }
 
     /// The owner skipped a buzz: stay quiet for `skipQuiet` seconds.
@@ -130,18 +141,18 @@ public struct BuzzEngine: Sendable {
         let ordered = due.sorted { Self.orderKey($0.place, $0.distance) < Self.orderKey($1.place, $1.distance) }
         let duePlaces = ordered.map {
             DuePlace(id: $0.place.candidate.id, name: $0.place.candidate.name, tier: $0.place.tier,
-                     distance: $0.distance, excluded: excluded.contains($0.place.candidate.id))
+                     distance: $0.distance, excluded: isExcluded($0.place))
         }
 
         if due.isEmpty { return .quiet(.noneDue, due: []) }
         if isBusy { return .quiet(.busy, due: duePlaces) }
         if let lastSkip, now.timeIntervalSince(lastSkip) < Self.skipQuiet { return .quiet(.skipQuiet, due: duePlaces) }
 
-        let candidates = ordered.filter { !excluded.contains($0.place.candidate.id) }
+        let candidates = ordered.filter { !isExcluded($0.place) }
         if candidates.isEmpty { return .quiet(.allExcluded, due: duePlaces) }
 
         if let first = candidates.first, budget.canSpend(at: now), budget.spend(at: now) {
-            return .buzz(buzz(first.place, first.distance, first.bearing, course, usedOverride: false, among: places))
+            return .buzz(buzz(first.place, first.distance, first.bearing, course, usedOverride: false))
         }
 
         // The first top-tier candidate (in the due order) that is far enough and has been passed; the interval
@@ -151,7 +162,7 @@ public struct BuzzEngine: Sendable {
                 && $0.distance > (closest[$0.place.candidate.id] ?? $0.distance) + Self.overridePassingMargin
         }), lastOverride.map({ now.timeIntervalSince($0) >= Self.overrideInterval }) ?? true {
             lastOverride = now
-            return .buzz(buzz(top.place, top.distance, top.bearing, course, usedOverride: true, among: places))
+            return .buzz(buzz(top.place, top.distance, top.bearing, course, usedOverride: true))
         }
         return .quiet(.budget, due: duePlaces)
     }
@@ -161,14 +172,18 @@ public struct BuzzEngine: Sendable {
         (place.tier, -(place.candidate.sitelinks ?? 0), distance)
     }
 
-    /// Excludes `place` and every place of `places` within `sameSpotRadius` of it (due or not), then builds the buzz.
-    private mutating func buzz(_ place: WalkingPlace, _ distance: Double, _ bearing: Double,
-                               _ course: Double?, usedOverride: Bool, among places: [WalkingPlace]) -> Buzz {
-        excluded.insert(place.candidate.id)
-        for other in places
-        where GeoMath.distance(place.candidate.coordinate, other.candidate.coordinate) <= Self.sameSpotRadius {
-            excluded.insert(other.candidate.id)
+    /// Excluded by id, or within `sameSpotRadius` (inclusive) of a spot buzzed this run.
+    private func isExcluded(_ place: WalkingPlace) -> Bool {
+        excluded.contains(place.candidate.id) || buzzedSpots.contains {
+            GeoMath.distance($0, place.candidate.coordinate) <= Self.sameSpotRadius
         }
+    }
+
+    /// Excludes `place` by id and remembers its spot, then builds the buzz.
+    private mutating func buzz(_ place: WalkingPlace, _ distance: Double, _ bearing: Double,
+                               _ course: Double?, usedOverride: Bool) -> Buzz {
+        excluded.insert(place.candidate.id)
+        buzzedSpots.append(place.candidate.coordinate)
         return Buzz(id: makeID(), place: place, distance: distance, bearing: bearing,
                     title: place.candidate.name,
                     detail: BuzzText.detail(distance: distance, bearing: bearing, course: course),

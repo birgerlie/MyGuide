@@ -626,7 +626,8 @@ final class WalkingController {
     /// Buzzes a stop as a place chosen on the map is told (`Buzz(chosen:position:)`): the feed's place when the stop
     /// is in it, else the candidate the planner kept with the stop, else (a tour stored before that) a bare one.
     /// Delivered like any buzz, so it is recorded (marked as a tour stop in the walk log), notified, sent to the watch
-    /// and its story prepared. The engine never buzzes it this run, and the cadence counts it.
+    /// and its story prepared. The engine never buzzes it, nor any place at its spot (within 25 m), this run, and the
+    /// cadence counts it.
     private func deliverTourStop(_ stop: TourStop, position: Coordinate, direction: Double?, now: Date) {
         let place = feed.places.first { $0.candidate.id == stop.id }
             ?? WalkingPlace(candidate: stop.candidate
@@ -634,6 +635,7 @@ final class WalkingController {
                             tier: stop.tier)
         let buzz = Buzz(chosen: place, position: position)
         engine?.exclude(stop.id)
+        engine?.excludeSpot(place.candidate.coordinate)
         tourCadence.noteBuzz(at: now)
         walkLog.log(.buzz(WalkLogBuzz(buzz, tourStop: true)), at: now)
         walkLog.resetQuiet()

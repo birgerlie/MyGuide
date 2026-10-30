@@ -336,15 +336,64 @@ import Testing
         guard case .quiet(.allExcluded, let due) = d else { Issue.record("expected allExcluded, got \(d)"); return }
         #expect(Set(due.map(\.id)) == ["a", "b"])
     }
-    @Test func sameSpotUsesOnlyThePlacesOfThatDecision() {
-        // b is 10 m from a but not in the places of the buzz decision: it is not excluded and buzzes later.
+    @Test func placeArrivingInALaterListAtABuzzedSpotIsExcluded() {
+        // a (30 m) buzzes with only itself in the list. b, 40 − 30 = 10 m from a, first appears in a later list:
+        // at t0+180 the budget is 1 again, but b stands at a's spot → allExcluded, b listed as excluded.
         var e = Self.engine()
         let a = Self.place("a", .top, north: 30), b = Self.place("b", .good, north: 40)
         #expect(e.evaluate(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
+        let d = e.decide(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 180)
+        guard case .quiet(.allExcluded, let due) = d else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(due.first { $0.id == "b" }?.excluded == true)
+    }
+    @Test func idFlipAfterOSMArrivesDoesNotBuzzTheSpotAgain() {
+        // Il Gesù buzzes as a Wikipedia-only place; the next list (OSM answered, merged) names it osm:way/1 at the
+        // same coordinate (0 m ≤ 25) → not buzzed again.
+        var e = Self.engine()
+        let wiki = Self.place("wiki:it/1", .top, north: 30)
+        let osm = Self.place("osm:way/1", .top, north: 30)
+        #expect(e.evaluate(places: [wiki], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == wiki)
+        let d = e.decide(places: [osm], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 180)
+        guard case .quiet(.allExcluded, let due) = d else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(due.map(\.id) == ["osm:way/1"] && due.map(\.excluded) == [true])
+    }
+    @Test func laterPlaceTwentySixMetresFromABuzzedSpotCanBuzz() {
+        // Same as above but 56 − 30 = 26 m away (> 25): it buzzes once the budget allows (t0+180).
+        var e = Self.engine()
+        let a = Self.place("a", .top, north: 30), b = Self.place("b", .good, north: 56)
+        #expect(e.evaluate(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 180)?.place == b)
     }
+    @Test func clearExclusionsLetsSameSpotNeighboursBuzzAgain() {
+        // a (35 m) buzzes; b (60 m) is 25 m from it → excluded. After the reset, b buzzes once the budget allows
+        // (t0+180: 180/180 = 1); a buzzes again too at t0+360.
+        var e = Self.engine()
+        let a = Self.place("a", .top, north: 35), b = Self.place("b", .good, north: 60)
+        #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
+        e.clearExclusions()
+        // a is top, so it comes first again after the reset.
+        #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 180)?.place == a)
+        e.clearExclusions()
+        #expect(e.evaluate(places: [b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 360)?.place == b)
+    }
+    @Test func excludeSpotCoversPlacesAtATourStop() {
+        // A tour stop buzzed outside the engine at 35 m north: a place at 60 m (25 m from it) is excluded, one at
+        // 10 m (25 m on the other side) too, one at 9 m (26 m) is not.
+        var e = Self.engine()
+        e.excludeSpot(.at(north: 35))
+        let far = Self.place("far", .top, north: 60), near = Self.place("near", .top, north: 10)
+        let free = Self.place("free", .good, north: 9)
+        let d = e.decide(places: [far, near], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.allExcluded, _) = d else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(e.evaluate(places: [far, near, free], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == free)
+        // The reset forgets the stop's spot too.
+        var f = Self.engine()
+        f.excludeSpot(.at(north: 35))
+        f.clearExclusions()
+        #expect(f.evaluate(places: [far], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == far)
+    }
     @Test func overrideBuzzExcludesItsSpotToo() {
-        // As topTierOverrideWhilePassing: "a" (5 m south) buzzes at t0; the castle (30 m) is due from t0+10, closest
+        // As topTierOverrideWhilePassing: "a" (5 m south) buzzes at t0; the castle (30 m) is due from t0, closest
         // 30. "twin" (good) sits 20 m beyond the castle (50 m north; 20 ≤ 25 → same spot), 55 m from a.
         // t0+60 at 125 m: castle 95 m (≥ 90, > 30 + 10) → override; twin 75 m is still due (closest 50 ≤ 120 drop).
         // t0+180 at 125 m: budget 1 again, but twin is excluded with the castle → allExcluded.

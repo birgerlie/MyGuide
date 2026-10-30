@@ -70,7 +70,8 @@ public struct WalkingPlaceSource: Sendable {
     /// The merged OpenStreetMap and Wikipedia candidates, untiered ones included, with Wikidata facts applied.
     /// Both sources start together. Once Wikipedia has answered, the facts for its articles are looked up; once both
     /// are done, OpenStreetMap gets at most `osmGrace` more and is then cancelled, and the result is Wikipedia's with
-    /// `osmFailed` and `osmErrors == [PlaceSearchResult.slow]`. When Wikipedia fails, OpenStreetMap is awaited fully.
+    /// `osmFailed` and `osmErrors == [PlaceSearchResult.slow]`. When Wikipedia fails, or answers with no articles (away
+    /// from city centres OpenStreetMap may be the only source), OpenStreetMap is awaited fully.
     /// One failing → the other's candidates, with `osmFailed` set when OpenStreetMap was the one (and its per-endpoint
     /// errors in `osmErrors`); both failing → the OSM error is thrown, an `OverpassFailure` when every endpoint
     /// answered with an error. When OpenStreetMap answered, the ids of its candidates that the first lookup did not
@@ -103,7 +104,7 @@ public struct WalkingPlaceSource: Sendable {
                     osm = result
                 case .wiki(let result, let answer):
                     wiki = (result, answer)
-                    if osm == nil, case .success = result {
+                    if osm == nil, case .success(let articles) = result, !articles.isEmpty {
                         group.addTask {
                             try await Task.sleep(for: grace)
                             return .graceOver
@@ -129,7 +130,7 @@ public struct WalkingPlaceSource: Sendable {
             result.osmFailed = true
             result.osmErrors = [PlaceSearchResult.slow]
         case (nil, .failure(let error)):
-            // Unreachable: the grace starts only after Wikipedia answered.
+            // Unreachable: the grace starts only after Wikipedia answered with articles.
             throw error
         case (.failure(let error)?, .failure):
             throw error

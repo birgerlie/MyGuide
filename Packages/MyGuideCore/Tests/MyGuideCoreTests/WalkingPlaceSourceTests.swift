@@ -404,6 +404,13 @@ import Testing
         #expect(result.osmErrors == ["overpass-api.de: HTTP 502", "overpass.kumi.systems: HTTP 502", "maps.mail.ru: HTTP 502"])
     }
     @Test func cancellationDuringTheGraceThrows() async {
+        // The facts lookup flags when it returns, so the cancel lands after Wikipedia and the facts are in: the search
+        // is then waiting out the 30 s grace (Overpass would take 60 s).
+        let factsIn = LockedBox(false)
+        let facts = PlaceFactsLookup { ids in
+            defer { factsIn.set(true) }
+            return WikidataClient.Answer(answered: Set(ids))
+        }
         let http = AsyncStubHTTPClient { request in
             if Self.isOverpass(request) {
                 try await Task.sleep(for: .seconds(60))
@@ -411,13 +418,39 @@ import Testing
             }
             return (200, Data(Self.wikiBody.utf8))
         }
-        let src = source(http, facts: nil, grace: .seconds(30))
+        let src = source(http, facts: facts, grace: .seconds(30))
         let here = self.here
         let task = Task { try await src.candidates(around: here, language: .english) }
-        // Wikipedia answers at once; the search is then waiting out the grace.
-        try? await Task.sleep(for: .milliseconds(200))
+        while !factsIn.value { await Task.yield() }
+        // A moment for the group to take the Wikipedia part and start the timer.
+        try? await Task.sleep(for: .milliseconds(50))
+        let clock = ContinuousClock()
+        let start = clock.now
         task.cancel()
         await #expect(throws: CancellationError.self) { _ = try await task.value }
+        #expect(clock.now - start < .seconds(5))
+    }
+    @Test func wikipediaWithNoArticlesWaitsForOverpassFully() async throws {
+        // Wikipedia answers at once with nothing; Overpass takes 0.5 s, more than the 0.05 s grace, and is still used.
+        let http = AsyncStubHTTPClient { request in
+            if Self.isOverpass(request) {
+                try await Task.sleep(for: .milliseconds(500))
+                return (200, Data(Self.osmBody.utf8))
+            }
+            return (200, Data(#"{"query":{"pages":[]}}"#.utf8))
+        }
+        let result = try await source(http, facts: nil, grace: .milliseconds(50)).candidates(around: here, language: .english)
+        #expect(!result.osmFailed && result.osmErrors.isEmpty)
+        #expect(result.candidates.map(\.name) == ["Burg", "Bank Austria", "Old Stone"])
+    }
+    @Test func blankNamesAreNotListedAsDropped() {
+        let blank = Candidate(id: "wiki:it/9", name: " ", coordinate: here, kind: "wikipedia", wikidata: "Q9")
+        let order = Candidate(id: "wiki:it/2", name: "Jesuittordenen", coordinate: here, kind: "wikipedia", wikidata: "Q2")
+        let enriched = PlaceFactsEnrichment([blank, order], facts: ["Q9": PlaceFacts(sitelinks: 1, placeClass: .nonPlace),
+                                                                   "Q2": PlaceFacts(sitelinks: 119, placeClass: .nonPlace)])
+        #expect(enriched.dropped == ["Jesuittordenen"])
+        // Both still got facts.
+        #expect(enriched.factsCount == 2)
     }
     @Test func cancellationFromTheFactsLookupPropagates() async {
         let cancelled = PlaceFactsLookup { _ in throw CancellationError() }

@@ -218,11 +218,14 @@ struct PlaceFactsEnrichment: Sendable, Equatable {
     /// Candidates that received facts.
     var factsCount: Int
     /// Names of the candidates the tiering drops as `nonPlace` (`PlaceTiers.isDroppedAsNonPlace`), in list order.
+    /// A blank name is left out: the name rule drops that candidate, not its class.
     var dropped: [String]
 
     init(_ candidates: [Candidate], facts: [String: PlaceFacts]) {
         self.candidates = candidates.applying(facts)
         factsCount = candidates.filter { $0.wikidata.map { facts[$0] != nil } ?? false }.count
-        dropped = self.candidates.filter(PlaceTiers.isDroppedAsNonPlace).map(\.name)
+        dropped = self.candidates.filter {
+            PlaceTiers.isDroppedAsNonPlace($0) && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.map(\.name)
     }
 }
