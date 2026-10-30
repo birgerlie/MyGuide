@@ -152,10 +152,14 @@ def verify_attestation(*, attestation: bytes, key_id_b64: str, challenge: bytes,
 
 class Challenges:
     """One-use attestation challenges, in memory (single process). A challenge is valid while
-    `now - issued_at <= ttl()`; the ttl is read on every call, so a settings change applies at once."""
+    `now - issued_at <= ttl()`; the ttl is read on every call, so a settings change applies at once.
+    With `max_outstanding`, `issue` returns None while that many unexpired challenges are outstanding."""
 
-    def __init__(self, ttl: Callable[[], int]) -> None:
+    def __init__(self, ttl: Callable[[], int], max_outstanding: int | None = None) -> None:
+        if max_outstanding is not None and max_outstanding < 1:
+            raise ValueError("max_outstanding must be >= 1")
         self._ttl = ttl
+        self.max_outstanding = max_outstanding
         self._issued: dict[bytes, float] = {}
         self._lock = threading.Lock()
 
@@ -167,10 +171,13 @@ class Challenges:
         for key in [k for k, at in self._issued.items() if now - at > ttl]:
             del self._issued[key]
 
-    def issue(self, now: float) -> str:
+    def issue(self, now: float) -> str | None:
+        """A new challenge in standard base64, or None when `max_outstanding` unexpired ones are out."""
         raw = secrets.token_bytes(32)
         with self._lock:
             self._purge(now, self._ttl())
+            if self.max_outstanding is not None and len(self._issued) >= self.max_outstanding:
+                return None
             self._issued[raw] = now
         return base64.b64encode(raw).decode()
 
