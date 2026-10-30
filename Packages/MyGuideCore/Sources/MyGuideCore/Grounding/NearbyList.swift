@@ -100,6 +100,25 @@ public struct NearbyList: Sendable, Equatable, Codable {
         return stored
     }
 
+    /// This list with its candidates' Wikidata facts looked up again through `facts` and applied, so a stale list
+    /// stands in tiered as a fresh one would be (spec 19.6, 19.2): a list stored before facts existed loses its
+    /// `nonPlace` articles. Cache hits answer at once. `factsCount`, `dropped` and `factsFailed` follow the new
+    /// answer. When the answer holds no facts (the lookup failed, ran past `timeout`, the caller was cancelled, or no
+    /// candidate has a Wikidata id) the list is returned as it is.
+    public func withFacts(from facts: PlaceFactsLookup, within timeout: Duration) async -> NearbyList {
+        let ids = PlaceFactsLookup.ids(of: candidates)
+        guard !ids.isEmpty,
+              let answer = await Deadline.value(within: timeout, { try? await facts.answer(for: ids) }),
+              !answer.facts.isEmpty else { return self }
+        let enriched = PlaceFactsEnrichment(candidates, facts: answer.facts)
+        var copy = self
+        copy.candidates = enriched.candidates
+        copy.factsCount = enriched.factsCount
+        copy.dropped = enriched.dropped
+        copy.factsFailed = answer.failedBatches
+        return copy
+    }
+
     /// The candidates that can buzz while walking, in list order, with their tiers; nil tiers are dropped.
     public var walkingPlaces: [WalkingPlace] {
         candidates.compactMap { candidate in

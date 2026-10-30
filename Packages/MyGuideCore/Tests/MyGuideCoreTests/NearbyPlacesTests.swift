@@ -281,6 +281,72 @@ private struct Boom: Error {}
         #expect(!list.serves(walkerAt: .at(), now: now))
     }
 
+    /// A stored list from before facts: a castle (tags, no Wikidata id), the Jesuit order and Il Gesù (Wikipedia
+    /// only, Wikidata ids, no facts yet).
+    static func preFactsList() -> NearbyList {
+        let order = Candidate(id: "wiki:it/1", name: "Jesuittordenen", coordinate: .at(north: 20), kind: "wikipedia",
+                              wikipediaTitle: "it:Jesuittordenen", wikidata: "Q36380")
+        let gesu = Candidate(id: "wiki:it/2", name: "Il Gesù", coordinate: .at(north: 22), kind: "wikipedia",
+                             wikipediaTitle: "it:Il Gesù", wikidata: "Q1062394")
+        return NearbyList(centre: .at(), fetchedAt: t0, language: .english,
+                          candidates: [castle("Burg", north: 30), order, gesu], articleTexts: [:])
+    }
+
+    @Test func staleListIsRetieredWithFacts() async {
+        let asked = LockedBox<[String]>([])
+        let facts = PlaceFactsLookup { ids in
+            asked.set(ids)
+            return WikidataClient.Answer(facts: ["Q36380": PlaceFacts(sitelinks: 119, placeClass: .nonPlace),
+                                                 "Q1062394": PlaceFacts(sitelinks: 40, placeClass: .place)],
+                                         answered: Set(ids))
+        }
+        let list = Self.preFactsList()
+        // Before: both articles are Wiki-only (no facts), so they would buzz.
+        #expect(list.walkingPlaces.map(\.tier) == [.top, .wikiOnly, .wikiOnly])
+        let retiered = await list.withFacts(from: facts, within: .seconds(5))
+        // The castle has no Wikidata id and is not asked for.
+        #expect(asked.value == ["Q36380", "Q1062394"])
+        // After: the order (nonPlace) is dropped; Il Gesù (place, 40 ≥ 30 sitelinks) is top.
+        #expect(retiered.walkingPlaces.map(\.candidate.name) == ["Burg", "Il Gesù"])
+        #expect(retiered.walkingPlaces.map(\.tier) == [.top, .top])
+        #expect(retiered.factsCount == 2 && retiered.dropped == ["Jesuittordenen"] && retiered.factsFailed == 0)
+        #expect(retiered.centre == list.centre && retiered.fetchedAt == list.fetchedAt)
+    }
+
+    @Test func staleListIsUsedAsItIsWhenTheFactsLookupFails() async {
+        let failing = PlaceFactsLookup { _ in throw Boom() }
+        let list = Self.preFactsList()
+        #expect(await list.withFacts(from: failing, within: .seconds(5)) == list)
+        // A lookup that answers without facts (every batch failed) changes nothing either.
+        let empty = PlaceFactsLookup { _ in WikidataClient.Answer(failedBatches: 1) }
+        #expect(await list.withFacts(from: empty, within: .seconds(5)) == list)
+    }
+
+    @Test func staleListIsUsedAsItIsWhenTheFactsLookupIsSlow() async {
+        let slow = PlaceFactsLookup { ids in
+            try await Task.sleep(for: .seconds(30))
+            return WikidataClient.Answer(facts: ["Q36380": PlaceFacts(sitelinks: 119, placeClass: .nonPlace)],
+                                         answered: Set(ids))
+        }
+        let list = Self.preFactsList()
+        let clock = ContinuousClock()
+        let start = clock.now
+        // Timeout 0.1 s: the 30 s lookup loses; the list comes back unchanged well within 5 s.
+        #expect(await list.withFacts(from: slow, within: .milliseconds(100)) == list)
+        #expect(clock.now - start < .seconds(5))
+    }
+
+    @Test func staleListWithoutWikidataIdsSkipsTheLookup() async {
+        let called = LockedBox(false)
+        let facts = PlaceFactsLookup { _ in
+            called.set(true)
+            return WikidataClient.Answer()
+        }
+        let list = Self.list()   // one castle, no Wikidata id
+        #expect(await list.withFacts(from: facts, within: .seconds(5)) == list)
+        #expect(!called.value)
+    }
+
     @Test func listStatusForTheTimingsScreen() {
         let list = Self.list()   // centre (0, 0), fetched at t0
         // t0 + 125.9 s: 125.9 rounded down → 125 s. Position 85.4 m north: `.at(north:)` is that many metres up to

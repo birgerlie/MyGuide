@@ -10,8 +10,8 @@ import UIKit
 /// fix, lets a pending selection change finish its dwell without new samples, and selects a place just buzzed
 /// (spec 12.2). HomeScreen owns the shared `LocationProvider` (start, stop, `onFix` → foreground refreshes); this
 /// model only reads `location.fix(at:)`.
-/// Automatic selection never starts audio; only `listen()` does. Every change of the selected place, and every tap or
-/// buzz that selects one, is reported to walking mode, which logs it as `shown` while it is on (spec 19.7).
+/// Automatic selection never starts audio; only `listen()` does. Every selection update (at least the once-a-second
+/// tick) goes to walking mode, whose `ShownLogGate` writes the changes as `shown` while it is on (spec 19.7).
 @MainActor
 @Observable
 final class AroundModel {
@@ -53,9 +53,6 @@ final class AroundModel {
     /// The last buzz already selected (or present when the screen appeared), so each buzz selects once. A buzz that
     /// could not select yet (no fix, place not in the list) is retried on the next tick.
     @ObservationIgnored private var seenBuzzAt: Date?
-    /// True from `appear()` until a selected place has been reported, so walking mode learns what the map shows on
-    /// each appearance even when it is the place it showed before.
-    @ObservationIgnored private var reportOnAppear = false
 
     init(services: AppServices, location: LocationProvider) {
         self.services = services
@@ -69,7 +66,6 @@ final class AroundModel {
     func appear() {
         guard !active else { return }
         active = true
-        reportOnAppear = true
         seenBuzzAt = services.walking.lastBuzz?.at
         phoneHeading.onChange = { [weak self] in self?.scheduleUpdate() }
         phoneHeading.start()
@@ -164,10 +160,11 @@ final class AroundModel {
         pendingUpdate = nil
         lastUpdateAt = now
         if let input = input(now: now) {
-            assign(selection: selector.update(input))
+            assign(selection: selector.update(input), now: now)
         } else {
             assign(selection: selector.update(SelectionInput(vectors: [], positionAccuracy: .infinity, heading: nil,
-                                                             headingAccuracy: nil, playingPlaceID: nil, now: now)))
+                                                             headingAccuracy: nil, playingPlaceID: nil, now: now)),
+                   now: now)
         }
     }
 
@@ -231,12 +228,12 @@ final class AroundModel {
     /// Explicit selection through the selector, held for a tap (`hold`) and not for a buzz; true when `placeID` is
     /// now the selected place (a usable fix and the place in the list). Without a fix the selection is left as it is.
     /// `reason` (`tap` or `buzz`) goes to walking mode only when `placeID` was selected; any other outcome is the
-    /// selector's own (`heading`).
+    /// selector's own (`heading`, or `tap` while it holds a tapped place: `ShownLogGate` decides).
     private func select(_ placeID: String, hold: Bool = true, reason: ShownReason, now: Date) -> Bool {
         guard let input = input(now: now) else { return false }
         let state = selector.choose(placeID: placeID, hold: hold, input)
         let chosen = Self.selectedPlace(in: state)?.id == placeID
-        assign(selection: state, reason: chosen ? reason : .heading)
+        assign(selection: state, cause: chosen ? reason : .heading, now: now)
         lastUpdateAt = now
         return chosen
     }
@@ -248,26 +245,14 @@ final class AroundModel {
 
     // MARK: - Assignments that notify only on change
 
-    /// `reason` is why `new` came about: `heading` for the selector's automatic rules, `tap` or `buzz` for an explicit
-    /// selection. Walking mode is told when the selected place changes (a lost place is `cleared`), on every explicit
-    /// selection, and for the first selected place after `appear()`; it drops what it already logged.
-    private func assign(selection new: SelectionState, reason: ShownReason = .heading) {
-        let old = Self.selectedPlace(in: selection)
+    /// `cause` is why `new` came about: `heading` for the selector's automatic rules, `tap` or `buzz` for an
+    /// explicit selection of its place. Every call goes to walking mode with whether the selector holds a tapped
+    /// place; its `ShownLogGate` keeps only the changes, and confirms a lost place after 5 s on the 1 s tick.
+    private func assign(selection new: SelectionState, cause: ShownReason = .heading, now: Date) {
         if selection != new { selection = new }
         let place = Self.selectedPlace(in: new)
-        let appeared = reportOnAppear && place != nil
-        guard place?.id != old?.id || reason != .heading || appeared else { return }
-        if place != nil { reportOnAppear = false }
-        let why: ShownReason
-        if place == nil {
-            why = .cleared
-        } else if reason == .heading, place?.id == old?.id, selector.isHolding {
-            // Reported again on appearing: the place is still the one the owner tapped, held by the selector.
-            why = .tap
-        } else {
-            why = reason
-        }
-        services.walking.noteMapSelection(placeID: place?.id, name: place?.name, reason: why)
+        services.walking.noteMapSelection(placeID: place?.id, name: place?.name, cause: cause,
+                                          holding: selector.isHolding, now: now)
     }
 
     private func assign(position new: Coordinate?) {

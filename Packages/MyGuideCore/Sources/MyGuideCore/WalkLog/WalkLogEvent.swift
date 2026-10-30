@@ -21,8 +21,13 @@ public enum WalkPauseReason: String, Sendable, Codable {
 /// Who gave a command; nil in the log means automatic.
 public enum WalkSource: String, Sendable, Codable { case phone, watch }
 public enum StopShownVia: String, Sendable, Codable { case liveActivity, notification }
-/// Why the map's selection changed while walking (spec 19.7): the heading picked it, the owner tapped it, a buzz
-/// selected it, or it was cleared (by the owner, or by locating).
+/// Why the map shows what it shows while walking (spec 19.7, `ShownLogGate`):
+/// - `heading`: the selector's automatic rules picked the place (the phone heading, else the nearest; also the place
+///   whose story is playing, which the selector keeps);
+/// - `tap`: the owner tapped it, or the selector still holds that tapped place;
+/// - `buzz`: a buzz selected it;
+/// - `cleared`: no place has been selected for `ShownLogGate.clearedConfirmation` (5) seconds (a fix worse than
+///   50 m, no fix, or an empty list).
 public enum ShownReason: String, Sendable, Codable, CaseIterable { case heading, tap, buzz, cleared }
 
 public struct WalkLogStart: Sendable, Equatable {
@@ -175,8 +180,8 @@ public struct WalkLogEvent: Sendable, Equatable {
         case paused(WalkPauseReason, at: Coordinate?, source: WalkSource?)
         case resumed(WalkPauseReason, pausedSeconds: Double, source: WalkSource?)
         case failure(context: String, error: String)
-        /// The place the map selected while walking, or nil id and name when it was cleared (spec 19.7). Logged only
-        /// when the id or the reason changes.
+        /// The place the map selected while walking, or nil id and name when it was cleared (spec 19.7). Which
+        /// selections are written is `ShownLogGate`'s call.
         case shown(placeID: String?, name: String?, reason: ShownReason)
     }
 

@@ -2,15 +2,17 @@ import Foundation
 
 /// Decides when a walk needs a fresh place fetch and holds the latest result.
 /// Shared public services: refetch only after `refetchDistance`, retry a failure no sooner than `retryInterval`
-/// (`emptyRetryInterval` while the walk has no places, spec 19.6). A list whose OpenStreetMap part failed is retried
+/// (while the walk has no places, `emptyRetryInterval` doubling per consecutive failure up to `retryInterval`,
+/// spec 19.6). A list whose OpenStreetMap part failed is retried
 /// `NearbyList.osmFailedRetryAge` after it was fetched, without moving, so a walk does not go on with Wikipedia places
 /// only for 250 m.
-/// At the start of a run a stored list may stand in (`offerStaleList`) until the first fetch comes back; it sets no
-/// centre, so it never holds a fetch back.
+/// At the start of a run a stored list may stand in (`claimStaleList`, then `takeStaleList`) until the first fetch
+/// comes back; it sets no centre, so it never holds a fetch back.
 public struct PlaceFeed: Sendable {
     public static let refetchDistance = 250.0
     public static let retryInterval: TimeInterval = 60
-    /// The retry delay after a failure while the walk has no places, or only a stale list's.
+    /// The retry delay after a first failure while the walk has no places, or only a stale list's; it doubles with
+    /// each further consecutive failure, up to `retryInterval`: 15, 30, 60, 60 … s.
     public static let emptyRetryInterval: TimeInterval = 15
 
     public private(set) var places: [WalkingPlace] = []
@@ -21,20 +23,26 @@ public struct PlaceFeed: Sendable {
     private var lastFailure: Date?
     /// When the current places' list was fetched, if OpenStreetMap failed for it; nil otherwise.
     private var osmFailedAt: Date?
-    /// True once a stale list has been offered, taken or not: one offer per feed (per run).
+    /// True once a stale list has been claimed, taken or not: one claim per feed (per run).
     private var staleOffered = false
+    /// Failed fetches since the last success (or since the start).
+    private var consecutiveFailures = 0
 
     public init() {}
 
-    /// True until a stale list has been offered, while no fetch has come back and there are no places.
+    /// True until a stale list has been claimed, while no fetch has come back and there are no places.
     public var wantsStaleList: Bool {
         !staleOffered && lastCentre == nil && places.isEmpty
     }
 
-    /// The wait after a failed fetch as things stand: `emptyRetryInterval` while there are no places or only stale
-    /// ones, `retryInterval` otherwise. The nearby list is asked to hold off no longer than this either.
+    /// The wait after a failed fetch as things stand: while there are no places or only stale ones,
+    /// `emptyRetryInterval` · 2^(n − 1) for the n-th consecutive failure (n = 0 and 1 give 15 s), at most
+    /// `retryInterval`; `retryInterval` otherwise. The nearby list is asked to hold off no longer than this either.
     public var failureRetryInterval: TimeInterval {
-        places.isEmpty || placesAreStale ? Self.emptyRetryInterval : Self.retryInterval
+        guard places.isEmpty || placesAreStale else { return Self.retryInterval }
+        // Capped before doubling, so a long outage cannot overflow the shift.
+        let doublings = min(max(consecutiveFailures - 1, 0), 2)
+        return min(Self.emptyRetryInterval * Double(1 << doublings), Self.retryInterval)
     }
 
     public func shouldFetch(at position: Coordinate, now: Date) -> Bool {
@@ -57,27 +65,42 @@ public struct PlaceFeed: Sendable {
         placesAreStale = false
         lastCentre = center
         lastFailure = nil
+        consecutiveFailures = 0
         osmFailedAt = osmFailed ? min(fetchedAt ?? now, now) : nil
         isFetching = false
     }
 
-    /// Takes a stale stored list's places while `wantsStaleList` and they are not empty; returns whether it did. The
-    /// offer is used up either way. A fetch under way goes on and replaces them; no centre is set, so `shouldFetch`
-    /// still asks for a fetch at the next fix when none runs.
-    @discardableResult
-    public mutating func offerStaleList(_ places: [WalkingPlace]) -> Bool {
-        let wanted = wantsStaleList
+    /// Claims the run's one stale list while `wantsStaleList`; true when this call claimed it. The caller then
+    /// prepares the list (its facts may need a lookup) and hands it to `takeStaleList`; no second claim succeeds
+    /// meanwhile.
+    public mutating func claimStaleList() -> Bool {
+        guard wantsStaleList else { return false }
         staleOffered = true
-        guard wanted, !places.isEmpty else { return false }
+        return true
+    }
+
+    /// Takes the claimed stale list's places when they are not empty and still nothing has come back (no fetch
+    /// succeeded, no places); returns whether it did. A fetch under way goes on and replaces them; no centre is set,
+    /// so `shouldFetch` still asks for a fetch at the next fix when none runs.
+    @discardableResult
+    public mutating func takeStaleList(_ places: [WalkingPlace]) -> Bool {
+        guard staleOffered, lastCentre == nil, self.places.isEmpty, !places.isEmpty else { return false }
         self.places = places
         placesAreStale = true
         return true
     }
 
-    /// Keeps the old places and holds off a retry for `retryInterval`, or `emptyRetryInterval` while there are no
-    /// places or only stale ones.
+    /// `claimStaleList` and `takeStaleList` at once, for a list that needs no preparing. The claim is used up even
+    /// when the places are empty.
+    @discardableResult
+    public mutating func offerStaleList(_ places: [WalkingPlace]) -> Bool {
+        claimStaleList() && takeStaleList(places)
+    }
+
+    /// Keeps the old places and holds off a retry for `failureRetryInterval`.
     public mutating func fetchFailed(now: Date) {
         lastFailure = now
+        consecutiveFailures += 1
         isFetching = false
     }
 

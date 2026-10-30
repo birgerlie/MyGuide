@@ -57,6 +57,51 @@ import Testing
         #expect(f.shouldFetch(at: .at(), now: Self.t0 + 15))
     }
 
+    @Test func emptyFeedBacksOffFifteenThirtySixty() {
+        var f = PlaceFeed()
+        // 1st failure at t0: 15 · 2⁰ = 15 s → blocked at t0 + 14.9, allowed at t0 + 15.
+        f.fetchStarted(now: Self.t0); f.fetchFailed(now: Self.t0)
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 14.9))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 15))
+        // 2nd at t0 + 15: 15 · 2¹ = 30 s → blocked at t0 + 44.9 (15 + 29.9), allowed at t0 + 45 (15 + 30).
+        f.fetchStarted(now: Self.t0 + 15); f.fetchFailed(now: Self.t0 + 15)
+        #expect(f.failureRetryInterval == 30)
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 44.9))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 45))
+        // 3rd at t0 + 45: 15 · 2² = 60 s → blocked at t0 + 104.9 (45 + 59.9), allowed at t0 + 105 (45 + 60).
+        f.fetchStarted(now: Self.t0 + 45); f.fetchFailed(now: Self.t0 + 45)
+        #expect(f.failureRetryInterval == 60)
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 104.9))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 105))
+        // 4th and later: capped at 60 (15 · 2³ = 120 > 60).
+        f.fetchStarted(now: Self.t0 + 105); f.fetchFailed(now: Self.t0 + 105)
+        #expect(f.failureRetryInterval == 60)
+        f.fetchStarted(now: Self.t0 + 165); f.fetchFailed(now: Self.t0 + 165)
+        #expect(f.failureRetryInterval == 60)
+    }
+
+    @Test func successResetsTheEmptyFeedBackoff() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0); f.fetchFailed(now: Self.t0)
+        f.fetchStarted(now: Self.t0 + 15); f.fetchFailed(now: Self.t0 + 15)
+        #expect(f.failureRetryInterval == 30)
+        // An empty list comes back: the count resets, and the next failure waits 15 s again.
+        f.fetchStarted(now: Self.t0 + 45); f.fetchSucceeded([], at: .at(), now: Self.t0 + 45)
+        #expect(f.failureRetryInterval == 15)
+        f.fetchStarted(now: Self.t0 + 50); f.fetchFailed(now: Self.t0 + 50)
+        // 400 m away, failure at t0 + 50: blocked at t0 + 64.9, allowed at t0 + 65 (50 + 15).
+        #expect(!f.shouldFetch(at: .at(north: 400), now: Self.t0 + 64.9))
+        #expect(f.shouldFetch(at: .at(north: 400), now: Self.t0 + 65))
+    }
+
+    @Test func cancelledFetchesDoNotCountAsFailures() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0); f.fetchFailed(now: Self.t0)
+        f.fetchStarted(now: Self.t0 + 15); f.fetchCancelled()
+        // Still the first failure: 15 s.
+        #expect(f.failureRetryInterval == 15)
+    }
+
     @Test func failureAfterAnEmptyListRetriesAfterFifteenSeconds() {
         var f = PlaceFeed()
         f.fetchStarted(now: Self.t0); f.fetchSucceeded([], at: .at(), now: Self.t0)
@@ -162,6 +207,56 @@ import Testing
         let taken4 = f.offerStaleList([other])
         #expect(!taken4)
         #expect(f.places == [Self.castle])
+    }
+
+    @Test func claimedStaleListIsTakenLater() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        let claimed = f.claimStaleList()
+        #expect(claimed)
+        // Claimed: no second claim while its facts are looked up.
+        #expect(!f.wantsStaleList)
+        let again = f.claimStaleList()
+        #expect(!again)
+        let taken = f.takeStaleList([Self.castle])
+        #expect(taken)
+        #expect(f.places == [Self.castle] && f.placesAreStale)
+    }
+
+    @Test func claimedStaleListIsNotTakenOnceTheFetchCameBack() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        _ = f.claimStaleList()
+        let fresh = WalkingPlace(candidate: Candidate(id: "p", name: "P", coordinate: .at(north: 40), kind: "x"), tier: .good)
+        f.fetchSucceeded([fresh], at: .at(), now: Self.t0 + 1)
+        let taken = f.takeStaleList([Self.castle])
+        #expect(!taken)
+        #expect(f.places == [fresh] && !f.placesAreStale)
+        // An empty fresh list also wins: it set a centre.
+        var g = PlaceFeed()
+        g.fetchStarted(now: Self.t0)
+        _ = g.claimStaleList()
+        g.fetchSucceeded([], at: .at(), now: Self.t0 + 1)
+        let takenEmpty = g.takeStaleList([Self.castle])
+        #expect(!takenEmpty)
+        #expect(g.places.isEmpty)
+    }
+
+    @Test func claimedStaleListIsStillTakenAfterAFailedFetch() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        _ = f.claimStaleList()
+        f.fetchFailed(now: Self.t0 + 1)
+        let taken = f.takeStaleList([Self.castle])
+        #expect(taken)
+        #expect(f.places == [Self.castle])
+    }
+
+    @Test func staleListIsNotTakenWithoutAClaim() {
+        var f = PlaceFeed()
+        let taken = f.takeStaleList([Self.castle])
+        #expect(!taken)
+        #expect(f.places.isEmpty)
     }
 
     @Test func staleListIsNotWantedOnceAFetchHasSucceeded() {

@@ -87,8 +87,8 @@ public actor NearbyPlaces {
     /// - walking: no list, or the list is ≥ `walkingDistance` away or older than `NearbyList.freshAge` (a list
     ///   loaded from disk days ago must not drive a walk); never within `foregroundInterval` of the last fetch
     ///   attempt, so a failing source is not retried on every fix. After a failed fetch, `failureRetry` (at most
-    ///   `foregroundInterval`) replaces that interval: walking mode passes 15 s while its walk has no places
-    ///   (spec 19.6);
+    ///   `foregroundInterval`) replaces that interval: walking mode passes its feed's `failureRetryInterval`
+    ///   (15, 30, then 60 s while its walk has no places, spec 19.6);
     /// - background: never above `backgroundMaxSpeed`, within `backgroundInterval` of the last refresh, or within
     ///   `foregroundInterval` of the last fetch attempt; then no list, or the list is ≥ `foregroundDistance` away.
     ///   Age alone never refreshes in the background: a phone lying at home must not fetch every 10 minutes.
