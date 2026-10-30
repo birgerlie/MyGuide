@@ -19,10 +19,15 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
     /// `wikipediaTitle` language when a Wikipedia summary was merged into an OSM candidate. Nil for candidates
     /// stored before it existed (the synthesized decoder reads optionals with decodeIfPresent).
     public var summaryLanguage: String?
+    /// Number of Wikipedia editions with an article (Wikidata sitelinks); nil until looked up.
+    public var sitelinks: Int?
+    /// What the Wikidata item is; nil until looked up.
+    public var placeClass: PlaceClass?
 
     public init(id: String, name: String, coordinate: Coordinate, kind: String,
                 summary: String? = nil, wikipediaTitle: String? = nil, wikidata: String? = nil,
-                tags: [String: String]? = nil, summaryLanguage: String? = nil) {
+                tags: [String: String]? = nil, summaryLanguage: String? = nil,
+                sitelinks: Int? = nil, placeClass: PlaceClass? = nil) {
         self.id = id
         self.name = name
         self.coordinate = coordinate
@@ -32,6 +37,8 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
         self.wikidata = wikidata
         self.tags = tags
         self.summaryLanguage = summaryLanguage
+        self.sitelinks = sitelinks
+        self.placeClass = placeClass
     }
 }
 

@@ -1,0 +1,139 @@
+import Testing
+import Foundation
+@testable import MyGuideCore
+
+@Suite struct PlaceFactsTests {
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    static let month: TimeInterval = 30 * 24 * 3600
+
+    static func tempDir() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("place-facts-\(UUID().uuidString)")
+    }
+    /// Answers every asked id as a place with 10 sitelinks.
+    static func client() -> (WikidataClient, StubHTTPClient) {
+        let http = StubHTTPClient { r in
+            let ids = WikidataClientTests.sparql(r).components(separatedBy: "VALUES ?item {")[1]
+                .components(separatedBy: "}")[0].split(separator: " ").filter { $0.hasPrefix("wd:") }.map { String($0.dropFirst(3)) }
+            return (200, WikidataClientTests.body(ids.map { WikidataClientTests.row($0, n: 10, place: true) }))
+        }
+        return (WikidataClient(http: http), http)
+    }
+    static let place10 = PlaceFacts(sitelinks: 10, placeClass: .place)
+
+    @Test func hitWithin30DaysMakesNoRequest() async throws {
+        let (client, http) = Self.client()
+        let clock = LockedBox(t0)
+        let cache = PlaceFactsCache(directory: Self.tempDir()) { clock.value }
+        _ = try await cache.facts(for: ["Q1"], client: client)
+        // Exactly 30 days later is still a hit (age 2 592 000 s ≤ 2 592 000 s).
+        clock.set(t0.addingTimeInterval(Self.month))
+        let again = try await cache.facts(for: ["Q1"], client: client)
+        #expect(again == ["Q1": Self.place10])
+        #expect(http.requests.count == 1)
+    }
+
+    @Test func refetchesAt30DaysPlusOneSecond() async throws {
+        let (client, http) = Self.client()
+        let clock = LockedBox(t0)
+        let cache = PlaceFactsCache(directory: Self.tempDir()) { clock.value }
+        _ = try await cache.facts(for: ["Q1"], client: client)
+        // 30 d + 1 s = 2 592 001 s > 2 592 000 s.
+        clock.set(t0.addingTimeInterval(Self.month + 1))
+        _ = try await cache.facts(for: ["Q1"], client: client)
+        #expect(http.requests.count == 2)
+    }
+
+    @Test func onlyMissingIdsAreRequested() async throws {
+        let (client, http) = Self.client()
+        let cache = PlaceFactsCache(directory: nil) { t0 }
+        _ = try await cache.facts(for: ["Q1", "Q2"], client: client)
+        let f = try await cache.facts(for: ["Q2", "Q3", "Q3", "bad"], client: client)
+        #expect(Set(f.keys) == ["Q2", "Q3"])
+        #expect(http.requests.count == 2 && WikidataClientTests.idCount(http.requests[1]) == 1)
+    }
+
+    @Test func survivesNewInstanceOnSameDirectory() async throws {
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (client, http) = Self.client()
+        _ = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
+        let f = try await PlaceFactsCache(directory: dir) { t0.addingTimeInterval(3600) }.facts(for: ["Q1"], client: client)
+        #expect(f == ["Q1": Self.place10])
+        #expect(http.requests.count == 1)
+    }
+
+    @Test func memoryOnlyCacheWorks() async throws {
+        let (client, http) = Self.client()
+        let cache = PlaceFactsCache(directory: nil) { t0 }
+        _ = try await cache.facts(for: ["Q1"], client: client)
+        #expect(try await cache.facts(for: ["Q1"], client: client) == ["Q1": Self.place10])
+        #expect(http.requests.count == 1)
+        // A new instance starts empty.
+        _ = try await PlaceFactsCache(directory: nil) { t0 }.facts(for: ["Q1"], client: client)
+        #expect(http.requests.count == 2)
+    }
+
+    @Test func corruptFileIsIgnoredAndRewritten() async throws {
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("{not json".utf8).write(to: dir.appendingPathComponent(PlaceFactsCache.fileName))
+        let (client, http) = Self.client()
+        let f = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
+        #expect(f == ["Q1": Self.place10])
+        let again = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
+        #expect(again == f && http.requests.count == 1)
+    }
+
+    @Test func failedLookupIsNotStored() async throws {
+        let failing = StubHTTPClient { _ in (500, Data()) }
+        let cache = PlaceFactsCache(directory: nil) { t0 }
+        #expect(try await cache.facts(for: ["Q1"], client: WikidataClient(http: failing)).isEmpty)
+        let (client, http) = Self.client()
+        #expect(try await cache.facts(for: ["Q1"], client: client) == ["Q1": Self.place10])
+        #expect(http.requests.count == 1)
+    }
+
+    @Test func cancellationPropagates() async {
+        let http = StubHTTPClient { _ in throw CancellationError() }
+        let cache = PlaceFactsCache(directory: nil) { t0 }
+        await #expect(throws: CancellationError.self) { try await cache.facts(for: ["Q1"], client: WikidataClient(http: http)) }
+    }
+
+    @Test func expiredEntriesArePrunedOnSave() async throws {
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (client, _) = Self.client()
+        let clock = LockedBox(t0)
+        let cache = PlaceFactsCache(directory: dir) { clock.value }
+        _ = try await cache.facts(for: ["Q1"], client: client)
+        clock.set(t0.addingTimeInterval(Self.month + 10))
+        _ = try await cache.facts(for: ["Q2"], client: client)
+        let data = try Data(contentsOf: dir.appendingPathComponent(PlaceFactsCache.fileName))
+        let keys = (try JSONSerialization.jsonObject(with: data) as! [String: Any]).keys
+        #expect(Set(keys) == ["Q2"])
+    }
+
+    // MARK: applying
+
+    @Test func applyingSetsFactsByWikidataId() {
+        let a = Candidate(id: "a", name: "A", coordinate: .init(latitude: 0, longitude: 0), kind: "wikipedia", wikidata: "Q1")
+        let noId = Candidate(id: "b", name: "B", coordinate: .init(latitude: 0, longitude: 0), kind: "wikipedia")
+        let noFacts = Candidate(id: "c", name: "C", coordinate: .init(latitude: 0, longitude: 0), kind: "wikipedia", wikidata: "Q2")
+        let out = [a, noId, noFacts].applying(["Q1": PlaceFacts(sitelinks: 33, placeClass: .area)])
+        #expect(out[0].sitelinks == 33 && out[0].placeClass == .area)
+        #expect(out[0].id == "a" && out[0].name == "A")
+        #expect(out[1] == noId)
+        #expect(out[2] == noFacts)
+        #expect(out.count == 3)
+    }
+
+    @Test func oldCandidateJSONDecodes() throws {
+        let json = #"{"id":"osm:node/1","name":"X","coordinate":{"latitude":1,"longitude":2},"kind":"historic=castle"}"#
+        let c = try JSONDecoder().decode(Candidate.self, from: Data(json.utf8))
+        #expect(c.sitelinks == nil && c.placeClass == nil)
+        let round = try JSONDecoder().decode(Candidate.self, from: JSONEncoder().encode(
+            Candidate(id: "w", name: "W", coordinate: c.coordinate, kind: "wikipedia", sitelinks: 5, placeClass: .nonPlace)))
+        #expect(round.sitelinks == 5 && round.placeClass == .nonPlace)
+    }
+}
