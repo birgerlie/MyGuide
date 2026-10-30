@@ -342,7 +342,9 @@ import Foundation
         }
         let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(25))
         // 25 → halves of 13 and 12.
-        #expect(http.requests.map(Self.idCount) == [25, 13, 12])
+        // The halves run concurrently, so their order is not fixed.
+        let counts = http.requests.map(Self.idCount)
+        #expect(counts.first == 25 && counts.dropFirst().sorted() == [12, 13])
         #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(25)) && answer.facts.count == 25)
         // Every retried half keeps the 10 s timeout.
         #expect(http.requests.allSatisfy { $0.timeoutInterval == 10 })
