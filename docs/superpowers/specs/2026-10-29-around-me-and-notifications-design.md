@@ -530,5 +530,5 @@ prioriterte riktig og den hoppet litt». Approved plan: «go» (2026-10-30).
      one arrives. It is logged as `fetched` with `"stale": true`.
 7. **The map's selection is logged while walking:** `shown` with place id, name and why (`heading`, `tap`,
    `buzz`, `cleared`). Only changes are logged, so the next walk can be compared with what was shown.
-8. The `fetched` log line gains `facts` (how many candidates got facts) and `dropped` (names removed as
+8. The `fetched` log line gains `facts` (how many candidates got facts), `factsFailed` (Wikidata batches that failed) and `dropped` (names removed as
    `nonPlace`).
