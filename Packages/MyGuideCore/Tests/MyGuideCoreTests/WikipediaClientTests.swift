@@ -36,10 +36,10 @@ import Foundation
         #expect(c[0] == Candidate(id: "wiki:en/1", name: "Hofburg", coordinate: .init(latitude: 48.2086, longitude: 16.3671),
                                   kind: "wikipedia", summary: "Hofburg is old.", wikipediaTitle: "en:Hofburg", wikidata: "Q2",
                                   summaryLanguage: "en"))
-        #expect(http.requests.count == 1)  // 3 results ≥ 3 → no English fallback needed anyway
+        #expect(http.requests.count == 1)  // English: no second geosearch
         #expect(http.requests[0].value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
     }
-    @Test func norwegianFallsBackToEnglishWhenFewerThanThree() async throws {
+    @Test func norwegianMergesEnglishWhenFewerThanThree() async throws {
         let http = StubHTTPClient { r in
             r.url!.host == "no.wikipedia.org"
               ? (200, Self.body([Self.page(10, "Hofburg", q: "Q2"), Self.page(11, "Stefansdomen", q: "Q4")]))
@@ -51,23 +51,36 @@ import Foundation
         #expect(c.map(\.summaryLanguage) == ["no", "no", "en"])
         #expect(http.requests.count == 2)
     }
-    @Test func norwegianWithThreeResultsIgnoresFallback() async throws {
-        let http = StubHTTPClient { _ in (200, Self.body([Self.page(1, "A", q: nil), Self.page(2, "B", q: nil), Self.page(3, "C", q: nil)])) }
-        let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
-        #expect(c.count == 3)
-        // The English request now runs alongside the primary, so it is always issued.
-        #expect(http.requests.count == 2)
-    }
-    @Test func englishRequestRunsConcurrentlyButIsIgnoredWhenPrimaryHasThree() async throws {
+    @Test func norwegianWithThreeResultsStillMergesEnglish() async throws {
+        // Spec 20.1: Norwegian articles often lack coordinates (Trevi, Campo de' Fiori), so the English geosearch is
+        // merged however many Norwegian results there are. Q1 is in both: the Norwegian page wins (name, summary,
+        // language); English Q9 and the English page without an id are added after the Norwegian ones.
         let http = StubHTTPClient { r in
             r.url!.host == "no.wikipedia.org"
               ? (200, Self.body([Self.page(10, "A", q: "Q1"), Self.page(11, "B", q: nil), Self.page(12, "C", q: nil)]))
-              : (200, Self.body([Self.page(1, "English only", q: "Q9"), Self.page(2, "Also English", q: nil)]))
+              : (200, Self.body([Self.page(1, "A in English", q: "Q1"), Self.page(2, "Trevi Fountain", q: "Q9"),
+                                 Self.page(3, "Also English", q: nil)]))
         }
         let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
-        #expect(c.map(\.id) == ["wiki:no/10", "wiki:no/11", "wiki:no/12"])
+        #expect(c.map(\.id) == ["wiki:no/10", "wiki:no/11", "wiki:no/12", "wiki:en/2", "wiki:en/3"])
+        #expect(c[0].name == "A" && c[0].summary == "A is old." && c[0].summaryLanguage == "no")
+        #expect(c[3].name == "Trevi Fountain" && c[3].summaryLanguage == "en" && c[3].wikipediaTitle == "en:Trevi Fountain")
         #expect(Set(http.requests.compactMap { $0.url?.host }) == ["no.wikipedia.org", "en.wikipedia.org"])
+        // One extra geosearch per call, as before.
         #expect(http.requests.count == 2)
+    }
+    @Test func manyNorwegianResultsKeepEveryEnglishOnlyItem() async throws {
+        // 20 Norwegian pages (Q1…Q20) and 20 English ones (Q11…Q30): the 10 shared items keep their Norwegian page,
+        // the 10 English-only ones (Q21…Q30) are added: 20 + 10 = 30.
+        let http = StubHTTPClient { r in
+            r.url!.host == "no.wikipedia.org"
+              ? (200, Self.body((1...20).map { Self.page($0, "N\($0)", q: "Q\($0)") }))
+              : (200, Self.body((11...30).map { Self.page(100 + $0, "E\($0)", q: "Q\($0)") }))
+        }
+        let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
+        #expect(c.count == 30)
+        #expect(c.prefix(20).allSatisfy { $0.id.hasPrefix("wiki:no/") })
+        #expect(c.dropFirst(20).map(\.wikidata) == (21...30).map { "Q\($0)" })
     }
     /// Holds the Norwegian response until the English request has arrived; a sequential client never sends it.
     final class EnglishFirstHTTP: HTTPClient, @unchecked Sendable {

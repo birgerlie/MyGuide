@@ -3,8 +3,6 @@ import Foundation
 /// Fetches nearby Wikipedia articles (geosearch) with short summaries, in the story language where available.
 public struct WikipediaClient: Sendable {
     static let summaryLimit = 600
-    /// Below this many story-language results, English articles are added.
-    private static let fallbackThreshold = 3
 
     private let http: HTTPClient
 
@@ -39,16 +37,21 @@ public struct WikipediaClient: Sendable {
         return components.url!
     }
 
+    /// The story-language articles, followed by the English articles whose Wikidata item is not among them (English
+    /// articles without an item are all added). Outside English the English geosearch always runs alongside, one
+    /// extra request per call (spec 20.1): story-language articles often lack coordinates (Norwegian Trevi, Campo de'
+    /// Fiori), so a geosearch never finds them. The story-language article wins for an item in both, with its name,
+    /// summary and summary language. A failing English search leaves the story-language articles; a failing
+    /// story-language search throws (and cancels the English one).
     public func articles(around: Coordinate, radius: Int, language: StoryLanguage, limit: Int = 20) async throws -> [Candidate] {
         guard language != .english else {
             return try await fetch(code: language.wikipediaCode, around: around, radius: radius, limit: limit)
         }
-        // The English fallback starts alongside the primary so a thin story-language result costs no extra
-        // round trip. Its outcome is captured, not thrown: a failed fallback must not discard the primary results.
-        // If the primary throws, or has enough results, the fallback is cancelled when this scope exits.
+        // The English search starts alongside the primary, so merging it costs no extra round trip. Its outcome is
+        // captured, not thrown: a failed English search must not discard the primary results. If the primary
+        // throws, the English search is cancelled when this scope exits.
         async let fallback = Self.outcome { try await fetch(code: StoryLanguage.english.wikipediaCode, around: around, radius: radius, limit: limit) }
         let primary = try await fetch(code: language.wikipediaCode, around: around, radius: radius, limit: limit)
-        guard primary.count < Self.fallbackThreshold else { return primary }
 
         let english: [Candidate]
         switch await fallback {

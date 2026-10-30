@@ -273,6 +273,33 @@ import Testing
                          summary: summary, wikidata: wikidata)
     }
 
+    @Test func storyLanguagePageOfAnotherTileWinsOverAnEnglishOne() async throws {
+        // Norwegian corridor: tile 1 knows Q10 only from its English geosearch ("Cathedral"), tile 2 from Norwegian
+        // Wikipedia ("Domkirke"). The item is kept once, at tile 1's place in the order, as the Norwegian page
+        // (spec 20.1: the story-language article wins). Tile 1's own Norwegian page Q11 stays first.
+        let corridor = TourArea.corridor(from: .at(), to: .at(east: 15_000))
+        let http = Self.stub(osm: { (200, Data(#"{"elements":[]}"#.utf8)) }, wiki: { request in
+            let url = request.url!.absoluteString
+            let first = url.contains("ggscoord=0.000000%7C0.013490")
+            let norwegian = request.url!.host == "no.wikipedia.org"
+            let pages: [String]
+            switch (first, norwegian) {
+            case (true, true):
+                pages = [#"{"pageid":11,"title":"Torget","coordinates":[{"lat":0.0,"lon":0.05}],"pageprops":{"wikibase_item":"Q11"}}"#]
+            case (true, false):
+                pages = [#"{"pageid":77,"title":"Cathedral","coordinates":[{"lat":0.0,"lon":0.07}],"pageprops":{"wikibase_item":"Q10"}}"#]
+            case (false, true):
+                pages = [#"{"pageid":10,"title":"Domkirke","coordinates":[{"lat":0.0,"lon":0.07}],"pageprops":{"wikibase_item":"Q10"}}"#]
+            case (false, false):
+                pages = []
+            }
+            return (200, Data(#"{"query":{"pages":[\#(pages.joined(separator: ","))]}}"#.utf8))
+        })
+        let places = try await Self.source(http).places(in: corridor, language: .norwegian)
+        #expect(places.map(\.candidate.name) == ["Torget", "Domkirke"])
+        #expect(places.last?.candidate.id == "wiki:no/10")
+    }
+
     @Test func norwegianTilesFallBackToEnglishLikeEveryGeosearch() async throws {
         let http = Self.stub(wiki: { _ in (200, Data(#"{"query":{"pages":[]}}"#.utf8)) })
         _ = try await Self.source(http).places(in: area, language: .norwegian)

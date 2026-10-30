@@ -151,8 +151,9 @@ public struct TourPlaceSource: Sendable {
     }
 
     /// Every tile concurrently. The articles come in tile order, each place once: a page found by two overlapping
-    /// tiles, or the same Wikidata item found in two languages (each tile may add English pages), is kept from the
-    /// first. Failed tiles are left out and counted; when every tile fails, the first tile's error is thrown.
+    /// tiles, or the same Wikidata item found in two languages (each tile adds English pages), is kept from the
+    /// first, except that a later story-language page replaces an earlier English one in its place (spec 20.1).
+    /// Failed tiles are left out and counted; when every tile fails, the first tile's error is thrown.
     private func articles(in tiles: [GeosearchTile],
                           language: StoryLanguage) async throws -> (articles: [Candidate], failedTiles: Int) {
         let wikipedia = self.wikipedia
@@ -171,14 +172,26 @@ public struct TourPlaceSource: Sendable {
             return byTile.compactMap { $0 }
         }
 
-        var seen = Set<String>()
+        let storyPrefix = "wiki:\(language.wikipediaCode)/"
+        // The index in `articles` of each kept place, by Wikidata id (else page id).
+        var seen: [String: Int] = [:]
         var articles: [Candidate] = []
         var firstError: Error?
         var failedTiles = 0
         for result in results {
             switch result {
             case .success(let found):
-                articles += found.filter { seen.insert($0.wikidata ?? $0.id).inserted }
+                for article in found {
+                    let key = article.wikidata ?? article.id
+                    if let index = seen[key] {
+                        if !articles[index].id.hasPrefix(storyPrefix), article.id.hasPrefix(storyPrefix) {
+                            articles[index] = article
+                        }
+                    } else {
+                        seen[key] = articles.count
+                        articles.append(article)
+                    }
+                }
             case .failure(let error):
                 failedTiles += 1
                 if firstError == nil { firstError = error }
