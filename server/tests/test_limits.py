@@ -282,18 +282,44 @@ def test_settle_rejects_refused_admission(conn):
     assert conn.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 0
 
 
-def test_settle_failure_rolls_back(conn):
+SNAPSHOT = "gpt-5-mini-2025-08-07"  # a dated id OpenAI may report; not a key in the price table
+
+
+def test_settle_unknown_model_still_returns_unit_and_refunds(conn, caplog):
+    s = settings(QUOTA_STORY_PER_DAY=1, CREDITS_PER_STORY=1)
+    d = device(conn)
+    ledger.grant(conn, d["wallet_id"], 1, "tester", NOW)
+    free = admit(conn, s, d, "story", NOW)
+    paid = admit(conn, s, d, "story", NOW)
+    assert (free.paid_with, paid.paid_with, ledger.balance(conn, d["wallet_id"])) == ("free", "credits", 0)
+    with caplog.at_level("ERROR", logger="myguide.limits"):
+        for adm in (free, paid):
+            settle(conn, s, adm, kept=False, status=500, model=SNAPSHOT, usage=Usage(input_tokens=100),
+                   latency_ms=1, now=NOW)
+    assert not conn.in_transaction
+    assert used(conn, d["id"]) == 0  # 1 reserved - 1 returned
+    assert ledger.balance(conn, d["wallet_id"]) == 1  # 0 + 1 refunded
+    rows = conn.execute("SELECT call_id, model, kept, cost_micro FROM calls ORDER BY id").fetchall()
+    assert [tuple(r) for r in rows] == [(free.call_id, SNAPSHOT, 0, 0), (paid.call_id, SNAPSHOT, 0, 0)]
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 2
+    for rec, adm in zip(errors, (free, paid)):
+        assert adm.call_id in rec.getMessage() and SNAPSHOT in rec.getMessage()
+
+
+def test_settle_unknown_model_kept_adds_tokens_at_cost_zero(conn, caplog):
     s = settings()
     d = device(conn)
     adm = admit(conn, s, d, "story", NOW)
-    with pytest.raises(ValueError):
-        settle(conn, s, adm, kept=False, status=500, model="gpt-4o", usage=Usage(input_tokens=1),
-               latency_ms=1, now=NOW)
-    assert not conn.in_transaction
-    assert used(conn, d["id"]) == 1  # nothing half-applied
-    assert conn.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 0
-    done(conn, s, adm, kept=False)  # a correct retry still settles
-    assert used(conn, d["id"]) == 0
+    with caplog.at_level("ERROR", logger="myguide.limits"):
+        settle(conn, s, adm, kept=True, status=200, model=SNAPSHOT,
+               usage=Usage(input_tokens=600, output_tokens=300), latency_ms=1, now=NOW)
+    row = day_row(conn, d["id"])
+    # unit kept: used 1; tokens 600 in / 300 out added; cost 0 (no price)
+    assert (row["used_story"], row["tokens_in"], row["tokens_out"], row["cost_micro"]) == (1, 600, 300, 0)
+    assert conn.execute("SELECT cost_micro FROM server_days WHERE day=?", (DAY,)).fetchone()[0] == 0
+    assert tuple(conn.execute("SELECT kept, cost_micro FROM calls").fetchone()) == (1, 0)
+    assert any(r.levelname == "ERROR" and adm.call_id in r.getMessage() for r in caplog.records)
 
 
 def test_admit_reads_current_wallet(conn):

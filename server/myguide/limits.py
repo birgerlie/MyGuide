@@ -178,6 +178,7 @@ def settle(conn: sqlite3.Connection, settings: Settings, admission: Admission, *
 
     Not kept: a free unit goes back to `admission.day` (not today), credits are refunded.
     Usage and cost are always added to `admission.day`, kept or not: the tokens were spent.
+    A model without a price is settled anyway, with cost 0 and an error in the log.
     """
     if not admission.allowed:
         raise ValueError("a refused admission is never settled")
@@ -185,7 +186,13 @@ def settle(conn: sqlite3.Connection, settings: Settings, admission: Admission, *
     for name in ("input_tokens", "cached_tokens", "output_tokens", "speech_chars"):
         if getattr(usage, name) < 0:
             raise ValueError(f"usage.{name} must be >= 0")
-    cost = cost_micro(settings, admission.kind, model, usage)
+    # Returning the unit, refunding and recording the call never depend on pricing: a model with no price
+    # (a dated snapshot id, or one dropped by a reload) is recorded at cost 0 and logged.
+    try:
+        cost = cost_micro(settings, admission.kind, model, usage)
+    except ValueError:
+        log.error("settle: no price for model %r on call %s; cost recorded as 0", model, admission.call_id)
+        cost = 0
     at = iso(now)
     day = admission.day
     conn.execute("BEGIN IMMEDIATE")
