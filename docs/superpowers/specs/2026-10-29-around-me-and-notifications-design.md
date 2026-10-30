@@ -617,3 +617,21 @@ is left is landmarks lost to the gap, to lesser neighbours or to a story playing
    stays.
 7. The walking `perHour` default is unchanged. The owner sets it (60 now), and the gaps above keep dense routes
    near 30/h.
+
+### 20.4 Iteration 4 (replay after 20.3)
+
+Real walks now give 12–18 buzzes per hour and the routes 20–43, with 0–17 % under 10 sitelinks. Vespasian's
+Forum, Pons Fabricius, Porticus Octaviae, Barcaccia and Quattro Fiumi buzz. Wikidata in batches of 25 has a
+median of 2.6 s and 1.4 % timeouts, all saved by the retry. Decisions *(Claude's calls)*:
+
+1. **Complex exclusion only for minor places.** The 55 m complex rule excludes only places with fewer than 20
+   sitelinks. Places with 20 or more are excluded only by the same spot (25 m, rank-respecting) or the same
+   Wikidata id. Before this, the Great Synagogue, Sant'Agnese in Agone and the Lupa capitolina were swallowed.
+2. **Better place first.** A better place inside its due radius with no previous distance (the first decision of
+   a run, or just added to the list) counts as approaching for the hold rule. A pending «behind you» goes before
+   an ordinary due place with fewer sitelinks.
+3. **«Behind you»:** reach 150 m, instead of 120, for places with 30 or more sitelinks.
+4. **Gap:** 90 s for 20–24 sitelinks. Now 30 s for top or ≥ 25, 90 s for 20–24, 120 s for 15–19, and 240 s
+   otherwise.
+5. **`unknown` is always dropped.** Classes found so far cover the landmarks. Rione Campo Marzio (terrain, 44)
+   went out this way.
