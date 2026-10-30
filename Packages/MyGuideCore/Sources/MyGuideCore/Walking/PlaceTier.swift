@@ -40,8 +40,10 @@ public enum PlaceTiers {
     /// Wikidata sitelinks from which a `place` is `top` (spec 19.2; fewer is `good` for a Wikipedia-only one). An OSM
     /// candidate whose item is such a place is at least `top` too (spec 20.5).
     public static let topSitelinks = 30
-    /// Sitelinks from which a Wikipedia-only `area` (not a settlement) is kept as Wiki-only; fewer is dropped
-    /// (spec 20.6).
+    /// Sitelinks from which a Wikipedia-only `place` or `natural` item is `good`; fewer is Wiki-only (spec 20.2.1).
+    public static let goodSitelinks = 10
+    /// Sitelinks from which a Wikipedia-only `street` or `unknown` item is kept as Wiki-only; fewer is dropped
+    /// (spec 20.6, 20.2.6).
     public static let areaSitelinks = 20
     /// An OSM candidate tagged top whose item has fewer sitelinks than this is `good` (spec 20.5).
     public static let osmTopMinSitelinks = 5
@@ -54,12 +56,19 @@ public enum PlaceTiers {
     /// with `topSitelinks` or more → Top (also when the tags alone give no tier); Top by tags, or Good lifted to Top
     /// by an article → Top, but Good when the item has fewer than `osmTopMinSitelinks` sitelinks (no facts: Top);
     /// Good → Good, but Wiki-only without an article and without a Wikidata id; else Wiki-only with an article.
+    /// A `natural` item (hill, island) is at most Good (spec 20.2.2).
     /// A church whose item is also an organisation stays a church: a `nonPlace` class never vetoes tags.
     public static func tier(for candidate: Candidate) -> PlaceTier? {
         guard !candidate.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if !hasOSMTags(candidate), let placeClass = candidate.placeClass {
             return factTier(placeClass, sitelinks: candidate.sitelinks ?? 0)
         }
+        guard let tier = tagTier(candidate) else { return nil }
+        return candidate.placeClass == .natural ? max(tier, .good) : tier
+    }
+
+    /// `tier(for:)` for a candidate with OSM tags (or without facts), before the `natural` cap.
+    private static func tagTier(_ candidate: Candidate) -> PlaceTier? {
         let tags = candidate.tags ?? [:]
         if isNever(tags) { return nil }
         let article = hasArticle(candidate)
@@ -80,8 +89,8 @@ public enum PlaceTiers {
     }
 
     /// True when the tiering drops a named candidate for its Wikidata class alone: no OSM tags, and an item that is
-    /// `nonPlace` (an organisation, person or event placed at a building's coordinates), a `settlement`, or an
-    /// `area` with fewer than `areaSitelinks` sitelinks. The walk log lists these as `dropped`. A blank name is not
+    /// `nonPlace` (an organisation, person or event placed at a building's coordinates), a `settlement` or other
+    /// `area`, or a `street` or `unknown` item with fewer than `areaSitelinks` sitelinks. The walk log lists these as `dropped`. A blank name is not
     /// counted: the name rule drops that candidate.
     public static func isDroppedByClass(_ candidate: Candidate) -> Bool {
         guard !hasOSMTags(candidate), let placeClass = candidate.placeClass,
@@ -89,15 +98,16 @@ public enum PlaceTiers {
         return factTier(placeClass, sitelinks: candidate.sitelinks ?? 0) == nil
     }
 
-    /// The tier of a candidate without OSM tags from its Wikidata facts (spec 19.2, 20.6): `nonPlace` and
-    /// `settlement` never buzz; a `place` is Top from `topSitelinks` sitelinks and Good below; an `area` is Wiki-only
-    /// from `areaSitelinks` sitelinks and dropped below; an `unknown` item is Wiki-only.
+    /// The tier of a candidate without OSM tags from its Wikidata facts (spec 19.2, 20.6, 20.2): `nonPlace`,
+    /// `settlement` and `area` never buzz; a `place` is Top from `topSitelinks` sitelinks, Good from `goodSitelinks`,
+    /// Wiki-only below; a `natural` item is Good from `goodSitelinks`, Wiki-only below; a `street` or `unknown` item
+    /// is Wiki-only from `areaSitelinks` sitelinks and dropped below.
     private static func factTier(_ placeClass: PlaceClass, sitelinks: Int) -> PlaceTier? {
         switch placeClass {
-        case .nonPlace, .settlement: nil
-        case .place: sitelinks >= topSitelinks ? .top : .good
-        case .area: sitelinks >= areaSitelinks ? .wikiOnly : nil
-        case .unknown: .wikiOnly
+        case .nonPlace, .settlement, .area: nil
+        case .place: sitelinks >= topSitelinks ? .top : sitelinks >= goodSitelinks ? .good : .wikiOnly
+        case .natural: sitelinks >= goodSitelinks ? .good : .wikiOnly
+        case .street, .unknown: sitelinks >= areaSitelinks ? .wikiOnly : nil
         }
     }
 

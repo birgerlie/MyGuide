@@ -111,8 +111,8 @@ import Foundation
         let v2 = dir.appendingPathComponent("place-facts-v2.json")
         let stamp = t0.timeIntervalSince1970
         try Data(#"{"Q1":{"facts":{"sitelinks":83,"placeClass":"place"},"fetchedAt":\#(stamp)}}"#.utf8).write(to: v2)
-        #expect(PlaceFactsCache.fileName == "place-facts-v3.json")
-        #expect(PlaceFactsCache.legacyFileNames == ["place-facts.json", "place-facts-v2.json"])
+        #expect(PlaceFactsCache.fileName == "place-facts-v4.json")
+        #expect(PlaceFactsCache.legacyFileNames == ["place-facts.json", "place-facts-v2.json", "place-facts-v3.json"])
         let (client, http) = Self.client()
         let f = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
         #expect(f == ["Q1": Self.place10] && http.requests.count == 1)
@@ -246,7 +246,8 @@ import Foundation
         async let a = cache.lookup(ids: ["Q1"], client: client)
         async let b = cache.lookup(ids: ["Q1"], client: client)
         let (ra, rb) = try await (a, b)
-        #expect(ra.facts.isEmpty && rb.facts.isEmpty && count.value == 1)
+        // One shared request, retried once as a single half (one id): 2 requests (spec 20.2.7).
+        #expect(ra.facts.isEmpty && rb.facts.isEmpty && count.value == 2)
         #expect(ra.failedBatches == 1 && rb.failedBatches == 1)
     }
 
@@ -272,6 +273,68 @@ import Foundation
             Candidate(id: "w", name: "W", coordinate: c.coordinate, kind: "wikipedia", sitelinks: 5, placeClass: .nonPlace)))
         #expect(round.sitelinks == 5 && round.placeClass == .nonPlace)
     }
+
+    // MARK: - Spec 20.2.6: story-language titles
+
+    /// Answers every asked id as a place with 10 sitelinks, titled "no-<id>" when the query asks for Norwegian titles.
+    static func titledClient() -> (WikidataClient, StubHTTPClient) {
+        let http = StubHTTPClient { r in
+            let ids = WikidataClientTests.askedIds(r)
+            let titled = WikidataClientTests.sparql(r).contains("no.wikipedia.org")
+            return (200, WikidataClientTests.body(ids.map {
+                WikidataClientTests.row($0, n: 10, title: titled ? "no-\($0)" : nil, place: true)
+            }))
+        }
+        return (WikidataClient(http: http), http)
+    }
+
+    @Test func cacheKeepsTitlesPerLanguage() async throws {
+        // Norwegian and plain (English) answers for Q1 are stored apart: each asks once, and a repeat asks nothing.
+        let (client, http) = Self.titledClient()
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cache = PlaceFactsCache(directory: dir) { t0 }
+        let no = try await cache.facts(for: ["Q1"], client: client, language: .norwegian)
+        let en = try await cache.facts(for: ["Q1"], client: client, language: .english)
+        #expect(no == ["Q1": PlaceFacts(sitelinks: 10, placeClass: .place, localTitle: "no-Q1")])
+        #expect(en == ["Q1": Self.place10])
+        #expect(http.requests.count == 2)
+        _ = try await cache.facts(for: ["Q1"], client: client, language: .norwegian)
+        _ = try await cache.facts(for: ["Q1"], client: client)
+        #expect(http.requests.count == 2)
+        // And on disk: a new cache over the same file answers both without a request.
+        let reloaded = PlaceFactsCache(directory: dir) { t0 }
+        #expect(try await reloaded.facts(for: ["Q1"], client: client, language: .norwegian)["Q1"]?.localTitle == "no-Q1")
+        #expect(http.requests.count == 2)
+    }
+    @Test func lookupPassesTheLanguageThroughTheCache() async throws {
+        let (client, _) = Self.titledClient()
+        let lookup = PlaceFactsLookup(cache: PlaceFactsCache(directory: nil) { t0 }, client: client)
+        let answer = try await lookup.answer(for: ["Q7"], language: .norwegian)
+        #expect(answer.facts["Q7"]?.localTitle == "no-Q7")
+    }
+    @Test func englishCandidateTakesTheStoryLanguageTitle() {
+        // Trevi: the English article (no Norwegian one has coordinates) gets the item's Norwegian title. A Norwegian
+        // article keeps its own; an OSM candidate keeps its OSM name; without a language nothing is renamed.
+        let here = Coordinate(latitude: 41.9, longitude: 12.48)
+        let trevi = Candidate(id: "wiki:en/1", name: "Trevi Fountain", coordinate: here, kind: "wikipedia",
+                              wikipediaTitle: "en:Trevi Fountain", wikidata: "Q186579")
+        let norsk = Candidate(id: "wiki:no/2", name: "Pantheon (Roma)", coordinate: here, kind: "wikipedia",
+                              wikidata: "Q99309")
+        let osm = Candidate(id: "osm:way/3", name: "Fontana di Trevi", coordinate: here, kind: "x", wikidata: "Q186579",
+                            tags: ["amenity": "fountain"])
+        let untitled = Candidate(id: "wiki:en/4", name: "Abbot Luigi", coordinate: here, kind: "wikipedia", wikidata: "Q4")
+        let facts = ["Q186579": PlaceFacts(sitelinks: 68, placeClass: .place, localTitle: "Fontana di Trevi (no)"),
+                     "Q99309": PlaceFacts(sitelinks: 81, placeClass: .place, localTitle: "Pantheon"),
+                     "Q4": PlaceFacts(sitelinks: 2, placeClass: .unknown)]
+        let applied = [trevi, norsk, osm, untitled].applying(facts, language: .norwegian)
+        #expect(applied.map(\.name) == ["Fontana di Trevi (no)", "Pantheon (Roma)", "Fontana di Trevi", "Abbot Luigi"])
+        // The id, article title and summary language stay: only the shown name changes.
+        #expect(applied[0].id == "wiki:en/1" && applied[0].wikipediaTitle == "en:Trevi Fountain")
+        #expect([trevi].applying(facts).map(\.name) == ["Trevi Fountain"])
+        #expect([trevi].applying(facts, language: .english).map(\.name) == ["Trevi Fountain"])
+    }
+
 }
 
 /// Answers after 100 ms and counts the requests.

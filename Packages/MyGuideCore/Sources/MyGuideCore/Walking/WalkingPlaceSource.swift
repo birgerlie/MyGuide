@@ -35,7 +35,8 @@ public struct PlaceSearchResult: Sendable, Equatable {
 /// those that can buzz.
 public struct WalkingPlaceSource: Sendable {
     public static let radius = 500
-    public static let wikiLimit = 50
+    /// Articles per language per fetch (spec 20.2.4; the geosearch allows 500).
+    public static let wikiLimit = 100
     /// How long OpenStreetMap may still take once Wikipedia and the facts are in (spec 19.5).
     public static let osmGrace: Duration = .seconds(5)
 
@@ -92,7 +93,7 @@ public struct WalkingPlaceSource: Sendable {
                                                  limit: Self.wikiLimit)
                 }
                 guard case .success(let articles) = wiki, let facts else { return .wiki(wiki, nil) }
-                return .wiki(wiki, try await facts.answer(for: PlaceFactsLookup.ids(of: articles)))
+                return .wiki(wiki, try await facts.answer(for: PlaceFactsLookup.ids(of: articles), language: language))
             }
             // Nil OSM result after the loop: the grace ran out.
             var osm: Result<[Candidate], Error>?
@@ -148,12 +149,12 @@ public struct WalkingPlaceSource: Sendable {
         var answer = wikiAnswer ?? WikidataClient.Answer()
         if let facts, answer.failedBatches == 0 {
             let missing = PlaceFactsLookup.ids(of: merged).filter { !answer.answered.contains($0) }
-            let more = try await facts.answer(for: missing)
+            let more = try await facts.answer(for: missing, language: language)
             answer.facts.merge(more.facts) { first, _ in first }
             answer.answered.formUnion(more.answered)
             answer.failedBatches += more.failedBatches
         }
-        let enriched = PlaceFactsEnrichment(merged, facts: answer.facts)
+        let enriched = PlaceFactsEnrichment(merged, facts: answer.facts, language: language)
         result.candidates = enriched.candidates
         result.factsCount = enriched.factsCount
         result.dropped = enriched.dropped

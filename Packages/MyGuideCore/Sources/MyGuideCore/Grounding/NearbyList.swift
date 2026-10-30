@@ -154,9 +154,9 @@ public struct NearbyList: Sendable, Equatable, Codable {
     public func withFacts(from facts: PlaceFactsLookup, within timeout: Duration) async -> NearbyList {
         let ids = PlaceFactsLookup.ids(of: candidates)
         guard !ids.isEmpty,
-              let answer = await Deadline.value(within: timeout, { try? await facts.answer(for: ids) }),
+              let answer = await Deadline.value(within: timeout, { try? await facts.answer(for: ids, language: language) }),
               !answer.facts.isEmpty else { return self }
-        let enriched = PlaceFactsEnrichment(candidates, facts: answer.facts)
+        let enriched = PlaceFactsEnrichment(candidates, facts: answer.facts, language: language)
         var copy = self
         copy.candidates = enriched.candidates
         copy.factsCount = enriched.factsCount

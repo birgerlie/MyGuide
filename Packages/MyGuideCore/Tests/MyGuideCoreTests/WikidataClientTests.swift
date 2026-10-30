@@ -3,18 +3,22 @@ import Foundation
 @testable import MyGuideCore
 
 @Suite struct WikidataClientTests {
-    /// `street`: street Q79007; `settlement`: human settlement Q486972; `area`: neighbourhood Q123705 or
-    /// administrative territorial entity Q56061; `art`: work of art Q838948.
-    static func row(_ q: String, n: Int, street: Bool = false, settlement: Bool = false, area: Bool = false,
-                    place: Bool = false, art: Bool = false, nonplace: Bool = false) -> String {
+    /// `never`: metro station Q928830 or treaty Q131569; `street`: street Q79007 or road Q34442; `settlement`: human
+    /// settlement Q486972; `area`: neighbourhood Q123705 or administrative territorial entity Q56061; `natural`: hill
+    /// Q54050 or island Q23442; `art`: work of art Q838948; `title`: the story-language sitelink title.
+    static func row(_ q: String, n: Int, title: String? = nil, never: Bool = false, street: Bool = false,
+                    settlement: Bool = false, area: Bool = false, place: Bool = false, natural: Bool = false,
+                    art: Bool = false, nonplace: Bool = false) -> String {
         func b(_ v: Bool) -> String { #"{"type":"literal","datatype":"http://www.w3.org/2001/XMLSchema#boolean","value":"\#(v)"}"# }
+        let titleField = title.map { #""title":{"type":"literal","xml:lang":"nb","value":"\#($0)"},"# } ?? ""
         return #"{"item":{"type":"uri","value":"http://www.wikidata.org/entity/\#(q)"},"#
             + #""n":{"type":"literal","datatype":"http://www.w3.org/2001/XMLSchema#integer","value":"\#(n)"},"#
-            + #""street":\#(b(street)),"settlement":\#(b(settlement)),"area":\#(b(area)),"place":\#(b(place)),"#
-            + #""art":\#(b(art)),"nonplace":\#(b(nonplace))}"#
+            + titleField
+            + #""never":\#(b(never)),"street":\#(b(street)),"settlement":\#(b(settlement)),"area":\#(b(area)),"#
+            + #""place":\#(b(place)),"natural":\#(b(natural)),"art":\#(b(art)),"nonplace":\#(b(nonplace))}"#
     }
     static func body(_ rows: [String]) -> Data {
-        Data(#"{"head":{"vars":["item","n","street","settlement","area","place","art","nonplace"]},"results":{"bindings":[\#(rows.joined(separator: ","))]}}"#.utf8)
+        Data(#"{"head":{"vars":["item","n","title","never","street","settlement","area","place","natural","art","nonplace"]},"results":{"bindings":[\#(rows.joined(separator: ","))]}}"#.utf8)
     }
     /// The decoded SPARQL of a recorded request.
     static func sparql(_ request: URLRequest) -> String {
@@ -35,7 +39,8 @@ import Foundation
     @Test func queryContainsEveryClassAndOnlyValidIds() {
         let q = WikidataClient.query(ids: ["Q42", "bad", "Q", "Q1x", "q5", "Q7; DROP", "Q8"])
         for c in ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q838948", "Q483453", "Q54050", "Q23442",
-                  "Q79007", "Q486972", "Q123705", "Q56061", "Q43229", "Q5", "Q1656682", "Q16334295"] {
+                  "Q79007", "Q34442", "Q486972", "Q123705", "Q56061", "Q43229", "Q5", "Q1656682", "Q16334295",
+                  "Q928830", "Q131569"] {
             #expect(q.contains("wd:\(c)"), "missing \(c)")
         }
         #expect(q.contains("VALUES ?item { wd:Q42 wd:Q8 }"))
@@ -68,7 +73,7 @@ import Foundation
         #expect(f == [
             "Q36380": PlaceFacts(sitelinks: 119, placeClass: .nonPlace),
             "Q719794": PlaceFacts(sitelinks: 40, placeClass: .place),
-            "Q4010851": PlaceFacts(sitelinks: 7, placeClass: .area),
+            "Q4010851": PlaceFacts(sitelinks: 7, placeClass: .street),
             "Q242839": PlaceFacts(sitelinks: 44, placeClass: .unknown),
         ])
     }
@@ -79,7 +84,7 @@ import Foundation
             Self.row("Q2", n: 1, street: true, place: true),
             Self.row("Q3", n: 1, street: true),
         ]))
-        #expect(f["Q1"]?.placeClass == .area && f["Q2"]?.placeClass == .area && f["Q3"]?.placeClass == .area)
+        #expect(f["Q1"]?.placeClass == .street && f["Q2"]?.placeClass == .street && f["Q3"]?.placeClass == .street)
     }
 
     @Test func placeWinsOverNeighbourhoodAndAdministrativeArea() throws {
@@ -113,15 +118,16 @@ import Foundation
         #expect(f["Q102"] == PlaceFacts(sitelinks: 63, placeClass: .place))
         #expect(f["Q103"] == PlaceFacts(sitelinks: 48, placeClass: .place))
         #expect(f["Q104"] == PlaceFacts(sitelinks: 18, placeClass: .place))
-        #expect(f["Q105"] == PlaceFacts(sitelinks: 30, placeClass: .area))
+        #expect(f["Q105"] == PlaceFacts(sitelinks: 30, placeClass: .street))
     }
 
     @Test func queryHasSeparateStreetAndAreaFlags() {
         let q = WikidataClient.query(ids: ["Q1"])
-        #expect(q.contains("SELECT ?item ?n ?street ?settlement ?area ?place ?art ?nonplace WHERE"))
+        #expect(q.contains("SELECT ?item ?n ?never ?street ?settlement ?area ?place ?natural ?art ?nonplace WHERE"))
         let street = q.split(separator: "\n").first { $0.contains("AS ?street)") }.map(String.init) ?? ""
         let area = q.split(separator: "\n").first { $0.contains("AS ?area)") }.map(String.init) ?? ""
-        #expect(street.contains("wd:Q79007") && !street.contains("wd:Q123705") && !street.contains("wd:Q56061"))
+        #expect(street.contains("wd:Q79007") && street.contains("wd:Q34442") && !street.contains("wd:Q123705")
+                && !street.contains("wd:Q56061"))
         #expect(area.contains("wd:Q123705") && area.contains("wd:Q56061") && !area.contains("wd:Q79007"))
     }
 
@@ -131,12 +137,19 @@ import Foundation
     static func flagLine(_ name: String) -> String {
         WikidataClient.query(ids: ["Q1"]).split(separator: "\n").first { $0.contains("AS ?\(name))") }.map(String.init) ?? ""
     }
-    @Test func hillAndIslandAreInThePlaceFlagAndArtHasItsOwn() {
+    @Test func hillAndIslandHaveTheirOwnFlagAndSoDoesArt() {
         let place = Self.flagLine("place"), art = Self.flagLine("art"), settlement = Self.flagLine("settlement")
-        for c in ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q483453", "Q54050", "Q23442"] {
-            #expect(place.contains("wd:\(c) ") || place.contains("wd:\(c)}"), "place misses \(c)")
+        for c in ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q483453"] {
+            #expect(place.contains("wd:\(c) "), "place misses \(c)")
         }
-        #expect(!place.contains("wd:Q838948"))
+        #expect(!place.contains("wd:Q838948") && !place.contains("wd:Q54050") && !place.contains("wd:Q23442"))
+        let natural = Self.flagLine("natural")
+        #expect(natural.contains("wd:Q54050 ") && natural.contains("wd:Q23442 ")
+                && natural.components(separatedBy: "wd:Q").count - 1 == 2)
+        let never = Self.flagLine("never")
+        #expect(never.contains("wd:Q928830 ") && never.contains("wd:Q131569 ")
+                && never.components(separatedBy: "wd:Q").count - 1 == 2)
+        #expect(!Self.flagLine("nonplace").contains("wd:Q928830"))
         #expect(art.contains("wd:Q838948") && art.components(separatedBy: "wd:Q").count - 1 == 1)
         #expect(settlement.contains("wd:Q486972") && settlement.components(separatedBy: "wd:Q").count - 1 == 1)
         #expect(!Self.flagLine("area").contains("wd:Q486972"))
@@ -149,7 +162,7 @@ import Foundation
             Self.row("Q4", n: 5, settlement: true, place: true),
         ]))
         #expect(f["Q1"]?.placeClass == .settlement && f["Q2"]?.placeClass == .settlement)
-        #expect(f["Q3"]?.placeClass == .area && f["Q4"]?.placeClass == .place)
+        #expect(f["Q3"]?.placeClass == .street && f["Q4"]?.placeClass == .place)
     }
     @Test func workOfArtIsAPlaceUnlessAlsoAnOrganisation() throws {
         // The Sovereign Military Order of Malta reaches work of art through religious military order → order of
@@ -178,16 +191,16 @@ import Foundation
         let f = try WikidataClient.parse(Self.body([
             Self.row("Q190353", n: 83, art: true, nonplace: true),            // Sovereign Military Order of Malta
             Self.row("Q719794", n: 40, place: true, nonplace: true),          // Il Gesù
-            Self.row("Q34925", n: 68, place: true),                           // Capitoline Hill (hill)
-            Self.row("Q545404", n: 35, place: true),                          // Tiber Island (island)
+            Self.row("Q34925", n: 68, natural: true),                         // Capitoline Hill (hill)
+            Self.row("Q545404", n: 35, natural: true),                        // Tiber Island (island)
             Self.row("Q242839", n: 44),                                       // Campus Martius: P31 terrain only
             Self.row("Q220", n: 344, settlement: true, area: true, nonplace: true), // Rome
             Self.row("Q1329671", n: 21, settlement: true, area: true),        // Pigna (rione)
         ]))
         #expect(f["Q190353"] == PlaceFacts(sitelinks: 83, placeClass: .nonPlace))
         #expect(f["Q719794"] == PlaceFacts(sitelinks: 40, placeClass: .place))
-        #expect(f["Q34925"] == PlaceFacts(sitelinks: 68, placeClass: .place))
-        #expect(f["Q545404"] == PlaceFacts(sitelinks: 35, placeClass: .place))
+        #expect(f["Q34925"] == PlaceFacts(sitelinks: 68, placeClass: .natural))
+        #expect(f["Q545404"] == PlaceFacts(sitelinks: 35, placeClass: .natural))
         #expect(f["Q242839"] == PlaceFacts(sitelinks: 44, placeClass: .unknown))
         #expect(f["Q220"] == PlaceFacts(sitelinks: 344, placeClass: .settlement))
         #expect(f["Q1329671"] == PlaceFacts(sitelinks: 21, placeClass: .settlement))
@@ -210,15 +223,15 @@ import Foundation
         #expect(http.requests.map(Self.idCount).sorted() == [20, 50, 50])
     }
 
-    @Test func twoHundredFiftyIdsAreCappedAtFourBatches() async throws {
+    @Test func threeHundredFiftyIdsAreCappedAtSixBatches() async throws {
         let http = StubHTTPClient { _ in (200, Self.body([])) }
-        _ = try await WikidataClient(http: http).facts(for: Self.ids(250))
-        // 4 batches × 50 = 200 ids; the last 50 are left out.
-        #expect(http.requests.map(Self.idCount) == [50, 50, 50, 50])
+        _ = try await WikidataClient(http: http).facts(for: Self.ids(350))
+        // 6 batches × 50 = 300 ids (spec 20.2.4: walking takes 6); the last 50 are left out.
+        #expect(http.requests.map(Self.idCount) == [50, 50, 50, 50, 50, 50])
         let asked = Set(http.requests.flatMap { Self.sparql($0).components(separatedBy: "VALUES ?item {")[1]
             .components(separatedBy: "}")[0].split(separator: " ").filter { $0.hasPrefix("wd:") } })
-        #expect(asked.count == 200)
-        #expect(asked.contains("wd:Q200") && !asked.contains("wd:Q201"))
+        #expect(asked.count == 300)
+        #expect(asked.contains("wd:Q300") && !asked.contains("wd:Q301"))
     }
 
     @Test func toursTakeEightBatchesFourAtATime() async throws {
@@ -234,19 +247,23 @@ import Foundation
         #expect(http.peak == WikidataClient.maxConcurrentBatches && WikidataClient.maxConcurrentBatches == 4)
     }
 
-    @Test func defaultCapStaysFourBatches() async throws {
-        let http = StubHTTPClient { _ in (200, Self.body([])) }
+    @Test func defaultCapIsSixBatchesFourAtATime() async throws {
+        let http = GaugedHTTP()
         _ = try await WikidataClient(http: http).lookup(ids: Self.ids(450))
-        // 4 × 50 = 200 ids.
-        #expect(http.requests.count == 4 && http.requests.flatMap(Self.askedIds).count == 200)
+        // 6 × 50 = 300 ids, never more than 4 requests at once.
+        #expect(WikidataClient.maxBatches == 6)
+        #expect(http.requests.count == 6 && http.requests.flatMap(Self.askedIds).count == 300 && http.peak == 4)
     }
 
     @Test func failedBatchInALaterWindowIsCounted() async throws {
         // 300 ids, cap 8 → 6 batches; the 6th (Q251...Q300) starts only after one of the first 4 is done, and fails.
+        // Its retry: Q251...Q275 fails again, Q276...Q300 answers → 6 + 2 = 8 requests, 1 failed batch,
+        // 250 + 25 = 275 ids answered.
         let http = GaugedHTTP { r in Self.askedIds(r).contains("Q251") ? 500 : 200 }
         let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(300), maxBatches: 8)
-        #expect(http.requests.count == 6 && http.peak <= 4)
-        #expect(answer.failedBatches == 1 && answer.answered == Set(Self.ids(250)))
+        #expect(http.requests.count == 8 && http.peak <= 4)
+        #expect(answer.failedBatches == 1)
+        #expect(answer.answered == Set(Self.ids(250) + (276...300).map { "Q\($0)" }))
     }
 
     @Test func duplicatesAndInvalidIdsDoNotCountTowardBatches() async throws {
@@ -268,8 +285,9 @@ import Foundation
         let f = try await WikidataClient(http: http).facts(for: Self.ids(60))
         #expect(f == ["Q51": PlaceFacts(sitelinks: 5, placeClass: .place)])
         let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(60))
-        // Only the 10 ids of the successful batch are answered; one batch failed.
-        #expect(answer.answered == Set(Self.ids(60).suffix(10)) && answer.failedBatches == 1)
+        // The failed batch Q1...Q50 is retried as Q1...Q25 (fails again: it holds Q1) and Q26...Q50 (answers):
+        // 25 + 10 = 35 ids answered, one batch failed.
+        #expect(answer.answered == Set(Self.ids(60).suffix(35)) && answer.failedBatches == 1)
     }
 
     @Test func answeredIdsWithoutRowAreReported() async throws {
@@ -303,6 +321,92 @@ import Foundation
     @Test func cancellationPropagates() async {
         let http = StubHTTPClient { _ in throw CancellationError() }
         await #expect(throws: CancellationError.self) { try await WikidataClient(http: http).facts(for: ["Q1"]) }
+    }
+
+    // MARK: - Spec 20.2.7: a failed batch is retried once as two halves
+
+    @Test func halvesSplitWithTheLargerHalfFirst() {
+        #expect(WikidataClient.halves(Self.ids(50)).map(\.count) == [25, 25])
+        #expect(WikidataClient.halves(Self.ids(3)) == [["Q1", "Q2"], ["Q3"]])
+        #expect(WikidataClient.halves(["Q1"]) == [["Q1"]])
+        #expect(WikidataClient.halves([]).isEmpty)
+    }
+    @Test func aFailedBatchIsRetriedAsTwoHalvesThatSucceed() async throws {
+        // The first request for the 50 ids times out; both halves (25 + 25) answer → nothing failed, all answered.
+        let calls = LockedBox(0)
+        let http = StubHTTPClient { r in
+            let n = calls.withValue { $0 += 1; return $0 }
+            if n == 1 { throw URLError(.timedOut) }
+            return (200, Self.body(Self.askedIds(r).map { Self.row($0, n: 1, place: true) }))
+        }
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(50))
+        #expect(http.requests.map(Self.idCount) == [50, 25, 25])
+        #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(50)) && answer.facts.count == 50)
+        // Every retried half keeps the 8 s timeout.
+        #expect(http.requests.allSatisfy { $0.timeoutInterval == 8 })
+    }
+    @Test func aBatchIsRetriedOnlyOnce() async throws {
+        // Always failing: 1 request + 2 halves, no further splitting; one failed batch.
+        let http = StubHTTPClient { _ in (500, Data()) }
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(50))
+        #expect(http.requests.count == 3 && answer.failedBatches == 1 && answer.answered.isEmpty)
+    }
+    @Test func retriedHalvesShareTheFourRequestWindow() async throws {
+        // 4 batches all fail once: 4 first requests, then 8 halves, never more than 4 in flight.
+        let http = GaugedHTTP { r in Self.askedIds(r).count == 50 ? 500 : 200 }
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(200))
+        #expect(http.requests.count == 4 + 8 && http.peak == 4)
+        #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(200)))
+    }
+    @Test func cancellationIsNotRetried() async {
+        let http = StubHTTPClient { _ in throw URLError(.cancelled) }
+        await #expect(throws: CancellationError.self) { try await WikidataClient(http: http).facts(for: ["Q1"]) }
+        #expect(http.requests.count == 1)
+    }
+
+    // MARK: - Spec 20.2.6: story-language titles, roads, metro stations and treaties
+
+    @Test func titleIsAskedForInTheStoryLanguageOnly() {
+        let norwegian = WikidataClient.query(ids: ["Q1"], titleCode: WikidataClient.titleCode(.norwegian))
+        #expect(norwegian.contains("SELECT ?item ?n ?title ?never"))
+        #expect(norwegian.contains("OPTIONAL { ?article schema:about ?item ; schema:isPartOf <https://no.wikipedia.org/> ; schema:name ?title . }"))
+        // English (the English candidates carry their titles) and no language: no title, no OPTIONAL.
+        #expect(WikidataClient.titleCode(.english) == nil && WikidataClient.titleCode(nil) == nil)
+        let plain = WikidataClient.query(ids: ["Q1"])
+        #expect(!plain.contains("?title") && !plain.contains("OPTIONAL"))
+        // Anything but lowercase ASCII letters is ignored.
+        for bad in ["n o", "no>", "NO", "", "nö"] {
+            #expect(!WikidataClient.query(ids: ["Q1"], titleCode: bad).contains("OPTIONAL"), "accepted \(bad)")
+        }
+    }
+    @Test func lookupInNorwegianSendsTheTitleQuery() async throws {
+        let http = StubHTTPClient { _ in (200, Self.body([Self.row("Q186579", n: 68, title: "Fontana di Trevi", place: true)])) }
+        let answer = try await WikidataClient(http: http).lookup(ids: ["Q186579"], language: .norwegian)
+        #expect(Self.sparql(http.requests[0]) == WikidataClient.query(ids: ["Q186579"], titleCode: "no"))
+        #expect(answer.facts["Q186579"] == PlaceFacts(sitelinks: 68, placeClass: .place, localTitle: "Fontana di Trevi"))
+    }
+    @Test func blankTitleIsNoTitle() throws {
+        let f = try WikidataClient.parse(Self.body([Self.row("Q1", n: 1, title: "  ", place: true),
+                                                    Self.row("Q2", n: 1, place: true)]))
+        #expect(f["Q1"]?.localTitle == nil && f["Q2"]?.localTitle == nil)
+    }
+    @Test func metroStationAndTreatyAreNonPlacesBeforeAnything() throws {
+        // Venezia (Rome Metro) is a structure; Roma-vedtektene is a treaty.
+        let f = try WikidataClient.parse(Self.body([
+            Self.row("Q1", n: 12, never: true, street: true, place: true),
+            Self.row("Q2", n: 59, never: true),
+        ]))
+        #expect(f["Q1"]?.placeClass == .nonPlace && f["Q2"]?.placeClass == .nonPlace)
+    }
+    @Test func naturalComesAfterPlaceAndBeforeSettlement() throws {
+        let f = try WikidataClient.parse(Self.body([
+            Self.row("Q1", n: 68, natural: true),
+            Self.row("Q2", n: 9, place: true, natural: true),          // a fort on an island
+            Self.row("Q3", n: 9, settlement: true, natural: true),     // an inhabited island
+            Self.row("Q4", n: 9, street: true, natural: true),
+        ]))
+        #expect(f["Q1"]?.placeClass == .natural && f["Q2"]?.placeClass == .place)
+        #expect(f["Q3"]?.placeClass == .natural && f["Q4"]?.placeClass == .street)
     }
 }
 

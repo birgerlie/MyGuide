@@ -141,8 +141,8 @@ public struct TourPlaceSource: Sendable {
         if let facts {
             // A tour area holds far more articles than a walk's list: up to 8 batches (400 ids), 4 at a time.
             let answer = try await facts.answer(for: PlaceFactsLookup.ids(of: candidates),
-                                                maxBatches: WikidataClient.tourMaxBatches)
-            candidates = candidates.applying(answer.facts)
+                                                maxBatches: WikidataClient.tourMaxBatches, language: language)
+            candidates = candidates.applying(answer.facts, language: language)
         }
         result.places = candidates.compactMap { candidate in
             PlaceTiers.tier(for: candidate).map { WalkingPlace(candidate: candidate, tier: $0) }

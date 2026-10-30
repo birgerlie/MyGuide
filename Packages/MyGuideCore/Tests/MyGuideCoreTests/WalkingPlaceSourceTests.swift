@@ -109,7 +109,8 @@ import Testing
         let body = String(decoding: overpass?.httpBody ?? Data(), as: UTF8.self).removingPercentEncoding ?? ""
         #expect(body.contains("around:500,"))
         let url = wiki?.url?.absoluteString ?? ""
-        #expect(url.contains("ggsradius=500") && url.contains("ggslimit=50"))
+        // 100 articles per language (spec 20.2.4).
+        #expect(url.contains("ggsradius=500") && url.contains("ggslimit=100&"))
     }
 
     @Test func cancelledURLErrorFromEitherSourceBecomesCancellation() async {
@@ -463,21 +464,63 @@ import Testing
         #expect(enriched.factsCount == 2)
     }
     @Test func settlementsAndSmallAreasAreListedAsDropped() {
-        // Spec 20.6: Rome (settlement) and a 19-sitelink area are dropped and listed; a 20-sitelink area stays
-        // (Wiki-only), and an OSM-tagged settlement is the tags' business.
+        // Spec 20.6, 20.2.6: Rome (settlement), the Province of Rome (area, 68) and a 19-sitelink street are dropped
+        // and listed; a 20-sitelink street stays (Wiki-only), and an OSM-tagged settlement is the tags' business.
         let rome = Candidate(id: "wiki:no/1", name: "Roma", coordinate: here, kind: "wikipedia", wikidata: "Q220")
-        let small = Candidate(id: "wiki:no/2", name: "Small gate", coordinate: here, kind: "wikipedia", wikidata: "Q2")
+        let small = Candidate(id: "wiki:no/2", name: "Small lane", coordinate: here, kind: "wikipedia", wikidata: "Q2")
         let big = Candidate(id: "wiki:no/3", name: "Via del Corso", coordinate: here, kind: "wikipedia", wikidata: "Q3")
         let tagged = Candidate(id: "osm:node/4", name: "Borgo", coordinate: here, kind: "x", wikidata: "Q4",
                                tags: ["place": "suburb"])
-        let enriched = PlaceFactsEnrichment([rome, small, big, tagged], facts: [
+        let province = Candidate(id: "wiki:no/5", name: "Roma provins", coordinate: here, kind: "wikipedia",
+                                 wikidata: "Q5")
+        let enriched = PlaceFactsEnrichment([rome, small, big, tagged, province], facts: [
             "Q220": PlaceFacts(sitelinks: 344, placeClass: .settlement),
-            "Q2": PlaceFacts(sitelinks: 19, placeClass: .area),
-            "Q3": PlaceFacts(sitelinks: 20, placeClass: .area),
+            "Q2": PlaceFacts(sitelinks: 19, placeClass: .street),
+            "Q3": PlaceFacts(sitelinks: 20, placeClass: .street),
             "Q4": PlaceFacts(sitelinks: 21, placeClass: .settlement),
+            "Q5": PlaceFacts(sitelinks: 68, placeClass: .area),
         ])
-        #expect(enriched.dropped == ["Roma", "Small gate"])
-        #expect(enriched.factsCount == 4)
+        #expect(enriched.dropped == ["Roma", "Small lane", "Roma provins"])
+        #expect(enriched.factsCount == 5)
+    }
+    @Test func factsAreAskedInTheStoryLanguageAndRenameEnglishArticles() async throws {
+        // A Norwegian walk: both lookups are told Norwegian; the English page of Q9 takes its Norwegian title.
+        let languages = LockedBox<[StoryLanguage?]>([])
+        let lookup = PlaceFactsLookup(full: { ids, _, language in
+            languages.withValue { $0.append(language) }
+            return WikidataClient.Answer(facts: ["Q9": PlaceFacts(sitelinks: 68, placeClass: .place,
+                                                                  localTitle: "Fontana di Trevi")],
+                                         answered: Set(ids))
+        })
+        let http = StubHTTPClient { r in
+            if Self.isOverpass(r) { return (200, Data(Self.osmWithIdBody.utf8)) }
+            let body = r.url?.host == "en.wikipedia.org"
+                ? #"{"query":{"pages":[{"pageid":9,"title":"Trevi Fountain","coordinates":[{"lat":48.2084,"lon":16.3731}],"pageprops":{"wikibase_item":"Q9"}}]}}"#
+                : #"{"query":{"pages":[]}}"#
+            return (200, Data(body.utf8))
+        }
+        let result = try await source(http, facts: lookup).candidates(around: here, language: .norwegian)
+        #expect(result.candidates.contains { $0.id == "wiki:en/9" && $0.name == "Fontana di Trevi" })
+        #expect(languages.value.count == 2 && languages.value.allSatisfy { $0 == .norwegian })
+    }
+    @Test func walkingAsksForSixBatchesWithWikipediaOnlyIdsFirst() async throws {
+        // The walking lookup uses the default cap (6 batches, spec 20.2.4); its first call holds only Wikipedia ids.
+        let caps = LockedBox<[Int]>([])
+        let calls = LockedBox<[[String]]>([])
+        let lookup = PlaceFactsLookup(capped: { ids, maxBatches in
+            caps.withValue { $0.append(maxBatches) }
+            calls.withValue { $0.append(ids) }
+            return WikidataClient.Answer(answered: Set(ids))
+        })
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        _ = try await source(http, facts: lookup).candidates(around: here, language: .english)
+        #expect(caps.value == [6, 6])
+        #expect(calls.value == [["Q1", "Q2", "Q3"], ["Q20"]])
+        // Mixed lists: untagged ids before tagged ones.
+        let tagged = Candidate(id: "osm:node/1", name: "T", coordinate: here, kind: "x", wikidata: "Q100",
+                               tags: ["historic": "castle"])
+        let wiki = Candidate(id: "wiki:no/2", name: "W", coordinate: here, kind: "wikipedia", wikidata: "Q200")
+        #expect(PlaceFactsLookup.ids(of: [tagged, wiki]) == ["Q200", "Q100"])
     }
     @Test func cancellationFromTheFactsLookupPropagates() async {
         let cancelled = PlaceFactsLookup { _ in throw CancellationError() }

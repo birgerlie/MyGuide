@@ -143,17 +143,24 @@ import Testing
     }
     @Test func wikipediaOnlyTierFromFacts() {
         #expect(PlaceTiers.tier(for: Self.wiki(.nonPlace, sitelinks: 119)) == nil)
-        // The threshold is 30 sitelinks inclusive: 30 is top, 29 is good.
+        // 30 sitelinks inclusive: top; 29 good; 10 inclusive good, 9 Wiki-only (spec 20.2.1).
         #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 30)) == .top)
         #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 29)) == .good)
-        #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 0)) == .good)
-        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 100)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 10)) == .good)
+        #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 9)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: 0)) == .wikiOnly)
+        #expect(PlaceTiers.goodSitelinks == 10)
+        // A non-street area is dropped whatever its sitelinks (spec 20.2.6).
+        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 100)) == nil)
+        // Unknown: Wiki-only from 20 sitelinks, dropped below (spec 20.2.6).
         #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 44)) == .wikiOnly)
-        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 0)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 20)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 19)) == nil)
+        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 0)) == nil)
         // No facts: today's rule (an article without tags is Wiki-only).
         #expect(PlaceTiers.tier(for: Self.wiki(nil)) == .wikiOnly)
         // A class without a sitelink count (never written by the cache) counts as 0 sitelinks.
-        #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: nil)) == .good)
+        #expect(PlaceTiers.tier(for: Self.wiki(.place, sitelinks: nil)) == .wikiOnly)
         #expect(PlaceTiers.topSitelinks == 30)
     }
     @Test func emptyTagsCountAsNoTags() {
@@ -193,11 +200,15 @@ import Testing
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, tags: ["historic": "yes"])))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.place, sitelinks: 5)))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(nil)))
-        // Spec 20.6: settlements and small areas are dropped too; a big area and an unknown item are not.
+        // Spec 20.6, 20.2.6: settlements and other areas are dropped; streets and unknown items below 20 sitelinks
+        // too; a 20-sitelink street or unknown item is not.
         #expect(PlaceTiers.isDroppedByClass(Self.wiki(.settlement, sitelinks: 344)))
-        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.area, sitelinks: 19)))
-        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.area, sitelinks: 20)))
-        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.unknown, sitelinks: 0)))
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.area, sitelinks: 68)))
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.street, sitelinks: 19)))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.street, sitelinks: 20)))
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.unknown, sitelinks: 19)))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.unknown, sitelinks: 20)))
+        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.natural, sitelinks: 1)))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.settlement, sitelinks: 344, tags: ["place": "city"])))
         // A blank name is dropped by the name rule, not by its class.
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, name: " ")))
@@ -205,13 +216,14 @@ import Testing
 
     // MARK: - Spec 20.6: areas and settlements without tags
 
-    @Test func wikipediaOnlyAreaNeedsTwentySitelinksAndSettlementsAreDropped() {
-        // An area is Wiki-only from 20 sitelinks inclusive (Via del Corso, 30), dropped below (19); a settlement
-        // (Rome 344, the rione Pigna 21) is dropped whatever its sitelinks.
-        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 30)) == .wikiOnly)
-        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 20)) == .wikiOnly)
-        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 19)) == nil)
-        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: nil)) == nil)
+    @Test func wikipediaOnlyStreetNeedsTwentySitelinksAndAreasAreDropped() {
+        // A street is Wiki-only from 20 sitelinks inclusive (Via del Corso, 30), dropped below (19); a settlement
+        // (Rome 344, the rione Pigna 21) or another area (Province of Rome 68) is dropped whatever its sitelinks.
+        #expect(PlaceTiers.tier(for: Self.wiki(.street, sitelinks: 30)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.street, sitelinks: 20)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.wiki(.street, sitelinks: 19)) == nil)
+        #expect(PlaceTiers.tier(for: Self.wiki(.street, sitelinks: nil)) == nil)
+        #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 68)) == nil)
         #expect(PlaceTiers.tier(for: Self.wiki(.settlement, sitelinks: 344)) == nil)
         #expect(PlaceTiers.tier(for: Self.wiki(.settlement, sitelinks: 21)) == nil)
         #expect(PlaceTiers.areaSitelinks == 20)
@@ -265,5 +277,20 @@ import Testing
         #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], .place, sitelinks: 2)) == .good)
         #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wiki: "it:X", wikidata: nil)) == .top)
         #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial"], wikidata: nil)) == .wikiOnly)
+    }
+
+    // MARK: - Spec 20.2.2: hills and islands are at most good
+
+    @Test func naturalPlacesAreAtMostGood() {
+        // Capitoline Hill (68 sitelinks) and Tiber Island (35) are good, not top; one with 9 sitelinks Wiki-only.
+        #expect(PlaceTiers.tier(for: Self.wiki(.natural, sitelinks: 68)) == .good)
+        #expect(PlaceTiers.tier(for: Self.wiki(.natural, sitelinks: 10)) == .good)
+        #expect(PlaceTiers.tier(for: Self.wiki(.natural, sitelinks: 9)) == .wikiOnly)
+        // With OSM tags that would make it top (historic=monument with an article), the item caps it at good; a
+        // lower tag tier is kept.
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "monument"], wiki: "it:Campidoglio", .natural, sitelinks: 68))
+                == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["place": "square"], wiki: "it:X", .natural, sitelinks: 68)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "bank"], wiki: "it:X", .natural, sitelinks: 68)) == nil)
     }
 }
