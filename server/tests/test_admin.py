@@ -3,16 +3,18 @@ from __future__ import annotations
 
 import hashlib
 import io
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 import pytest
 from starlette.testclient import TestClient
 
 from myguide import admin, db, ledger, retention
 from myguide.app import create_app
 from myguide.config import parse_settings
-from myguide.state import State
+from myguide.state import State, upstream_client
 from tests.attest_fixtures import NOW
 from tests.conftest import env_dict, write_env
 
@@ -174,15 +176,57 @@ def test_unknown_device_exits_1_with_a_message(adm, args):
 
 def test_block_makes_the_proxy_answer_403_and_unblock_undoes_it(adm, test_root):
     adm.device()
-    st = State(settings(), adm.db, root=test_root, clock=lambda: NOW)
+    seen = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"id": "r", "usage": {"input_tokens": 10, "output_tokens": 5}})
+
+    st = State(settings(), adm.db, root=test_root, clock=lambda: NOW,
+               upstream=upstream_client(httpx.MockTransport(upstream)))
     with TestClient(create_app(st), client=("127.0.0.1", 50000)) as c:
         h = {"Authorization": f"Bearer {TOKEN}"}
         body = {"model": "gpt-5-mini", "input": "x"}
         assert adm.run("block", "1") == (0, "device 1 blocked\n")
         r = c.post("/v1/responses", headers=h, json=body)
         assert r.status_code == 403 and r.json()["error"]["code"] == "blocked"
+        assert seen == []
         assert adm.run("unblock", "1") == (0, "device 1 unblocked\n")
-        assert c.post("/v1/responses", headers=h, json=body).status_code != 403
+        r = c.post("/v1/responses", headers=h, json=body)
+        assert r.status_code == 200 and len(seen) == 1
+        assert "story=" in r.headers["X-MyGuide-Free-Left"] and r.headers["X-MyGuide-Credits"] == "0"
+
+
+def test_missing_database_exits_1_and_is_not_created(adm, tmp_path):
+    adm.db = tmp_path / "nowhere" / "absent.db"
+    for args in (("today",), ("balance", "1"), ("grant", "1", "3", "x")):
+        code, out = adm.run(*args)
+        assert code == 1 and str(adm.db) in out
+    assert not adm.db.exists() and not adm.db.parent.exists()
+
+
+@pytest.mark.parametrize("args", [("grant", "1", "99999999999999999999", "x"), ("balance", "99999999999999999999"),
+                                  ("block", "9223372036854775808")])
+def test_numbers_beyond_sqlite_integer_exit_2(adm, args):
+    adm.device()
+    code, out = adm.run(*args)
+    assert code == 2 and out.startswith("usage:")
+    assert adm.run("balance", "1") == (0, "0\n")
+
+
+def test_largest_sqlite_integer_is_accepted_as_an_id(adm):
+    code, out = adm.run("balance", str(2**63 - 1))
+    assert code == 1 and "no device" in out
+
+
+def test_wrapper_script_is_valid_shell_and_reload_stays_root():
+    script = Path(__file__).parent.parent / "bin" / "myguide-admin"
+    assert subprocess.run(["bash", "-n", str(script)]).returncode == 0
+    text = script.read_text()
+    assert "runuser -u myguide --" in text and "reload" in text
+    lines = [l for l in text.splitlines() if "myguide.admin" in l]
+    assert len(lines) == 2
+    assert "runuser" not in next(l for l in lines if "runuser" not in l)  # the root branch (reload)
 
 
 def test_devices_orders_by_cost_and_shows_balance(adm):

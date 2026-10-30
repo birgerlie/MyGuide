@@ -1,2 +1,7 @@
 #!/bin/sh
-exec /opt/myguide/venv/bin/python -m myguide.admin --env /etc/myguide/env --db /srv/myguide/guide.db "$@"
+# Run as root. Every command but `reload` runs as the service user, so the SQLite -wal/-shm files it may
+# create stay writable by the service; `reload` needs systemctl, hence root.
+if [ "$1" = "reload" ]; then
+    exec /opt/myguide/venv/bin/python -m myguide.admin --env /etc/myguide/env --db /srv/myguide/guide.db "$@"
+fi
+exec runuser -u myguide -- /opt/myguide/venv/bin/python -m myguide.admin --env /etc/myguide/env --db /srv/myguide/guide.db "$@"

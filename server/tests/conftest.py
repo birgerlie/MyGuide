@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
 from starlette.testclient import TestClient
@@ -83,3 +84,25 @@ def state(make_state) -> State:
 def client(state):
     with TestClient(create_app(state), client=("127.0.0.1", 50000)) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    """Any send to a non-loopback host through a real httpx transport fails the test: upstream doubles use
+    httpx.MockTransport. Loopback stays open for the test that starts the service itself."""
+    def check(request) -> None:
+        if request.url.host not in ("127.0.0.1", "localhost", "::1"):
+            raise AssertionError(f"test tried to reach the network: {request.url}")
+
+    real_async, real_sync = httpx.AsyncHTTPTransport.handle_async_request, httpx.HTTPTransport.handle_request
+
+    async def guarded_async(self, request):
+        check(request)
+        return await real_async(self, request)
+
+    def guarded_sync(self, request):
+        check(request)
+        return real_sync(self, request)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", guarded_async)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", guarded_sync)

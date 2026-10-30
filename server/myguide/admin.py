@@ -32,6 +32,9 @@ USAGE = """usage: myguide-admin COMMAND
 """
 
 
+_SQLITE_MAX = 2**63 - 1  # larger integers do not fit a SQLite INTEGER
+
+
 class _Usage(Exception):
     pass
 
@@ -58,7 +61,7 @@ def _int(text: str, minimum: int = 1) -> int:
         n = int(text)
     except ValueError:
         raise _Usage from None
-    if n < minimum:
+    if n < minimum or n > _SQLITE_MAX:
         raise _Usage
     return n
 
@@ -150,6 +153,8 @@ def _run(argv: list[str], *, env_path: Path, db_path: Path, out: TextIO, now: da
         out.write("reload signalled\n")
         return
 
+    if not db_path.is_file():  # never create a database (and root-owned files beside it) from the admin
+        raise _Failure(f"database not found: {db_path}")
     conn = db.connect(db_path)
     try:
         if cmd == "today":
