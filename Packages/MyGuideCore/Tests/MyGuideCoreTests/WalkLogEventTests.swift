@@ -408,7 +408,7 @@ import Testing
         #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)
         #expect(QuietReason.tourStopHeld.rawValue == "tourStopHeld")
         // Additive: the cases written by earlier builds keep their raw values and order.
-        #expect(QuietReason.allCases.map(\.rawValue) == ["badAccuracy", "noneDue", "busy", "skipQuiet", "allExcluded",
-                                                          "budget", "tourCadence", "tourStopHeld"])
+        #expect(QuietReason.allCases.map(\.rawValue) == ["badAccuracy", "noneDue", "busy", "skipQuiet", "minGap",
+                                                          "allExcluded", "held", "budget", "tourCadence", "tourStopHeld"])
     }
 }

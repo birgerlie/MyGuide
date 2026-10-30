@@ -20,8 +20,9 @@ import Testing
         #expect(b?.usedOverride == false)
     }
     @Test func notDueBeyondSixtyMetres() {
+        // A good place: 60 m (a top place has 80 or 100 m, spec 20.2).
         var e = Self.engine()
-        let castle = Self.place("castle", .top, north: 70)
+        let castle = Self.place("castle", .good, north: 70)
         #expect(e.evaluate(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0) == nil)
         #expect(e.evaluate(places: [castle], position: .at(north: 15), accuracy: 5, course: 0, now: Self.t0 + 10)?.place == castle) // 55 m
     }
@@ -42,15 +43,17 @@ import Testing
         let plaque = Self.place("plaque", .wikiOnly, north: 10), museum = Self.place("museum", .good, north: 59)
         #expect(f.evaluate(places: [plaque, museum], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == museum)
     }
-    @Test func staysDueUntilDropRadius() {
+    @Test func staysTrackedUntilDropRadiusButBuzzesOnlyWithinItsDueRadius() {
         // Spend the budget on "a" at t0; "late" (55 m) is due but must wait. At t0+180 the walker has moved
-        // 55 m south (late is now 110 m behind) → it still buzzes, "110 m behind you" (course 180 = walking south).
+        // 55 m south: late is 110 m behind, still tracked (≤ 120 m) but beyond its 60 m → no late buzz (spec 20.2;
+        // it used to buzz "110 m behind you"). Quiet noneDue lists it.
         var e = Self.engine()
         let a = Self.place("a", .top, north: 10), late = Self.place("late", .good, north: 55)
         #expect(e.evaluate(places: [a, late], position: .at(), accuracy: 5, course: 180, now: Self.t0)?.place == a)
-        let b = e.evaluate(places: [a, late], position: .at(north: -55), accuracy: 5, course: 180, now: Self.t0 + 180)
-        #expect(b?.place == late)
-        #expect(b?.detail == "110 m behind you")
+        let d = e.decide(places: [a, late], position: .at(north: -55), accuracy: 5, course: 180, now: Self.t0 + 180)
+        guard case .quiet(.noneDue, let due) = d else { Issue.record("expected noneDue, got \(d)"); return }
+        #expect(due.map(\.id) == ["a", "late"])
+        #expect(abs((due.last?.distance ?? 0) - 110) < 0.01)
     }
     @Test func droppedBeyondDropRadius() {
         var e = Self.engine()
@@ -104,16 +107,20 @@ import Testing
     }
     @Test func dueSetIsUpdatedWhileBusy() {
         // Busy at the origin: the place at 55 m enters the due set but nothing buzzes.
-        // Later at 45 m south it is 55 + 45 = 100 m away (> 60, ≤ 120) → still due, fresh budget → buzzes.
+        // Later at 45 m south it is 55 + 45 = 100 m away (> 60, ≤ 120) → still tracked and listed, but beyond its
+        // due radius it no longer buzzes (spec 20.2).
         var e = Self.engine()
         let p = Self.place("p", .good, north: 55)
         e.isBusy = true
         #expect(e.evaluate(places: [p], position: .at(), accuracy: 5, course: 0, now: Self.t0) == nil)
         e.isBusy = false
-        #expect(e.evaluate(places: [p], position: .at(north: -45), accuracy: 5, course: 0, now: Self.t0 + 5)?.place == p)
-        // Control: without the busy evaluation the place was never due, and 100 m is outside the due radius.
+        let d = e.decide(places: [p], position: .at(north: -45), accuracy: 5, course: 0, now: Self.t0 + 5)
+        guard case .quiet(.noneDue, let due) = d else { Issue.record("expected noneDue, got \(d)"); return }
+        #expect(due.map(\.id) == ["p"])
+        // Control: without the busy evaluation the place was never tracked, and 100 m is outside the due radius.
         var f = Self.engine()
-        #expect(f.evaluate(places: [p], position: .at(north: -45), accuracy: 5, course: 0, now: Self.t0 + 5) == nil)
+        #expect(f.decide(places: [p], position: .at(north: -45), accuracy: 5, course: 0, now: Self.t0 + 5)
+                == .quiet(.noneDue, due: []))
     }
     @Test func noOverrideForGoodTier() {
         var e = Self.engine(perHour: 5)
@@ -164,13 +171,18 @@ import Testing
         #expect(e.evaluate(places: [castle], position: .at(north: -50), accuracy: 5, course: 0, now: Self.t0 + 800) == nil)
     }
     @Test func jitterDoesNotFlap() {
-        // Review Focus 3: a place that entered at 59 m stays due at 61 m (no flapping at the 60 m edge).
-        // 5/h: "a" spends the budget at t0; at t0+720 the budget is 1.0 and the castle, still due at 61 m, buzzes.
+        // Review Focus 3: a place that entered at 59 m stays tracked at 61 m (no flapping at the 60 m edge); since
+        // spec 20.2 it buzzes only back within 60 m.
+        // 5/h: "a" spends the budget at t0; at t0+720 the budget is 1.0: at 61 m the castle is listed but quiet, at
+        // 59 m it buzzes.
         var e = Self.engine(perHour: 5)
         let a = Self.place("a", .good, north: 1), castle = Self.place("castle", .good, north: 59)
         _ = e.evaluate(places: [a, castle], position: .at(), accuracy: 5, course: 0, now: Self.t0)    // a buzzes, castle due
-        _ = e.evaluate(places: [castle], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0 + 5)  // 61 m: still due
-        #expect(e.evaluate(places: [castle], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0 + 720)?.place == castle)
+        let d = e.decide(places: [castle], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0 + 5)
+        guard case .quiet(_, let due) = d else { Issue.record("expected quiet, got \(d)"); return }
+        #expect(due.map(\.id) == ["castle"])                                                           // 61 m: tracked
+        #expect(e.evaluate(places: [castle], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0 + 720) == nil)
+        #expect(e.evaluate(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 721)?.place == castle)
     }
 
     // MARK: - decide (quiet reasons, design 4.3)
@@ -316,10 +328,11 @@ import Testing
         #expect(due.map(\.excluded) == [true, true])
     }
     @Test func placeTwentySixMetresFromABuzzCanStillBuzz() {
-        // b is 56 − 30 = 26 m from a (> 25): not the same spot. It waits for the budget: at t0+179 (179/180 < 1) quiet
-        // with b not excluded, at t0+180 it buzzes.
+        // b is 56 − 30 = 26 m from a (> 25): not the same spot, and it ranks as a does (top, no sitelinks), so the
+        // 40 m complex rule leaves it too. It waits for the budget: at t0+179 (179/180 < 1) quiet with b not
+        // excluded, at t0+180 it buzzes.
         var e = Self.engine()
-        let a = Self.place("a", .top, north: 30), b = Self.place("b", .good, north: 56)
+        let a = Self.place("a", .top, north: 30), b = Self.place("b", .top, north: 56)
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
         let waiting = e.decide(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 179)
         guard case .quiet(.budget, let due) = waiting else { Issue.record("expected budget, got \(waiting)"); return }
@@ -327,10 +340,10 @@ import Testing
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 180)?.place == b)
     }
     @Test func sameSpotCoversPlacesNotYetDue() {
-        // a (good, 55 m) buzzes; b is 80 m from the walker (not due) but 80 − 55 = 25 m from a → excluded anyway.
-        // t0+180 at 60 m north: b is 20 m away and due, a 5 m: both excluded.
+        // a (good, 55 m) buzzes; b (good) is 80 m from the walker (not due) but 80 − 55 = 25 m from a → excluded
+        // anyway. t0+180 at 60 m north: b is 20 m away and due, a 5 m: both excluded.
         var e = Self.engine()
-        let a = Self.place("a", .good, north: 55), b = Self.place("b", .top, north: 80)
+        let a = Self.place("a", .good, north: 55), b = Self.place("b", .good, north: 80)
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
         let d = e.decide(places: [a, b], position: .at(north: 60), accuracy: 5, course: 0, now: Self.t0 + 180)
         guard case .quiet(.allExcluded, let due) = d else { Issue.record("expected allExcluded, got \(d)"); return }
@@ -358,9 +371,10 @@ import Testing
         #expect(due.map(\.id) == ["osm:way/1"] && due.map(\.excluded) == [true])
     }
     @Test func laterPlaceTwentySixMetresFromABuzzedSpotCanBuzz() {
-        // Same as above but 56 − 30 = 26 m away (> 25): it buzzes once the budget allows (t0+180).
+        // Same as above but 56 − 30 = 26 m away (> 25) and ranked as a (both top): it buzzes once the budget allows
+        // (t0+180).
         var e = Self.engine()
-        let a = Self.place("a", .top, north: 30), b = Self.place("b", .good, north: 56)
+        let a = Self.place("a", .top, north: 30), b = Self.place("b", .top, north: 56)
         #expect(e.evaluate(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 180)?.place == b)
     }
@@ -498,5 +512,223 @@ import Testing
         #expect(f.evaluate(places: [a, p, q], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 10) == nil)
         let o = f.evaluate(places: [a, p, q], position: .at(north: -60), accuracy: 5, course: 180, now: Self.t0 + 60)
         #expect(o?.place == q && o?.usedOverride == true)
+    }
+}
+
+// MARK: - Spec 20: due radius by importance, hold for a better place, complexes, cadence
+
+@Suite struct BuzzEngineTuningTests {
+    static let t0 = Date(timeIntervalSince1970: 1_000_000)
+    static func place(_ id: String, _ tier: PlaceTier, north: Double, east: Double = 0, sitelinks: Int? = nil,
+                      wikidata: String? = nil) -> WalkingPlace {
+        WalkingPlace(candidate: Candidate(id: id, name: id, coordinate: .at(north: north, east: east), kind: "x",
+                                          wikidata: wikidata, sitelinks: sitelinks),
+                     tier: tier)
+    }
+    static func engine(perHour: Int = 20) -> BuzzEngine {
+        BuzzEngine(perHour: perHour, now: t0, excluded: [])
+    }
+
+    // MARK: Due radius (20.2)
+
+    @Test func dueRadiusGrowsWithImportance() {
+        // Top with ≥ 40 sitelinks 100 m, other top 80 m, the rest 60 m (sitelinks do not matter below top).
+        #expect(BuzzEngine.dueRadius(for: Self.place("a", .top, north: 0, sitelinks: 40)) == 100)
+        #expect(BuzzEngine.dueRadius(for: Self.place("a", .top, north: 0, sitelinks: 148)) == 100)
+        #expect(BuzzEngine.dueRadius(for: Self.place("a", .top, north: 0, sitelinks: 39)) == 80)
+        #expect(BuzzEngine.dueRadius(for: Self.place("a", .top, north: 0, sitelinks: nil)) == 80)
+        #expect(BuzzEngine.dueRadius(for: Self.place("a", .good, north: 0, sitelinks: 500)) == 60)
+        #expect(BuzzEngine.dueRadius(for: Self.place("a", .wikiOnly, north: 0, sitelinks: 344)) == 60)
+        #expect(BuzzEngine.dropRadius == 120 && BuzzEngine.famousSitelinks == 40)
+    }
+    @Test func famousTopBuzzesFromOneHundredMetres() {
+        // The Colosseum (148 sitelinks) at 99 m buzzes; at 101 m it is not due (fresh engines each time).
+        var e = Self.engine(), f = Self.engine()
+        let near = Self.place("colosseum", .top, north: 99, sitelinks: 148)
+        let far = Self.place("colosseum", .top, north: 101, sitelinks: 148)
+        #expect(e.evaluate(places: [near], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == near)
+        #expect(f.decide(places: [far], position: .at(), accuracy: 5, course: 0, now: Self.t0) == .quiet(.noneDue, due: []))
+    }
+    @Test func otherTopBuzzesFromEightyMetresAndGoodFromSixty() {
+        var e = Self.engine(), f = Self.engine(), g = Self.engine(), h = Self.engine()
+        let top79 = Self.place("t", .top, north: 79, sitelinks: 32), top81 = Self.place("t", .top, north: 81, sitelinks: 32)
+        let good59 = Self.place("g", .good, north: 59, sitelinks: 90), good61 = Self.place("g", .good, north: 61, sitelinks: 90)
+        #expect(e.evaluate(places: [top79], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == top79)
+        #expect(f.evaluate(places: [top81], position: .at(), accuracy: 5, course: 0, now: Self.t0) == nil)
+        #expect(g.evaluate(places: [good59], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == good59)
+        #expect(h.evaluate(places: [good61], position: .at(), accuracy: 5, course: 0, now: Self.t0) == nil)
+    }
+    @Test func aTrackedPlaceOutsideItsRadiusDoesNotBuzzLate() {
+        // 20/h. a (good, 5 m) buzzes at t0 and spends the budget; late (good, 55 m) enters the due set.
+        // t0+180 (budget 180/180 = 1) the walker is 40 m south: late is 95 m away, tracked (≤ 120) but outside its
+        // 60 m → no buzz, quiet noneDue with late listed. Coming back to 10 m south (65 m)… still outside; at the
+        // origin (55 m) it buzzes.
+        var e = Self.engine()
+        let a = Self.place("a", .good, north: -5), late = Self.place("late", .good, north: 55)
+        #expect(e.evaluate(places: [a, late], position: .at(), accuracy: 5, course: 180, now: Self.t0)?.place == a)
+        let d = e.decide(places: [a, late], position: .at(north: -40), accuracy: 5, course: 180, now: Self.t0 + 180)
+        guard case .quiet(.noneDue, let due) = d else { Issue.record("expected noneDue, got \(d)"); return }
+        #expect(due.map(\.id) == ["a", "late"])
+        #expect(abs((due.last?.distance ?? 0) - 95) < 0.01)
+        #expect(e.evaluate(places: [a, late], position: .at(north: -10), accuracy: 5, course: 0, now: Self.t0 + 200) == nil)
+        #expect(e.evaluate(places: [a, late], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 220)?.place == late)
+    }
+
+    // MARK: Hold for a better place just ahead (20.3)
+
+    /// A (good, 100 m north) and B (top, 150 m north: 50 m beyond A, radius 80 m). The walker walks north.
+    static let holdA = place("A", .good, north: 100), holdB = place("B", .top, north: 150)
+
+    @Test func duePlaceWaitsForABetterOneApproaching() {
+        // t0 at 30 N: A 70 m (not due), B 120 m. t0+10 at 45 N: A 55 m due; B 105 m (> 80, not due) and closer than
+        // 120 → A is held. t0+20 at 65 N: B 85 m, still held. t0+30 at 75 N: B 75 m ≤ 80 → B (top) buzzes.
+        var e = Self.engine()
+        let places = [Self.holdA, Self.holdB]
+        #expect(e.decide(places: places, position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+                == .quiet(.noneDue, due: []))
+        let held = e.decide(places: places, position: .at(north: 45), accuracy: 5, course: 0, now: Self.t0 + 10)
+        guard case .quiet(.held, let due) = held else { Issue.record("expected held, got \(held)"); return }
+        #expect(due.map(\.id) == ["A"])
+        #expect(e.decide(places: places, position: .at(north: 65), accuracy: 5, course: 0, now: Self.t0 + 20).buzz == nil)
+        #expect(e.evaluate(places: places, position: .at(north: 75), accuracy: 5, course: 0, now: Self.t0 + 30)?.place
+                == Self.holdB)
+    }
+    @Test func holdLastsAtMostThirtySeconds() {
+        // The walker creeps north, so B stays beyond its 80 m while approaching.
+        // t0 at 39 N: A 61 m (not due), B 111 m.
+        var e = Self.engine()
+        let places = [Self.holdA, Self.holdB]
+        #expect(e.evaluate(places: places, position: .at(north: 39), accuracy: 5, course: 0, now: Self.t0) == nil)
+        // Walker at 46 N: A 54 m due, B 104 m approaching (111 → 104) → held, the hold starts at t0+10.
+        guard case .quiet(.held, _) = e.decide(places: places, position: .at(north: 46), accuracy: 5, course: 0,
+                                               now: Self.t0 + 10) else { Issue.record("expected held"); return }
+        // t0+39 at 47 N: B 103 m, approaching; 39 − 10 = 29 s < 30 s → still held.
+        guard case .quiet(.held, _) = e.decide(places: places, position: .at(north: 47), accuracy: 5, course: 0,
+                                               now: Self.t0 + 39) else { Issue.record("expected held"); return }
+        // t0+40 at 48 N: B 102 m, still approaching, but 40 − 10 = 30 s since the hold began → A buzzes.
+        #expect(e.evaluate(places: places, position: .at(north: 48), accuracy: 5, course: 0, now: Self.t0 + 40)?.place
+                == Self.holdA)
+    }
+    @Test func noHoldWhenTheBetterPlaceRecedesOrHasNoPreviousFix() {
+        // First fix at 45 N: B has no previous distance → not approaching → A (55 m) buzzes at once.
+        var e = Self.engine()
+        #expect(e.evaluate(places: [Self.holdA, Self.holdB], position: .at(north: 45), accuracy: 5, course: 0,
+                           now: Self.t0)?.place == Self.holdA)
+        // t0 at 30 N: A 70 m, B 120 m. t0+5 at 50 N: A 50 m due, B 100 m approaching → held. t0+10 the walker
+        // turned back to 45 N: B 105 m, receding (100 → 105) → A buzzes.
+        var f = Self.engine()
+        let places = [Self.holdA, Self.holdB]
+        _ = f.decide(places: places, position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.held, _) = f.decide(places: places, position: .at(north: 50), accuracy: 5, course: 0,
+                                               now: Self.t0 + 5) else { Issue.record("expected held"); return }
+        #expect(f.evaluate(places: places, position: .at(north: 45), accuracy: 5, course: 180, now: Self.t0 + 10)?.place
+                == Self.holdA)
+    }
+    @Test func noHoldForALowerRankedOrFarOrExcludedPlace() {
+        // Lower ranked: A good with 10 sitelinks, B good with 5 (50 m beyond) → A buzzes at once.
+        var e = Self.engine()
+        let a = Self.place("A", .good, north: 100, sitelinks: 10), lower = Self.place("B", .good, north: 150, sitelinks: 5)
+        _ = e.decide(places: [a, lower], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+        #expect(e.evaluate(places: [a, lower], position: .at(north: 45), accuracy: 5, course: 0, now: Self.t0 + 10)?.place == a)
+        // Better within the tier by sitelinks (B good with 50 sitelinks, A 10): held.
+        var f = Self.engine()
+        let better = Self.place("B", .good, north: 150, sitelinks: 50)
+        _ = f.decide(places: [a, better], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.held, _) = f.decide(places: [a, better], position: .at(north: 45), accuracy: 5, course: 0,
+                                               now: Self.t0 + 10) else { Issue.record("expected held"); return }
+        // Too far: B top 61 m beyond A (161 N) → A buzzes.
+        var g = Self.engine()
+        let far = Self.place("B", .top, north: 161)
+        _ = g.decide(places: [Self.holdA, far], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+        #expect(g.evaluate(places: [Self.holdA, far], position: .at(north: 45), accuracy: 5, course: 0, now: Self.t0 + 10)?.place
+                == Self.holdA)
+        // Excluded: B already heard → A buzzes.
+        var h = Self.engine()
+        h.exclude("B")
+        _ = h.decide(places: [Self.holdA, Self.holdB], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+        #expect(h.evaluate(places: [Self.holdA, Self.holdB], position: .at(north: 45), accuracy: 5, course: 0,
+                           now: Self.t0 + 10)?.place == Self.holdA)
+    }
+
+    // MARK: Complexes (20.4)
+
+    @Test func lowerRankedPlacesWithinFortyMetresOfABuzzAreExcluded() {
+        // Il Gesù (top, 40 sitelinks) at 30 m buzzes. Then, with the budget full again (t0+3600, 3 tokens):
+        // Palazzo Altieri (good) 39 m beyond (69 N) is lower-ranked and within 40 m → excluded;
+        // a top with 40 sitelinks 39 m beyond on the other side (east 39 from Il Gesù) ranks equal → free;
+        // a good 41 m beyond (71 N) → free.
+        var e = Self.engine()
+        let gesu = Self.place("gesu", .top, north: 30, sitelinks: 40)
+        let altieri = Self.place("altieri", .good, north: 69, sitelinks: 3)
+        let equal = Self.place("equal", .top, north: 30, east: 39, sitelinks: 40)
+        let farther = Self.place("farther", .good, north: 71, sitelinks: 3)
+        #expect(e.evaluate(places: [gesu], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == gesu)
+        let d = e.decide(places: [altieri], position: .at(north: 50), accuracy: 5, course: 0, now: Self.t0 + 3600)
+        guard case .quiet(.allExcluded, let due) = d else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(due.map(\.excluded) == [true])
+        #expect(e.evaluate(places: [equal], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0 + 3600)?.place
+                == equal)
+        var f = Self.engine()
+        _ = f.evaluate(places: [gesu], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        #expect(f.evaluate(places: [farther], position: .at(north: 50), accuracy: 5, course: 0, now: Self.t0 + 3600)?.place
+                == farther)
+        #expect(BuzzEngine.complexRadius == 40)
+    }
+    @Test func aBetterRankedPlaceNearABuzzIsNotExcluded() {
+        // small (good, 20 m) buzzes with only itself in the list. big (top, 55 m) arrives in a later list, 35 m from
+        // small (> 25 m, ≤ 40 m) but better ranked → not excluded: it buzzes once the budget allows (t0+3600).
+        var e = Self.engine()
+        let small = Self.place("small", .good, north: 20, sitelinks: 2)
+        let big = Self.place("big", .top, north: 55, sitelinks: 2)
+        #expect(e.evaluate(places: [small], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == small)
+        #expect(e.evaluate(places: [small, big], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 3600)?.place == big)
+    }
+    @Test func complexRuleAppliesToAHeardPlace() {
+        // Heard: a Wikipedia-only place item with 50 sitelinks (top by facts) at 30 m. A good place 35 m beyond
+        // is excluded with it; a top with 60 sitelinks there is not.
+        var e = Self.engine()
+        let heard = Candidate(id: "wiki:it/1", name: "Heard", coordinate: .at(north: 30), kind: "wikipedia",
+                              summary: "S.", wikipediaTitle: "it:Heard", wikidata: "Q1", sitelinks: 50, placeClass: .place)
+        e.excludeSpot(of: heard)
+        let good = Self.place("good", .good, north: 65), famous = Self.place("famous", .top, north: 65, sitelinks: 60)
+        let d = e.decide(places: [good], position: .at(north: 40), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.allExcluded, _) = d else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(e.evaluate(places: [good, famous], position: .at(north: 40), accuracy: 5, course: 0, now: Self.t0)?.place
+                == famous)
+    }
+
+    // MARK: Cadence (20.7)
+
+    @Test func thirtySecondsBetweenTwoBuzzesWhateverTheBudget() {
+        // 60/h: one token per 60 s, at most 3. At t0+120 there are 3 tokens: a buzzes; b (100 m away, 50 m from the
+        // walker) has budget left but must wait: quiet minGap at +29 s, buzz at +30 s.
+        var e = Self.engine(perHour: 60)
+        let a = Self.place("a", .good, north: 10), b = Self.place("b", .good, north: -50)
+        #expect(e.evaluate(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 120)?.place == a)
+        let d = e.decide(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 149)
+        guard case .quiet(.minGap, let due) = d else { Issue.record("expected minGap, got \(d)"); return }
+        #expect(Set(due.map(\.id)) == ["a", "b"])
+        #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 150)?.place == b)
+        #expect(BuzzEngine.minimumGap == 30)
+    }
+    @Test func theGapHoldsBackAnOverrideToo() {
+        // 5/h. a (top, 5 m S) buzzes at t0; the castle (top, 30 m N, 35 m from a: equal rank, not excluded) is due,
+        // closest 30. t0+10 at 125 N: castle 95 m (≥ 90, > 30 + 10) would override, but 10 s < 30 s → minGap.
+        // t0+30: override.
+        var e = Self.engine(perHour: 5)
+        let a = Self.place("a", .top, north: -5), castle = Self.place("castle", .top, north: 30)
+        #expect(e.evaluate(places: [a, castle], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
+        let d = e.decide(places: [a, castle], position: .at(north: 125), accuracy: 5, course: 0, now: Self.t0 + 10)
+        guard case .quiet(.minGap, _) = d else { Issue.record("expected minGap, got \(d)"); return }
+        let o = e.evaluate(places: [a, castle], position: .at(north: 125), accuracy: 5, course: 0, now: Self.t0 + 30)
+        #expect(o?.place == castle && o?.usedOverride == true)
+    }
+    @Test func aClockSetBackDoesNotHoldBuzzesOff() {
+        // A buzz at t0+120, then a fix dated t0 (clock set back 120 s): the gap does not count a negative age.
+        var e = Self.engine(perHour: 60)
+        let a = Self.place("a", .good, north: 10), b = Self.place("b", .good, north: -50)
+        #expect(e.evaluate(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 120)?.place == a)
+        // Budget: the accrual point stays at t0+120 with 3 − 1 = 2 tokens → b can spend.
+        #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == b)
     }
 }
