@@ -667,7 +667,12 @@ then tuning stops until the owner's field test *(Claude's call)*:
    its tag tier.
 5. **Clock and jitter:**
    - the skip pause and the override interval use the same clock-back guard as the other timers;
-   - "approaching" needs the distance to shrink by at least 2 m.
+   - "approaching" needs the distance to shrink by at least 2 m compared with the distance at least 4 s earlier,
+     not with the previous fix. At walking pace, fixes about 1 s apart shrink only 1–1.5 m each, so
+     iteration 7 never held on real walks.
+9. **Passed window.** Beyond 60 m, a passed place (its distance grew at least 5 m from its closest) may buzz up to
+   its due radius + 15 m, not only up to its due radius. Augustus' Forum (closest 74 m, radius 80 m) had a 1 m
+   wide window.
 6. **Log:**
    - a buzz says whether it was «behind you» (`behind: true`);
    - a `held` quiet line names the place that holds.
