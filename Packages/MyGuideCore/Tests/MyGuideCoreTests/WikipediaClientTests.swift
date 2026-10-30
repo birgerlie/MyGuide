@@ -69,6 +69,41 @@ import Foundation
         // One extra geosearch per call, as before.
         #expect(http.requests.count == 2)
     }
+    /// A page at `north` metres north of (0, 0), so distances are exact along the meridian.
+    static func page(_ id: Int, _ title: String, q: String?, north: Double) -> String {
+        let c = Coordinate.at(north: north)
+        return #"{"pageid":\#(id),"title":"\#(title)","coordinates":[{"lat":\#(c.latitude),"lon":\#(c.longitude)}]"#
+            + (q.map { #","pageprops":{"wikibase_item":"\#($0)"}"# } ?? "") + "}"
+    }
+    @Test func englishArticleWithoutAnIdIsATwinOfTheSameTitleWithinOneHundredMetres() async throws {
+        // Spec 20.6.7. The Norwegian «Fontana di Trevi» stands at the origin. English pages without an id:
+        // - «fontana  di TREVÍ » at 100 m: the same title once case, accents and spaces are folded; 100 ≤ 100 → a twin,
+        //   left out;
+        // - «Fontana di Trevi» at 100.1 m: 100.1 > 100 → kept;
+        // - «Trevi Fountain» at 0 m: another title → kept.
+        // An English page with an id is matched by id only: «Fontana di Trevi» with Q9 at 0 m is kept (no Norwegian
+        // page has Q9).
+        #expect(GeoMath.distance(.at(), .at(north: 100)) == 100)
+        #expect(WikipediaClient.twinRadius == 100)
+        let http = StubHTTPClient { r in
+            r.url!.host == "no.wikipedia.org"
+              ? (200, Self.body([Self.page(10, "Fontana di Trevi", q: nil, north: 0)]))
+              : (200, Self.body([Self.page(1, "fontana  di TREVÍ ", q: nil, north: 100),
+                                 Self.page(2, "Fontana di Trevi", q: nil, north: 100.1),
+                                 Self.page(3, "Trevi Fountain", q: nil, north: 0),
+                                 Self.page(4, "Fontana di Trevi", q: "Q9", north: 0)]))
+        }
+        let c = try await WikipediaClient(http: http).articles(around: vienna, radius: 400, language: .norwegian)
+        #expect(c.map(\.id) == ["wiki:no/10", "wiki:en/2", "wiki:en/3", "wiki:en/4"])
+        // A Norwegian page with an id is a twin by title too.
+        let withID = StubHTTPClient { r in
+            r.url!.host == "no.wikipedia.org"
+              ? (200, Self.body([Self.page(10, "Fontana di Trevi", q: "Q5", north: 0)]))
+              : (200, Self.body([Self.page(1, "Fontana di Trevi", q: nil, north: 50)]))
+        }
+        let d = try await WikipediaClient(http: withID).articles(around: vienna, radius: 400, language: .norwegian)
+        #expect(d.map(\.id) == ["wiki:no/10"])
+    }
     @Test func manyNorwegianResultsKeepEveryEnglishOnlyItem() async throws {
         // 20 Norwegian pages (Q1…Q20) and 20 English ones (Q11…Q30): the 10 shared items keep their Norwegian page,
         // the 10 English-only ones (Q21…Q30) are added: 20 + 10 = 30.

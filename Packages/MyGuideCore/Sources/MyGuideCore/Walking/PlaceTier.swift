@@ -47,19 +47,21 @@ public enum PlaceTiers {
     /// An OSM candidate whose item has fewer sitelinks than this is at most Wiki-only (spec 20.3.4; it replaces the
     /// 5-sitelink rule of spec 20.5).
     public static let osmMinSitelinks = 10
-    /// `historic` values that keep an OSM candidate without a Wikidata id (spec 20.3.4); any other is dropped.
+    /// `historic` values that keep their tag tier on an OSM candidate without a Wikidata id (spec 20.3.4, 20.6.4); any
+    /// other such candidate is at most Wiki-only.
     private static let historicWithoutWikidata: Set<String> = ["castle", "ruins", "archaeological_site", "monument"]
 
     /// The tier of a place, or nil when it must never buzz (no name, or an excluded kind of place).
     /// A candidate without OSM tags (Wikipedia-only) is tiered by its facts when it has them (`factTier`), else by
     /// the tag rules, which give it Wiki-only.
     /// A candidate with OSM tags is tiered by them, with its facts adjusting the result (spec 20.5, 20.3.4). Rule order
-    /// is fixed: name, never-list; no Wikidata id (or an empty one) → dropped unless `historic` is castle, ruins,
-    /// archaeological_site or monument; minor memorial (Wiki-only at best, whatever its other tags or facts); a
+    /// is fixed: name, never-list; minor memorial (Wiki-only at best, whatever its other tags or facts); a
     /// `place` item with `topSitelinks` or more → Top (also when the tags alone give no tier); Top by tags, or Good
-    /// lifted to Top by an article → Top; Good → Good; else Wiki-only with an article. Then an item with fewer than
-    /// `osmMinSitelinks` sitelinks is at most Wiki-only (no facts: no cap), and a `natural` item (hill, island) at
-    /// most Good (spec 20.2.2).
+    /// lifted to Top by an article → Top; Good → Good; else Wiki-only with an article. An OSM candidate with no
+    /// Wikidata id (or an empty one) is then at most Wiki-only, unless `historic` is castle, ruins,
+    /// archaeological_site or monument (spec 20.6.4: kept, where spec 20.3.4 dropped it). Then an item with fewer
+    /// than `osmMinSitelinks` sitelinks is at most Wiki-only (no facts: no cap), and a `natural` item (hill, island)
+    /// at most Good (spec 20.2.2).
     /// A church whose item is also an organisation stays a church: a `nonPlace` class never vetoes tags.
     public static func tier(for candidate: Candidate) -> PlaceTier? {
         guard !candidate.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -75,16 +77,26 @@ public enum PlaceTiers {
     private static func tagTier(_ candidate: Candidate) -> PlaceTier? {
         let tags = candidate.tags ?? [:]
         if isNever(tags) { return nil }
-        // OSM candidates only: a Wikipedia article without facts keeps today's Wiki-only.
-        if hasOSMTags(candidate), (candidate.wikidata ?? "").isEmpty,
-           !historicWithoutWikidata.contains(tags["historic"] ?? "") { return nil }
         let article = hasArticle(candidate)
-
-        if isMinorMemorial(tags) { return article ? .wikiOnly : nil }
-        if candidate.placeClass == .place, let sitelinks = candidate.sitelinks, sitelinks >= topSitelinks { return .top }
-        if isTop(tags) || (isGood(tags) && article) { return .top }
-        if isGood(tags) { return .good }
-        return article ? .wikiOnly : nil
+        let tier: PlaceTier
+        if isMinorMemorial(tags) {
+            guard article else { return nil }
+            tier = .wikiOnly
+        } else if candidate.placeClass == .place, let sitelinks = candidate.sitelinks, sitelinks >= topSitelinks {
+            tier = .top
+        } else if isTop(tags) || (isGood(tags) && article) {
+            tier = .top
+        } else if isGood(tags) {
+            tier = .good
+        } else {
+            guard article else { return nil }
+            tier = .wikiOnly
+        }
+        // An OSM object without a Wikidata id is kept, at most Wiki-only (spec 20.6.4). A Wikipedia-only candidate has
+        // no tags and keeps the tier above.
+        if hasOSMTags(candidate), (candidate.wikidata ?? "").isEmpty,
+           !historicWithoutWikidata.contains(tags["historic"] ?? "") { return max(tier, .wikiOnly) }
+        return tier
     }
 
     /// True when the candidate carries OSM tags (non-nil and not empty), so the tag rules decide its tier.

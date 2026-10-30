@@ -37,10 +37,11 @@ public struct WikipediaClient: Sendable {
         return components.url!
     }
 
-    /// The story-language articles, followed by the English articles whose Wikidata item is not among them (English
-    /// articles without an item are all added). Outside English the English geosearch always runs alongside, one
-    /// extra request per call (spec 20.1): story-language articles often lack coordinates (Norwegian Trevi, Campo de'
-    /// Fiori), so a geosearch never finds them. The story-language article wins for an item in both, with its name,
+    /// The story-language articles, followed by the English articles whose Wikidata item is not among them. An English
+    /// article without an item is left out when a story-language article has the same normalised title
+    /// (`normalisedTitle`) within `twinRadius` (spec 20.6.7); otherwise it is added. Outside English the English
+    /// geosearch always runs alongside, one extra request per call (spec 20.1): story-language articles often lack
+    /// coordinates (Norwegian Trevi, Campo de' Fiori), so a geosearch never finds them. The story-language article wins for an item in both, with its name,
     /// summary and summary language. A failing English search leaves the story-language articles; a failing
     /// story-language search throws (and cancels the English one).
     public func articles(around: Coordinate, radius: Int, language: StoryLanguage, limit: Int = 20) async throws -> [Candidate] {
@@ -65,8 +66,23 @@ public struct WikipediaClient: Sendable {
         }
         let known = Set(primary.compactMap(\.wikidata))
         return primary + english.filter { candidate in
-            candidate.wikidata.map { !known.contains($0) } ?? true
+            if let id = candidate.wikidata, !id.isEmpty { return !known.contains(id) }
+            let title = Self.normalisedTitle(candidate.name)
+            return !primary.contains {
+                Self.normalisedTitle($0.name) == title
+                    && GeoMath.distance($0.coordinate, candidate.coordinate) <= Self.twinRadius
+            }
         }
+    }
+
+    /// An English article without a Wikidata id is the twin of a story-language article with the same normalised
+    /// title at most this far away (metres, inclusive; spec 20.6.7).
+    public static let twinRadius = 100.0
+
+    /// The title without regard to case, diacritics or runs of whitespace, trimmed.
+    static func normalisedTitle(_ title: String) -> String {
+        title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     private static func outcome<T: Sendable>(_ work: @Sendable () async throws -> T) async -> Result<T, Error> {
