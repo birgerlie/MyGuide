@@ -24,6 +24,16 @@ import Testing
         #expect(r5)
     }
 
+    @Test func aNewHolderLogsAgain() {
+        // Spec 20.6.6: the same held places with another holder is a new line; the same holder is not.
+        var t = QuietThrottle()
+        let a = Self.due("a")
+        let first = t.shouldLog(.held, due: [a], heldBy: HoldingPlace(id: "x", name: "X"))
+        let same = t.shouldLog(.held, due: [a], heldBy: HoldingPlace(id: "x", name: "X"))
+        let other = t.shouldLog(.held, due: [a], heldBy: HoldingPlace(id: "y", name: "Y"))
+        #expect(first && !same && other)
+    }
+
     @Test func dueOrderIrrelevant() {
         var t = QuietThrottle()
         let r6 = t.shouldLog(.busy, due: [Self.due("a"), Self.due("b")])

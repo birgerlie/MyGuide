@@ -397,6 +397,62 @@ import Testing
         #expect(WalkLogText.line(event.kind).hasSuffix("(tour stop)"))
     }
 
+    @Test func behindYouBuzzIsMarkedAndOldLinesReadAsNot() throws {
+        // Spec 20.6.6: `behind: true` only for a «behind you» buzz; absent (every older line, every other buzz) reads
+        // as false; a value that is not a Bool makes the line unreadable.
+        let id = UUID(uuidString: "00000000-0000-0000-0000-0000000000AC")!
+        let behind = WalkLogBuzz(id: id, placeID: "wiki:en/1", name: "Piazza Venezia", tier: .top, distance: 110,
+                                 override: false, detail: "110 m behind you", behind: true)
+        let event = WalkLogEvent(at: Date(timeIntervalSince1970: 1_000_000), kind: .buzz(behind))
+        let object = try #require(JSONSerialization.jsonObject(with: WalkLogCodec.line(event)) as? [String: Any])
+        #expect(object["behind"] as? Bool == true)
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)
+        var plain = behind
+        plain.behind = false
+        let plainEvent = WalkLogEvent(at: event.at, kind: .buzz(plain))
+        let plainObject = try #require(JSONSerialization.jsonObject(with: WalkLogCodec.line(plainEvent)) as? [String: Any])
+        #expect(plainObject["behind"] == nil)
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(plainEvent)) == plainEvent)
+        // A line written before the field.
+        let old = #"{"detail":"40 m ahead","distance":40,"e":"buzz","id":"00000000-0000-0000-0000-0000000000AC","name":"A","override":false,"placeID":"a","t":"1970-01-12T13:46:40.000Z","tier":1}"#
+        let decoded = try #require(WalkLogCodec.event(from: Data(old.utf8)))
+        guard case .buzz(let oldBuzz) = decoded.kind else { Issue.record("expected buzz, got \(decoded)"); return }
+        #expect(!oldBuzz.behind && !oldBuzz.tourStop)
+        var bad = object
+        bad["behind"] = "yes"
+        #expect(WalkLogCodec.event(from: try JSONSerialization.data(withJSONObject: bad)) == nil)
+        #expect(WalkLogText.line(event.kind) == "Buzz: Piazza Venezia · 110 m (behind you)")
+    }
+
+    @Test func behindYouComesFromTheEngineBuzz() {
+        let place = WalkingPlace(candidate: Candidate(id: "a", name: "A", coordinate: Coordinate(latitude: 0, longitude: 0),
+                                                      kind: "x"), tier: .top)
+        var buzz = Buzz(chosen: place, position: Coordinate(latitude: 0, longitude: 0))
+        #expect(!WalkLogBuzz(buzz).behind)
+        buzz.behindYou = true
+        #expect(WalkLogBuzz(buzz).behind)
+    }
+
+    @Test func heldQuietLineNamesTheHolderAndOldLinesReadWithout() throws {
+        // Spec 20.6.6: `heldBy` {id, name} on a `held` line; absent → nil; present but malformed → unreadable.
+        let due = [DuePlace(id: "agata", name: "Sant'Agata", tier: .wikiOnly, distance: 50, excluded: false)]
+        let holder = HoldingPlace(id: "wiki:it/2", name: "San Crisogono")
+        let event = WalkLogEvent(at: Date(timeIntervalSince1970: 1_000_000), kind: .quiet(.held, due: due, heldBy: holder))
+        let object = try #require(JSONSerialization.jsonObject(with: WalkLogCodec.line(event)) as? [String: Any])
+        let written = try #require(object["heldBy"] as? [String: Any])
+        #expect(written["id"] as? String == "wiki:it/2" && written["name"] as? String == "San Crisogono")
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)
+        // Without a holder the key is left out, and such a line (also every older one) reads as nil.
+        let plain = WalkLogEvent(at: event.at, kind: .quiet(.held, due: due))
+        let plainObject = try #require(JSONSerialization.jsonObject(with: WalkLogCodec.line(plain)) as? [String: Any])
+        #expect(plainObject["heldBy"] == nil)
+        #expect(WalkLogCodec.event(from: WalkLogCodec.line(plain)) == plain)
+        var bad = object
+        bad["heldBy"] = ["id": "x"]
+        #expect(WalkLogCodec.event(from: try JSONSerialization.data(withJSONObject: bad)) == nil)
+        #expect(WalkLogText.line(event.kind) == "Quiet: held · Sant'Agata 50 m · held by San Crisogono")
+    }
+
     @Test func tourCadenceQuietLineRoundTrips() {
         let event = WalkLogEvent(at: Date(timeIntervalSince1970: 1_000_000), kind: .quiet(.tourCadence, due: []))
         #expect(WalkLogCodec.event(from: WalkLogCodec.line(event)) == event)

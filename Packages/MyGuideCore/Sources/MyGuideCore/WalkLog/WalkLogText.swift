@@ -19,11 +19,14 @@ public enum WalkLogText {
                 + endpoints(osmErrors) + (dropped.isEmpty ? "" : " · dropped \(dropped.joined(separator: ", "))")
                 + (stale ? " · stored list" : "")
         case .fetchFailed(let error, let osmErrors): return "Fetch failed: \(error)" + endpoints(osmErrors)
-        case .quiet(let reason, let due):
-            guard !due.isEmpty else { return "Quiet: \(reason.rawValue)" }
+        case .quiet(let reason, let due, let heldBy):
+            let holder = heldBy.map { " · held by \($0.name)" } ?? ""
+            guard !due.isEmpty else { return "Quiet: \(reason.rawValue)" + holder }
             return "Quiet: \(reason.rawValue) · " + due.map { "\($0.name) \(whole($0.distance)) m" }.joined(separator: ", ")
+                + holder
         case .buzz(let b):
             return "Buzz: \(b.name) · \(whole(b.distance)) m" + (b.override ? " (override)" : "") + (b.tourStop ? " (tour stop)" : "")
+                + (b.behind ? " (behind you)" : "")
         case .notified(_, let kind, _): return "Notification added (\(kind.rawValue))"
         case .notifyFailed(_, let kind, let error): return "Notification failed (\(kind.rawValue)): \(error)"
         case .busy(let busy): return busy ? "Story engine busy" : "Story engine idle"

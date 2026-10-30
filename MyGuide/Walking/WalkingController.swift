@@ -1014,7 +1014,8 @@ final class WalkingController {
             if lastQuietReason != nil { lastQuietReason = nil }
             deliver(buzz, position: position, direction: direction, at: now)
         case .quiet(let reason, let due):
-            walkLog.logQuiet(reason, due: due, at: now)
+            // A `held` line names the place that holds (spec 20.6.6); the engine keeps it for its last decision.
+            walkLog.logQuiet(reason, due: due, heldBy: engine?.heldBy, at: now)
             // Set only on a change: every fix decides, and the panel redraws on each write.
             if lastQuietReason != reason { lastQuietReason = reason }
         case nil:

@@ -99,9 +99,12 @@ public struct WalkLogBuzz: Sendable, Equatable {
     /// The buzz of a tour's stop (tours spec 6), not the engine's. Written only when true; lines from before it read
     /// as false.
     public var tourStop: Bool
+    /// A «behind you» buzz after a story (spec 20.6.6, `Buzz.behindYou`). Written only when true; lines from before
+    /// it read as false.
+    public var behind: Bool
 
     public init(id: UUID, placeID: String, name: String, tier: PlaceTier, distance: Double, override: Bool, detail: String,
-                tourStop: Bool = false) {
+                tourStop: Bool = false, behind: Bool = false) {
         self.id = id
         self.placeID = placeID
         self.name = name
@@ -110,11 +113,13 @@ public struct WalkLogBuzz: Sendable, Equatable {
         self.override = override
         self.detail = detail
         self.tourStop = tourStop
+        self.behind = behind
     }
 
     public init(_ buzz: Buzz, tourStop: Bool = false) {
         self.init(id: buzz.id, placeID: buzz.place.candidate.id, name: buzz.title, tier: buzz.place.tier,
-                  distance: buzz.distance, override: buzz.usedOverride, detail: buzz.detail, tourStop: tourStop)
+                  distance: buzz.distance, override: buzz.usedOverride, detail: buzz.detail, tourStop: tourStop,
+                  behind: buzz.behindYou)
     }
 }
 
@@ -165,7 +170,9 @@ public struct WalkLogEvent: Sendable, Equatable {
                      stale: Bool = false)
         /// `osmErrors` as in `fetched`, when the failure was every Overpass endpoint's.
         case fetchFailed(error: String, osmErrors: [String] = [])
-        case quiet(QuietReason, due: [DuePlace])
+        /// `heldBy`: the place that held a `held` decision (spec 20.6.6); nil for other reasons and in lines written
+        /// before it existed.
+        case quiet(QuietReason, due: [DuePlace], heldBy: HoldingPlace? = nil)
         case buzz(WalkLogBuzz)
         case notified(id: UUID?, kind: WalkNotificationKind, settings: NotificationSettingsSnapshot)
         case notifyFailed(id: UUID?, kind: WalkNotificationKind, error: String)

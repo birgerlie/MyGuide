@@ -112,15 +112,18 @@ public enum WalkLogCodec {
             var o: [String: Any] = ["error": error]
             if !osmErrors.isEmpty { o["osmErrors"] = osmErrors }
             return o
-        case .quiet(let reason, let due):
+        case .quiet(let reason, let due, let heldBy):
             let list: [[String: Any]] = due.map {
                 ["id": $0.id, "name": $0.name, "tier": $0.tier.rawValue, "distance": metres($0.distance), "excluded": $0.excluded]
             }
-            return ["reason": reason.rawValue, "due": list]
+            var o: [String: Any] = ["reason": reason.rawValue, "due": list]
+            if let heldBy { o["heldBy"] = ["id": heldBy.id, "name": heldBy.name] }
+            return o
         case .buzz(let b):
             var o: [String: Any] = ["id": b.id.uuidString, "placeID": b.placeID, "name": b.name, "tier": b.tier.rawValue,
                                     "distance": metres(b.distance), "override": b.override, "detail": b.detail]
             if b.tourStop { o["tourStop"] = true }
+            if b.behind { o["behind"] = true }
             return o
         case .notified(let id, let kind, let s):
             return ["id": orNull(id?.uuidString), "kind": kind.rawValue,
@@ -204,6 +207,11 @@ public enum WalkLogCodec {
         return .some(s)
     }
     private static func objects(_ o: [String: Any], _ k: String) -> [[String: Any]]? { o[k] as? [[String: Any]] }
+    /// Optional flag: absent is false; a present value that is not a Bool makes the line unreadable (nil).
+    private static func optionalFlag(_ o: [String: Any], _ k: String) -> Bool? {
+        guard o[k] != nil else { return false }
+        return bool(o, k)
+    }
     /// "osmErrors": absent (older lines, or nothing failed) → []; present, it must be an array of strings, else nil.
     private static func osmErrors(_ o: [String: Any]) -> [String]? {
         guard let value = o["osmErrors"] else { return [] }
@@ -297,22 +305,22 @@ public enum WalkLogCodec {
                       let distance = double(p, "distance"), let excluded = bool(p, "excluded") else { return nil }
                 due.append(DuePlace(id: id, name: name, tier: tier, distance: distance, excluded: excluded))
             }
-            return .quiet(reason, due: due)
+            // `heldBy` is newer than the line: missing reads as nil; present, it must hold an id and a name.
+            var heldBy: HoldingPlace?
+            if let value = o["heldBy"] {
+                guard let holder = value as? [String: Any], let id = string(holder, "id"),
+                      let name = string(holder, "name") else { return nil }
+                heldBy = HoldingPlace(id: id, name: name)
+            }
+            return .quiet(reason, due: due, heldBy: heldBy)
         case "buzz":
             guard let id = uuid(o, "id"), let placeID = string(o, "placeID"), let name = string(o, "name"), let tier = tier(o),
                   let distance = double(o, "distance"), let override = bool(o, "override"), let detail = string(o, "detail")
             else { return nil }
-            // `tourStop` is newer than the line: missing reads as false; present, it must be a Bool.
-            let tourStop: Bool
-            if o["tourStop"] == nil {
-                tourStop = false
-            } else if let flag = bool(o, "tourStop") {
-                tourStop = flag
-            } else {
-                return nil
-            }
+            // `tourStop` and `behind` are newer than the line: missing reads as false; present, each must be a Bool.
+            guard let tourStop = optionalFlag(o, "tourStop"), let behind = optionalFlag(o, "behind") else { return nil }
             return .buzz(WalkLogBuzz(id: id, placeID: placeID, name: name, tier: tier, distance: distance, override: override,
-                                     detail: detail, tourStop: tourStop))
+                                     detail: detail, tourStop: tourStop, behind: behind))
         case "notified":
             guard let id = optionalUUID(o, "id"), let kind = raw(o, "kind", WalkNotificationKind.self),
                   let s = o["settings"] as? [String: Any],

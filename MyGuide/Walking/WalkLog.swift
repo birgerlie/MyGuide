@@ -43,10 +43,11 @@ final class WalkLog {
         Self.append(WalkLogEvent(at: date, kind: kind), to: writer)
     }
 
-    /// A `quiet` line only when the reason or the set of due place ids changed since the last one (spec 4.3).
-    func logQuiet(_ reason: QuietReason, due: [DuePlace], at date: Date = .now) {
-        guard writer != nil, quiet.shouldLog(reason, due: due) else { return }
-        log(.quiet(reason, due: due), at: date)
+    /// A `quiet` line only when the reason, the set of due place ids or the holding place changed since the last one
+    /// (spec 4.3, 20.6.6).
+    func logQuiet(_ reason: QuietReason, due: [DuePlace], heldBy: HoldingPlace? = nil, at date: Date = .now) {
+        guard writer != nil, quiet.shouldLog(reason, due: due, heldBy: heldBy) else { return }
+        log(.quiet(reason, due: due, heldBy: heldBy), at: date)
     }
 
     /// After a buzz, a pause or a resume the next quiet decision is always written.

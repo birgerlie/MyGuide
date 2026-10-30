@@ -1021,11 +1021,12 @@ import Testing
 
     // MARK: «Behind you» (20.3.3)
 
-    /// x (top, 40, at 10 S 50 E: 51 m) buzzes at t0. The story runs from t0+1 to t0+10. p (good, 32 sitelinks, 50 m
-    /// N, 78 m from x) is due during it (tracked within 60 m at t0+5). The walker is then 40 m S: p 90 m behind. The
-    /// engine starts at t0 − 180 at 60/h, so its budget is full (3) at t0.
+    /// x (top, 40, at 10 S 50 E: 51 m) buzzes at t0. The story runs from t0+1 to t0+25 (24 s ≥ the 20 s of spec
+    /// 20.6.1). p (good, 32 sitelinks, 50 m N, 78 m from x) is due during it (tracked within 60 m at t0+5). The walker
+    /// is then 40 m S: p 90 m behind, grown 40 m from its closest (passed). The engine starts at t0 − 180 at 60/h, so
+    /// its budget is full (3) at t0.
     static let x = place("x", .top, north: -10, east: 50, sitelinks: 40)
-    func storyPassing(_ p: WalkingPlace, end: Date = t0 + 10) -> BuzzEngine {
+    func storyPassing(_ p: WalkingPlace, end: Date = t0 + 25) -> BuzzEngine {
         var e = BuzzEngine(perHour: 60, now: Self.t0 - 180, excluded: [])
         #expect(e.evaluate(places: [Self.x], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == Self.x)
         e.setBusy(true, at: Self.t0 + 1)
@@ -1038,11 +1039,11 @@ import Testing
     static let p32 = place("p", .good, north: 50, sitelinks: 32)
 
     @Test func aFamousPlacePassedDuringAStoryBuzzesWhenItEnds() {
-        // End at t0+10; at t0+10 + 59.9 the walker is 40 m S: p 90 m (> 60, not passed-and-buzzable for good) →
-        // «behind you», although only 69.9 s after x's buzz (its 30 s gap is ignored anyway) and p is beyond 60 m.
+        // End at t0+25; at t0+25 + 59.9 the walker is 40 m S: p 90 m (> 60, not passed-and-buzzable for good) →
+        // «behind you», although p is beyond 60 m (its 30 s gap since x's buzz has passed too: 84.9 s).
         var e = storyPassing(Self.p32)
         let b = e.evaluate(places: [Self.x, Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 10 + 59.9)
+                           now: Self.t0 + 25 + 59.9)
         #expect(b?.place == Self.p32)
         #expect(b?.detail == "90 m behind you")
         #expect(BuzzEngine.behindYouWindow == 60 && BuzzEngine.behindYouSitelinks == 30)
@@ -1050,7 +1051,7 @@ import Testing
     @Test func behindYouEndsSixtySecondsAfterTheStory() {
         var e = storyPassing(Self.p32)
         let d = e.decide(places: [Self.x, Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
-                         now: Self.t0 + 10 + 60)
+                         now: Self.t0 + 25 + 60)
         #expect(d.buzz == nil)
     }
     @Test func behindYouReachesBeyondTheDropRadius() {
@@ -1059,48 +1060,49 @@ import Testing
         #expect(GeoMath.distance(.at(north: -70), .at(north: 50)) == 120)
         var e = storyPassing(Self.p32), f = storyPassing(Self.p32)
         #expect(e.evaluate(places: [Self.x, Self.p32], position: .at(north: -70), accuracy: 5, course: 180,
-                           now: Self.t0 + 20)?.place == Self.p32)
+                           now: Self.t0 + 30)?.place == Self.p32)
         #expect(f.evaluate(places: [Self.x, Self.p32], position: .at(north: -71), accuracy: 5, course: 180,
-                           now: Self.t0 + 20)?.place == Self.p32)
+                           now: Self.t0 + 30)?.place == Self.p32)
     }
     @Test func behindYouNeedsThirtySitelinks() {
         let p29 = Self.place("p", .good, north: 50, sitelinks: 29)
         var e = storyPassing(p29)
         #expect(e.evaluate(places: [Self.x, p29], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 20) == nil)
+                           now: Self.t0 + 30) == nil)
         let p30 = Self.place("p", .good, north: 50, sitelinks: 30)
         var f = storyPassing(p30)
         #expect(f.evaluate(places: [Self.x, p30], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 20)?.place == p30)
+                           now: Self.t0 + 30)?.place == p30)
     }
     @Test func behindYouSkipsExcludedPlacesAndPlacesNotDueDuringTheStory() {
         var e = storyPassing(Self.p32)
         e.exclude("p")
         #expect(e.evaluate(places: [Self.x, Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 20) == nil)
+                           now: Self.t0 + 30) == nil)
         // q (good, 40 sitelinks, 70 m N) was 70 m away during the story: never due (radius 60) → nothing after.
         let q = Self.place("q", .good, north: 70, sitelinks: 40)
         var f = storyPassing(q)
         #expect(f.evaluate(places: [Self.x, q], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 20) == nil)
+                           now: Self.t0 + 30) == nil)
     }
     @Test func behindYouHappensOncePerStory() {
         // p and r (good, 35, at 20 N 56 W: 59.5 m from the walker, 63.5 m from p, so its buzz does not exclude p)
         // were both due. The first «behind you» is r (more sitelinks), at sqrt(60² + 56²) = 82 m; p then waits for
-        // its normal rules: 90 m away (> 60) → no second buzz, although the window (to t0+70) is still open.
+        // its normal rules: 90 m away (> 60) → no second buzz, although the window (to t0+85) is still open.
         let r = Self.place("r", .good, north: 20, east: -56, sitelinks: 35)
         var e = BuzzEngine(perHour: 60, now: Self.t0 - 180, excluded: [])
         #expect(e.evaluate(places: [Self.x], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == Self.x)
         e.setBusy(true, at: Self.t0 + 1)
         _ = e.decide(places: [Self.x, Self.p32, r], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
-        e.setBusy(false, at: Self.t0 + 10)
+        e.setBusy(false, at: Self.t0 + 25)
         #expect(e.evaluate(places: [Self.x, Self.p32, r], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 15)?.place == r)
+                           now: Self.t0 + 30)?.place == r)
         #expect(e.evaluate(places: [Self.x, Self.p32, r], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 50) == nil)
+                           now: Self.t0 + 65) == nil)
     }
     @Test func busyEndSetThroughThePropertyCountsFromTheNextFix() {
-        // isBusy = false without a time: the window starts at the next decision (t0+30) and ends 60 s later.
+        // isBusy without a time: the story counts from the next decision (t0+5) to the next one after it ends
+        // (t0+30): 25 s ≥ 20. The window starts at t0+30 and ends 60 s later.
         var e = Self.engine()
         e.isBusy = true
         _ = e.decide(places: [Self.p32], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
@@ -1203,15 +1205,15 @@ import Testing
         guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
     }
 
-    /// x (top, 40) at 10 S 50 E buzzes at t0; the story runs t0+1 … t0+10; at t0+5 (walker at the origin) `behind`
-    /// (50 m N) is due; afterwards the walker is 40 m S.
+    /// x (top, 40) at 10 S 50 E buzzes at t0; the story runs t0+1 … t0+25 (24 s, spec 20.6.1); at t0+5 (walker at
+    /// the origin) `behind` (50 m N) is due; afterwards the walker is 40 m S.
     static let x = place("x", .top, north: -10, east: 50, sitelinks: 40)
     func story(_ behind: WalkingPlace) -> BuzzEngine {
         var e = Self.engine()
         #expect(e.evaluate(places: [Self.x], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == Self.x)
         e.setBusy(true, at: Self.t0 + 1)
         _ = e.decide(places: [Self.x, behind], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
-        e.setBusy(false, at: Self.t0 + 10)
+        e.setBusy(false, at: Self.t0 + 25)
         return e
     }
     @Test func behindYouGoesBeforeADuePlaceWithFewerSitelinks() {
@@ -1224,16 +1226,16 @@ import Testing
                            now: Self.t0 + 45)?.place == piazza)
     }
     @Test func aDuePlaceWithAsManyOrMoreSitelinksGoesFirst() {
-        // Same, but the place ahead has 38 (equal) or 50 (more): it buzzes first; «behind you» stays pending in
-        // the window and follows on a later fix (here at t0+50, still within 60 s of the end).
+        // Same, but the place ahead has 38 (equal) or 50 (more): it buzzes first. What follows in the app (its story
+        // preparing, which ends this window) is pinned in BuzzEngineReviewFixTests.
         for sitelinks in [38, 50] {
             let piazza = Self.place("piazza", .top, north: 50, sitelinks: 38)
             let ahead = Self.place("ahead", .top, north: -80, sitelinks: sitelinks)
             var e = story(piazza)
-            #expect(e.evaluate(places: [Self.x, piazza, ahead], position: .at(north: -40), accuracy: 5, course: 180,
-                               now: Self.t0 + 45)?.place == ahead, "ahead with \(sitelinks)")
-            #expect(e.evaluate(places: [Self.x, piazza, ahead], position: .at(north: -40), accuracy: 5, course: 180,
-                               now: Self.t0 + 50)?.place == piazza, "then behind with \(sitelinks)")
+            let b = e.evaluate(places: [Self.x, piazza, ahead], position: .at(north: -40), accuracy: 5, course: 180,
+                               now: Self.t0 + 45)
+            #expect(b?.place == ahead, "ahead with \(sitelinks)")
+            #expect(b?.behindYou == false)
         }
     }
 
@@ -1246,9 +1248,9 @@ import Testing
         let p = Self.place("p", .good, north: 50, sitelinks: 32)
         var e = story(p), f = story(p)
         #expect(e.evaluate(places: [Self.x, p], position: .at(north: -100), accuracy: 5, course: 180,
-                           now: Self.t0 + 20)?.place == p)
+                           now: Self.t0 + 30)?.place == p)
         #expect(f.evaluate(places: [Self.x, p], position: .at(north: -101), accuracy: 5, course: 180,
-                           now: Self.t0 + 20) == nil)
+                           now: Self.t0 + 30) == nil)
     }
 
     // MARK: Gap (20.4.4)
@@ -1339,8 +1341,8 @@ import Testing
 
     @Test func aPlaceJustOutsideItsRadiusOnTheFirstBusyFixIsRemembered() {
         // t0 at the origin: piazza 78 m (tracked). Busy from t0+1. First busy fix t0+2 at 2.02 m S: piazza 80.02 m,
-        // 2 cm outside its 80 m radius, still tracked (≤ 120). Busy ends t0+10. t0+15 at 40 m S: piazza 118 m
-        // (≤ 150) → «behind you».
+        // 2 cm outside its 80 m radius, still tracked (≤ 120). Busy ends t0+25 (24 s). t0+30 at 40 m S: piazza
+        // 118 m (≤ 150, grown 40 m from its closest) → «behind you».
         var e = Self.engine()
         #expect(e.evaluate(places: [Self.z, Self.piazza], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place
                 == Self.z)
@@ -1349,22 +1351,22 @@ import Testing
                             now: Self.t0 + 2)
         guard case .quiet(.busy, let due) = busy else { Issue.record("expected busy, got \(busy)"); return }
         #expect(abs((due.first { $0.id == "piazza" }?.distance ?? 0) - 80.02) < 0.01)
-        e.setBusy(false, at: Self.t0 + 10)
+        e.setBusy(false, at: Self.t0 + 25)
         let b = e.evaluate(places: [Self.z, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 15)
+                           now: Self.t0 + 30)
         #expect(b?.place == Self.piazza)
         // 118 m, shown rounded as BuzzText does.
         #expect(b?.detail == "120 m behind you")
     }
     @Test func theDecisionThatStartsTheStoryCountsWithoutAnyBusyFix() {
-        // No fix at all while busy (t0+1 … t0+10): the places tracked at the decision that started it (piazza at
-        // 78 m) are remembered. t0+15 at 40 m S: 118 m → «behind you».
+        // No fix at all while busy (t0+1 … t0+25): the places tracked at the decision that started it (piazza at
+        // 78 m) are remembered. t0+30 at 40 m S: 118 m → «behind you».
         var e = Self.engine()
         _ = e.evaluate(places: [Self.z, Self.piazza], position: .at(), accuracy: 5, course: 0, now: Self.t0)
         e.setBusy(true, at: Self.t0 + 1)
-        e.setBusy(false, at: Self.t0 + 10)
+        e.setBusy(false, at: Self.t0 + 25)
         #expect(e.evaluate(places: [Self.z, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 15)?.place == Self.piazza)
+                           now: Self.t0 + 30)?.place == Self.piazza)
     }
     @Test func aPlaceNeverInsideItsRadiusIsNotRemembered() {
         // q (top, 38, radius 80) stays at 85 m during the whole story (never tracked); after it, 125 m (≤ 150) → no
@@ -1374,9 +1376,9 @@ import Testing
         _ = e.evaluate(places: [Self.z, q], position: .at(), accuracy: 5, course: 0, now: Self.t0)
         e.setBusy(true, at: Self.t0 + 1)
         _ = e.decide(places: [Self.z, q], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 2)
-        e.setBusy(false, at: Self.t0 + 10)
+        e.setBusy(false, at: Self.t0 + 25)
         #expect(e.evaluate(places: [Self.z, q], position: .at(north: -40), accuracy: 5, course: 180,
-                           now: Self.t0 + 15) == nil)
+                           now: Self.t0 + 30) == nil)
     }
 
     // MARK: The old neighbour rule still holds too (20.5.1 as amended)
@@ -1406,16 +1408,336 @@ import Testing
                            now: Self.t0 + 5)?.place == Self.agata)
     }
     @Test func theNeighbourRuleKeepsTheThirtySecondCap() {
-        // The walker creeps north 0.1 m per fix from the origin, so San Crisogono stays above 60 m and approaching:
-        // held from t0+5; at t0+34 (29 s) still held; at t0+35 (30 s) Sant'Agata buzzes.
+        // "Approaching" needs 2 m per fix (spec 20.6.5), so the geometry is stretched: Sant'Agata at 50 N, San
+        // Crisogono at 105 N (55 m apart). The walker walks north 2 m per fix from 5 S, so San Crisogono stays
+        // beyond its 60 m radius and approaching (110 → 105 → 103 → 101): held from t0+5; at t0+34 (29 s) still
+        // held; at t0+35 (30 s) Sant'Agata (46 m) buzzes.
+        let agata = Self.place("agata", .wikiOnly, north: 50, sitelinks: 9)
+        let crisogono = Self.place("crisogono", .good, north: 105, sitelinks: 22)
         var e = Self.engine()
-        _ = e.decide(places: [Self.crisogono], position: .at(north: -5), accuracy: 5, course: 0, now: Self.t0)
-        for (y, dt) in [(0.0, 5.0), (0.1, 34)] {
-            let d = e.decide(places: [Self.agata, Self.crisogono], position: .at(north: y), accuracy: 5, course: 0,
+        _ = e.decide(places: [crisogono], position: .at(north: -5), accuracy: 5, course: 0, now: Self.t0)
+        for (y, dt) in [(0.0, 5.0), (2, 34)] {
+            let d = e.decide(places: [agata, crisogono], position: .at(north: y), accuracy: 5, course: 0,
                              now: Self.t0 + dt)
             guard case .quiet(.held, _) = d else { Issue.record("expected held at +\(dt), got \(d)"); return }
         }
-        #expect(e.evaluate(places: [Self.agata, Self.crisogono], position: .at(north: 0.2), accuracy: 5, course: 0,
+        #expect(e.evaluate(places: [agata, crisogono], position: .at(north: 4), accuracy: 5, course: 0,
+                           now: Self.t0 + 35)?.place == agata)
+    }
+}
+
+// MARK: - Spec 20.6: fixes from the tuning review
+
+@Suite struct BuzzEngineReviewFixTests {
+    static let t0 = Date(timeIntervalSince1970: 1_000_000)
+    static func place(_ id: String, _ tier: PlaceTier, north: Double, east: Double = 0, sitelinks: Int?) -> WalkingPlace {
+        WalkingPlace(candidate: Candidate(id: id, name: id, coordinate: .at(north: north, east: east), kind: "x",
+                                          sitelinks: sitelinks),
+                     tier: tier)
+    }
+    /// 60/h, started at t0 − 180 so the budget is full (3) at t0.
+    static func engine() -> BuzzEngine {
+        BuzzEngine(perHour: 60, now: t0 - 180, excluded: [])
+    }
+
+    /// The app's sequence (`WalkingController` + `WalkingPlayback`): one decision per second from t0 + `from` to
+    /// t0 + `to`; each buzz makes the engine busy at once (`setBusy(true)` at the buzz, since `buzzSent` starts
+    /// preparing the story) and free `preparation` seconds later (`storyReady`), with no tap from the owner.
+    static func run(_ e: inout BuzzEngine, _ places: [WalkingPlace], from: TimeInterval = 0, to: TimeInterval,
+                    preparation: TimeInterval = 5,
+                    position: (TimeInterval) -> Coordinate) -> [(t: TimeInterval, buzz: Buzz)] {
+        var buzzes: [(t: TimeInterval, buzz: Buzz)] = []
+        var freeAt: TimeInterval?
+        for t in stride(from: from, through: to, by: 1) {
+            if let free = freeAt, t >= free {
+                e.setBusy(false, at: t0 + free)
+                freeAt = nil
+            }
+            guard let b = e.evaluate(places: places, position: position(t), accuracy: 5, course: 180, now: t0 + t)
+            else { continue }
+            buzzes.append((t, b))
+            e.setBusy(true, at: t0 + t)
+            freeAt = t + preparation
+        }
+        return buzzes
+    }
+
+    // MARK: «Behind you» only after a real story, only for places passed, never within 30 s (20.6.1)
+
+    /// The review's probe (finding 1), walker at the origin, full budget:
+    /// - A (top, 50) at 10 N;
+    /// - B (good, 35) at (41.8 N, 27.44 E): sqrt(41.8² + 27.44²) = sqrt(1747.24 + 752.95) = 50.0 m from the walker,
+    ///   sqrt(31.8² + 27.44²) = sqrt(1011.24 + 752.95) = 42.0 m from A (beyond 25 m; 35 ≥ 20 keeps it out of the
+    ///   complex rule);
+    /// - C (top, 32, radius 80) at 75 S: inside its radius, not passed.
+    static let a = place("A", .top, north: 10, sitelinks: 50)
+    static let b = place("B", .good, north: 41.8, east: 27.44, sitelinks: 35)
+    static let c = place("C", .top, north: -75, sitelinks: 32)
+
+    @Test func theProbeGeometry() {
+        #expect(abs(GeoMath.distance(.at(), Self.b.candidate.coordinate) - 50) < 0.01)
+        #expect(abs(GeoMath.distance(Self.a.candidate.coordinate, Self.b.candidate.coordinate) - 42) < 0.01)
+    }
+    @Test func aStandingWalkerGetsNoBurstAfterTheStoryIsPrepared() {
+        // Before the fix: A at 0 s, C at 7 s, B at 14 s. Now:
+        // - t0: A buzzes (first, nothing ranks above it); busy t0 … t0+5 (5 s < 20 s: no «behind you»).
+        // - t0+5 … t0+29: B (50 m, good 35) may buzz but waits for its 30 s gap; C (75 m) is neither within 60 m nor
+        //   passed, and 75 < 90 rules out the override.
+        // - t0+30: B is held, since C ranks above it and is inside its own radius, not passed. The hold ends 30 s
+        //   later: B buzzes at t0+60.
+        // - C never buzzes: the walker never passes it.
+        var e = Self.engine()
+        let buzzes = Self.run(&e, [Self.a, Self.b, Self.c], to: 240) { _ in .at() }
+        #expect(buzzes.map(\.buzz.place.candidate.id) == ["A", "B"])
+        #expect(buzzes.map(\.t) == [0, 60])
+        #expect(buzzes.allSatisfy { !$0.buzz.behindYou })
+    }
+    @Test func aSlowWalkerGetsNoBurstAndThePlaceAheadIsNeverBehindYou() {
+        // 0.7 m/s towards C. Walking away from B, which passes 60 m at t ≈ 16.5 s
+        // (41.8 + 0.7t > sqrt(60² − 27.44²) = 53.36), before its 30 s gap ends.
+        // C is within 60 m from t ≈ 21.4 s (75 − 0.7t ≤ 60) and waits for its 30 s gap from A: it buzzes at t = 30
+        // (75 − 21 = 54 m), as an ordinary buzz.
+        var e = Self.engine()
+        let buzzes = Self.run(&e, [Self.a, Self.b, Self.c], to: 240) { .at(north: -0.7 * $0) }
+        #expect(buzzes.map(\.buzz.place.candidate.id) == ["A", "C"])
+        #expect(buzzes.map(\.t) == [0, 30])
+        #expect(buzzes.allSatisfy { !$0.buzz.behindYou })
+    }
+    @Test func noBuzzComesWithinThirtySecondsWhateverTheWalk() {
+        // The invariant the probe broke, for three walks: standing, 0.7 m/s towards C, 1.4 m/s away from it.
+        let walks: [(TimeInterval) -> Coordinate] = [{ _ in .at() }, { .at(north: -0.7 * $0) }, { .at(north: 1.4 * $0) }]
+        for (index, walk) in walks.enumerated() {
+            var e = Self.engine()
+            let buzzes = Self.run(&e, [Self.a, Self.b, Self.c], to: 300, position: walk)
+            for (earlier, later) in zip(buzzes, buzzes.dropFirst()) {
+                #expect(later.t - earlier.t >= 30, "walk \(index): \(earlier.t) → \(later.t)")
+            }
+            #expect(!buzzes.contains { $0.buzz.place == Self.c && $0.buzz.behindYou }, "walk \(index)")
+        }
+    }
+
+    /// x (top, 40) at 10 S 50 E buzzes at t0, walker at the origin. piazza (good, 38, radius 60) at 50 N,
+    /// sqrt(60² + 50²) = 78 m from x (no exclusion), is tracked at that decision (50 m). The walker then walks south at
+    /// 1 m/s and the engine is busy from t0 until t0 + `busy`, with a decision every 5 s.
+    static let x = place("x", .top, north: -10, east: 50, sitelinks: 40)
+    static let piazza = place("piazza", .good, north: 50, sitelinks: 38)
+    func story(busy: TimeInterval, _ behind: WalkingPlace = piazza) -> BuzzEngine {
+        var e = Self.engine()
+        #expect(e.evaluate(places: [Self.x, behind], position: .at(), accuracy: 5, course: 180, now: Self.t0)?.place
+                == Self.x)
+        e.setBusy(true, at: Self.t0)
+        for t in stride(from: 5.0, to: busy, by: 5) {
+            let d = e.decide(places: [Self.x, behind], position: .at(north: -t), accuracy: 5, course: 180,
+                             now: Self.t0 + t)
+            guard case .quiet(.busy, _) = d else { Issue.record("expected busy at +\(t), got \(d)"); return e }
+        }
+        e.setBusy(false, at: Self.t0 + busy)
+        return e
+    }
+
+    @Test func behindYouStillFollowsARealStory() {
+        // Busy 60 s. At t0+61 the walker is 61 m S: piazza 50 + 61 = 111 m (≤ 150), closest 50 → grown 61 m (≥ 5),
+        // 61 s after x (≥ 30), 1 s after the story → «behind you».
+        var e = story(busy: 60)
+        let b = e.evaluate(places: [Self.x, Self.piazza], position: .at(north: -61), accuracy: 5, course: 180,
+                           now: Self.t0 + 61)
+        #expect(b?.place == Self.piazza)
+        #expect(b?.behindYou == true)
+        #expect(b?.detail.hasSuffix("behind you") == true)
+        #expect(BuzzEngine.behindYouMinStory == 20)
+    }
+    @Test func behindYouNeedsTwentySecondsOfBusy() {
+        // At t0+30 the walker is 40 m S: piazza 90 m (> its 60 m radius, and good: no override), passed (90 ≥ 55),
+        // 30 s after x. Busy for 19.9 s (19.9 < 20) → nothing; for 20 s (20 ≥ 20) → «behind you».
+        var short = story(busy: 19.9)
+        #expect(short.evaluate(places: [Self.x, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                               now: Self.t0 + 30) == nil)
+        var long = story(busy: 20)
+        #expect(long.evaluate(places: [Self.x, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                              now: Self.t0 + 30)?.place == Self.piazza)
+    }
+    @Test func behindYouRespectsTheThirtySecondMinimum() {
+        // Busy 20 s, then at t0+29.9 (29.9 s after x, < 30) nothing; at t0+30 (30 s) piazza.
+        var e = story(busy: 20)
+        #expect(e.evaluate(places: [Self.x, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 29.9) == nil)
+        #expect(e.evaluate(places: [Self.x, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 30)?.place == Self.piazza)
+    }
+    @Test func behindYouNeedsThePlaceToBePassedByFiveMetres() {
+        // near (good, 38, radius 60) at 57 N: 57 m at x's decision (tracked, closest 57); the walker goes south during
+        // a 20 s story, then stands at 4.9 S: 61.9 m (beyond 60, so no normal buzz; good, so no override), grown 4.9
+        // (< 5) → nothing. At 5 S: 62 m, grown 5 (≥ 5) → «behind you».
+        let near = Self.place("near", .good, north: 57, sitelinks: 38)
+        #expect(GeoMath.distance(.at(north: -5), near.candidate.coordinate)
+                - GeoMath.distance(.at(), near.candidate.coordinate) == 5)
+        var short = story(busy: 20, near)
+        #expect(short.evaluate(places: [Self.x, near], position: .at(north: -4.9), accuracy: 5, course: 180,
+                               now: Self.t0 + 30) == nil)
+        var passed = story(busy: 20, near)
+        let b = passed.evaluate(places: [Self.x, near], position: .at(north: -5), accuracy: 5, course: 180,
+                                now: Self.t0 + 30)
+        #expect(b?.place == near && b?.behindYou == true)
+    }
+
+    // MARK: Ordering against the place that would actually buzz (20.6.2)
+
+    /// x buzzes at t0 (walker at the origin); a real story runs t0+1 … t0+30 with one busy decision at t0+5 (origin:
+    /// `behind` at 50 N is tracked).
+    func realStory(_ behind: WalkingPlace) -> BuzzEngine {
+        var e = Self.engine()
+        #expect(e.evaluate(places: [Self.x], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == Self.x)
+        e.setBusy(true, at: Self.t0 + 1)
+        _ = e.decide(places: [Self.x, behind], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
+        e.setBusy(false, at: Self.t0 + 30)
+        return e
+    }
+    static let topPiazza = place("piazza", .top, north: 50, sitelinks: 38)
+
+    @Test func behindYouBeatsTheTopPlaceWithFewerSitelinksEvenWhenAnotherHasMore() {
+        // The review's probe (finding 2). Walker at 40 S at t0+45: piazza (top, 38) 90 m behind, passed (90 ≥ 55).
+        // top20 (top, 20) at 80 S: 40 m ahead, first in the due order. good40 (good, 40) at (60 S, 30 E):
+        // sqrt(20² + 30²) = 36 m, 53.9 m from x but with 40 ≥ 20 sitelinks out of the complex rule. The place
+        // that would buzz is top20, 20 < 38 → «behind you» first; good40's 40 sitelinks do not count.
+        let top20 = Self.place("top20", .top, north: -80, sitelinks: 20)
+        let good40 = Self.place("good40", .good, north: -60, east: 30, sitelinks: 40)
+        var e = realStory(Self.topPiazza)
+        let b = e.evaluate(places: [Self.x, Self.topPiazza, top20, good40], position: .at(north: -40), accuracy: 5,
+                           course: 180, now: Self.t0 + 45)
+        #expect(b?.place == Self.topPiazza)
+        #expect(b?.behindYou == true)
+    }
+    @Test func behindYouGoesWhenThePlaceThatWouldBuzzIsHeld() {
+        // ahead (top, 50) at 80 S, 40 m from the walker, would go first (50 ≥ 38), but big (top, 60, radius 100) at
+        // 135 S is 95 m away, inside its radius and not passed, and holds it → «behind you» instead.
+        let ahead = Self.place("ahead", .top, north: -80, sitelinks: 50)
+        let big = Self.place("big", .top, north: -135, sitelinks: 60)
+        var e = realStory(Self.topPiazza)
+        let b = e.evaluate(places: [Self.x, Self.topPiazza, ahead, big], position: .at(north: -40), accuracy: 5,
+                           course: 180, now: Self.t0 + 45)
+        #expect(b?.place == Self.topPiazza)
+    }
+    @Test func aPlaceAheadWithAsManySitelinksGoesFirstAndItsPreparationEndsTheWindow() {
+        // Walker at 35 S: piazza (top, 38) 85 m behind: passed, beyond its 80 m radius, short of the 90 m override.
+        // ahead at 80 S (45 m) with 38 (equal) or 50 (more) sitelinks buzzes first at t0+45. As in the app, its story
+        // then prepares from t0+45 to t0+50: a new busy period replaces the window of the story that ended at t0+30,
+        // and it lasted 5 s (< 20) → no «behind you» follows, although the old window ran to t0+90.
+        for sitelinks in [38, 50] {
+            let ahead = Self.place("ahead", .top, north: -80, sitelinks: sitelinks)
+            var e = realStory(Self.topPiazza)
+            let places = [Self.x, Self.topPiazza, ahead]
+            let first = e.evaluate(places: places, position: .at(north: -35), accuracy: 5, course: 180, now: Self.t0 + 45)
+            #expect(first?.place == ahead, "ahead with \(sitelinks)")
+            #expect(first?.behindYou == false)
+            e.setBusy(true, at: Self.t0 + 45)
+            e.setBusy(false, at: Self.t0 + 50)
+            for t in stride(from: 50.0, through: 110, by: 5) {
+                #expect(e.evaluate(places: places, position: .at(north: -35), accuracy: 5, course: 180,
+                                   now: Self.t0 + t) == nil, "at +\(t) with \(sitelinks)")
+            }
+        }
+    }
+
+    // MARK: Clock set back (20.6.5)
+
+    @Test func aSkipDatedInTheFutureHoldsNothingOff() {
+        // The skip is noted at t0+100, then the clock goes back to t0+10: a place 30 m away buzzes.
+        var e = Self.engine()
+        e.noteSkip(at: Self.t0 + 100)
+        let castle = Self.place("castle", .top, north: 30, sitelinks: 40)
+        #expect(e.evaluate(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 10)?.place == castle)
+        // The skip itself still holds for 60 s: 59.9 s after it, quiet; 60 s after, the place buzzes.
+        var f = Self.engine()
+        f.noteSkip(at: Self.t0)
+        let d = f.decide(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 59.9)
+        guard case .quiet(.skipQuiet, _) = d else { Issue.record("expected skipQuiet, got \(d)"); return }
+        #expect(f.evaluate(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 60)?.place == castle)
+    }
+    @Test func anOverrideDatedInTheFutureDoesNotBlockTheNext() {
+        // o1 (top, 35, radius 80) at the origin: tracked at 70 m (walker 70 S), then at 91 m (91 S): beyond its
+        // radius, ≥ 90 and 91 > 70 + 10 → override at t0+1001. The clock then goes back to t0+500: o2 (top, 35) at
+        // 1000 N, tracked at 70 m (walker 930 N), then 91 m (909 N) → override again, although the last override is
+        // dated 501 s in the future (and so is the last buzz, which holds no gap off either).
+        let o1 = Self.place("o1", .top, north: 0, sitelinks: 35)
+        let o2 = Self.place("o2", .top, north: 1000, sitelinks: 35)
+        var e = BuzzEngine(perHour: 20, now: Self.t0, excluded: [])
+        _ = e.decide(places: [o1, o2], position: .at(north: -70), accuracy: 5, course: 180, now: Self.t0 + 1000)
+        let first = e.evaluate(places: [o1, o2], position: .at(north: -91), accuracy: 5, course: 180, now: Self.t0 + 1001)
+        #expect(first?.place == o1 && first?.usedOverride == true)
+        _ = e.decide(places: [o1, o2], position: .at(north: 930), accuracy: 5, course: 0, now: Self.t0 + 500)
+        let second = e.evaluate(places: [o1, o2], position: .at(north: 909), accuracy: 5, course: 0, now: Self.t0 + 501)
+        #expect(second?.place == o2 && second?.usedOverride == true)
+    }
+
+    // MARK: "Approaching" needs 2 m (20.6.5)
+
+    /// agata (Wiki-only, 9) at 50 N; crisogono (good, 22, radius 60) at 105 N: 55 m from agata (≤ 60), never inside
+    /// its own radius here, so only the neighbour rule can hold agata.
+    static let agata = place("agata", .wikiOnly, north: 50, sitelinks: 9)
+    static let crisogono = place("crisogono", .good, north: 105, sitelinks: 22)
+
+    @Test func approachingNeedsTheDistanceToShrinkByTwoMetres() {
+        // From 1.9 m S to the origin: 106.9 → 105, shrank 1.9 (< 2) → not approaching → agata (50 m) buzzes.
+        // From 2 m S: 107 → 105, shrank 2 (≥ 2) → agata held.
+        #expect(GeoMath.distance(.at(north: -2), Self.crisogono.candidate.coordinate)
+                - GeoMath.distance(.at(), Self.crisogono.candidate.coordinate) == 2)
+        #expect(BuzzEngine.approachingMargin == 2)
+        var f = Self.engine()
+        _ = f.decide(places: [Self.crisogono], position: .at(north: -1.9), accuracy: 5, course: 0, now: Self.t0)
+        #expect(f.evaluate(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0,
+                           now: Self.t0 + 5)?.place == Self.agata)
+        var e = Self.engine()
+        _ = e.decide(places: [Self.crisogono], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0)
+        let d = e.decide(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 5)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
+    }
+
+    // MARK: Log: the holder (20.6.6)
+
+    @Test func aHeldDecisionNamesThePlaceThatHolds() {
+        var e = Self.engine()
+        _ = e.decide(places: [Self.crisogono], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0)
+        let d = e.decide(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 5)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
+        #expect(e.heldBy == HoldingPlace(id: "crisogono", name: "crisogono"))
+        // A decision that is not held names no holder: 30 s after the hold began agata buzzes.
+        #expect(e.evaluate(places: [Self.agata, Self.crisogono], position: .at(north: 2), accuracy: 5, course: 0,
                            now: Self.t0 + 35)?.place == Self.agata)
+        #expect(e.heldBy == nil)
+    }
+    @Test func theBestRankedHolderIsNamed() {
+        // Both inside their radius from the walker and not passed: venezia (top, 38) at 78 N, sanMarco (top, 25) at
+        // 74 S. bonaparte (Wiki-only, 9) at 23 N is held by both; venezia ranks first.
+        let bonaparte = Self.place("bonaparte", .wikiOnly, north: 23, sitelinks: 9)
+        let venezia = Self.place("venezia", .top, north: 78, sitelinks: 38)
+        let sanMarco = Self.place("sanMarco", .top, north: -74, sitelinks: 25)
+        var e = Self.engine()
+        let d = e.decide(places: [bonaparte, sanMarco, venezia], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
+        #expect(e.heldBy?.id == "venezia")
+    }
+
+    // MARK: A skip ends a pending «behind you» (20.6.8)
+
+    @Test func aSkipDuringTheStoryEndsItsBehindYou() {
+        // Story t0+1 … t0+40 (39 s); skip at t0+20. At t0+85 (the skip's 60 s are over at t0+80; the window runs to
+        // t0+100; 85 s after x) the walker is 40 m S: piazza 90 m, passed. Without the skip it would buzz.
+        var skipped = realStory(Self.piazza, skipAt: Self.t0 + 20, end: Self.t0 + 40)
+        #expect(skipped.evaluate(places: [Self.x, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                                 now: Self.t0 + 85) == nil)
+        // A skip before the story started ends nothing.
+        var earlier = realStory(Self.piazza, skipAt: Self.t0 - 100, end: Self.t0 + 40)
+        #expect(earlier.evaluate(places: [Self.x, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                                 now: Self.t0 + 85)?.place == Self.piazza)
+    }
+    func realStory(_ behind: WalkingPlace, skipAt: Date, end: Date) -> BuzzEngine {
+        var e = Self.engine()
+        if skipAt < Self.t0 { e.noteSkip(at: skipAt) }
+        #expect(e.evaluate(places: [Self.x], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == Self.x)
+        e.setBusy(true, at: Self.t0 + 1)
+        _ = e.decide(places: [Self.x, behind], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
+        if skipAt >= Self.t0 { e.noteSkip(at: skipAt) }
+        e.setBusy(false, at: end)
+        return e
     }
 }
