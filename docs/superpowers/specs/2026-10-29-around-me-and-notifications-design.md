@@ -564,3 +564,33 @@ owner's earlier rulings «bedre med for mye enn for lite» and «for mange buzz 
 7. **Cadence.** At least 30 s between two buzzes, whatever the hourly setting.
 8. **Refetching while OSM fails.** The OSM retry backs off 60 s → 120 s → 300 s while the list keeps failing, and
    resets when OSM answers or the walker moves 250 m.
+
+### 20.2 Iteration 2 (replay after spec 20)
+
+Spec 20 fixed coverage: Trevi, the Colosseum, Campo de' Fiori, Ponte Sant'Angelo and Palazzo Farnese now buzz,
+and missed landmarks fell from 31 to 12. Volume became the problem: 47–62 buzzes per hour on the routes, a third
+of them about places with fewer than 10 sitelinks. Decisions *(Claude's calls)*:
+
+1. **The gap depends on rank.** After any buzz, the next one waits:
+   - 30 s before a `top` place;
+   - 90 s before a `good` place with at least 10 sitelinks;
+   - 240 s before anything else (`good` with fewer than 10 sitelinks, `wikiOnly`).
+
+   A Wikipedia-only `place` with fewer than 10 sitelinks is `wikiOnly`, not `good`.
+2. **Exclusion respects rank.** The 25 m same-spot rule, like the 40 m complex rule, excludes only places ranked
+   equal or lower. Same Wikidata id always excludes. Hills and islands never exclude others and are at most `good`.
+3. **The wide radius buzzes at closest approach.** Between 60 m and a place's due radius, a place buzzes only once
+   its distance has grown at least 5 m from the smallest distance seen (it is being passed). Within 60 m it buzzes
+   as before.
+4. **Wikipedia limit:** 100 articles per language per fetch, instead of 50.
+5. **Complex radius:** 55 m, instead of 40.
+6. **Classes:**
+   - road Q34442 is `area`, like a street;
+   - metro station Q928830 and treaty Q131569 are `nonPlace`;
+   - `unknown` with fewer than 20 sitelinks is dropped;
+   - a non-street `area` (neighbourhood, administrative) is dropped.
+
+   An English-only candidate shows its story-language title when the Wikidata item has a sitelink in that
+   language (from the same SPARQL query).
+7. **Wikidata reliability.** A failed or timed-out batch is retried once, split into two halves run concurrently,
+   each with the 8 s timeout.
