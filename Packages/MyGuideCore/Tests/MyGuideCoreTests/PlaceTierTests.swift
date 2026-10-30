@@ -152,10 +152,9 @@ import Testing
         #expect(PlaceTiers.goodSitelinks == 10)
         // A non-street area is dropped whatever its sitelinks (spec 20.2.6).
         #expect(PlaceTiers.tier(for: Self.wiki(.area, sitelinks: 100)) == nil)
-        // Unknown: Wiki-only from 20 sitelinks, dropped below (spec 20.2.6).
-        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 44)) == .wikiOnly)
-        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 20)) == .wikiOnly)
-        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 19)) == nil)
+        // Unknown is always dropped (spec 20.4.5): Rione Campo Marzio (terrain, 44) goes out.
+        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 44)) == nil)
+        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 20)) == nil)
         #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 0)) == nil)
         // No facts: today's rule (an article without tags is Wiki-only).
         #expect(PlaceTiers.tier(for: Self.wiki(nil)) == .wikiOnly)
@@ -200,14 +199,15 @@ import Testing
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, tags: ["historic": "yes"])))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.place, sitelinks: 5)))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(nil)))
-        // Spec 20.6, 20.2.6: settlements and other areas are dropped; streets and unknown items below 20 sitelinks
-        // too; a 20-sitelink street or unknown item is not.
+        // Spec 20.6, 20.2.6, 20.4.5: settlements, other areas and unknown items are dropped; streets below 20
+        // sitelinks too; a 20-sitelink street is not.
         #expect(PlaceTiers.isDroppedByClass(Self.wiki(.settlement, sitelinks: 344)))
         #expect(PlaceTiers.isDroppedByClass(Self.wiki(.area, sitelinks: 68)))
         #expect(PlaceTiers.isDroppedByClass(Self.wiki(.street, sitelinks: 19)))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.street, sitelinks: 20)))
         #expect(PlaceTiers.isDroppedByClass(Self.wiki(.unknown, sitelinks: 19)))
-        #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.unknown, sitelinks: 20)))
+        // Spec 20.4.5: an unknown item is dropped whatever its sitelinks.
+        #expect(PlaceTiers.isDroppedByClass(Self.wiki(.unknown, sitelinks: 44)))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.natural, sitelinks: 1)))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.settlement, sitelinks: 344, tags: ["place": "city"])))
         // A blank name is dropped by the name rule, not by its class.
@@ -303,5 +303,17 @@ import Testing
                 == .good)
         #expect(PlaceTiers.tier(for: Self.osm(["place": "square"], wiki: "it:X", .natural, sitelinks: 68)) == .wikiOnly)
         #expect(PlaceTiers.tier(for: Self.osm(["amenity": "bank"], wiki: "it:X", .natural, sitelinks: 68)) == nil)
+    }
+
+    // MARK: - Spec 20.4.5: unknown is dropped for Wikipedia-only items; OSM tags still decide
+
+    @Test func unknownOSMItemsKeepTheirTagTier() {
+        // A church whose item is `unknown` (20 sitelinks) is good by its tags; a castle top; a plain historic=yes
+        // with an article Wiki-only. Only the Wikipedia-only `unknown` is dropped, and listed as dropped.
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "place_of_worship"], .unknown, sitelinks: 20)) == .good)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "castle"], .unknown, sitelinks: 44)) == .top)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "yes"], wiki: "it:X", .unknown, sitelinks: 44)) == .wikiOnly)
+        #expect(!PlaceTiers.isDroppedByClass(Self.osm(["historic": "castle"], .unknown, sitelinks: 44)))
+        #expect(PlaceTiers.tier(for: Self.wiki(.unknown, sitelinks: 44)) == nil)
     }
 }
