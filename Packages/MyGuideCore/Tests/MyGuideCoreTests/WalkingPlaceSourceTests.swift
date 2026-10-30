@@ -503,8 +503,9 @@ import Testing
         #expect(result.candidates.contains { $0.id == "wiki:en/9" && $0.name == "Fontana di Trevi" })
         #expect(languages.value.count == 2 && languages.value.allSatisfy { $0 == .norwegian })
     }
-    @Test func walkingAsksForSixBatchesWithWikipediaOnlyIdsFirst() async throws {
-        // The walking lookup uses the default cap (6 batches, spec 20.2.4); its first call holds only Wikipedia ids.
+    @Test func walkingAsksForTwelveBatchesWithWikipediaOnlyIdsFirst() async throws {
+        // The walking lookup uses the default cap (12 batches of 25 = 300 ids, spec 20.2.4 and 20.3.6); its first
+        // call holds only Wikipedia ids.
         let caps = LockedBox<[Int]>([])
         let calls = LockedBox<[[String]]>([])
         let lookup = PlaceFactsLookup(capped: { ids, maxBatches in
@@ -514,7 +515,7 @@ import Testing
         })
         let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
         _ = try await source(http, facts: lookup).candidates(around: here, language: .english)
-        #expect(caps.value == [6, 6])
+        #expect(caps.value == [12, 12])
         #expect(calls.value == [["Q1", "Q2", "Q3"], ["Q20"]])
         // Mixed lists: untagged ids before tagged ones.
         let tagged = Candidate(id: "osm:node/1", name: "T", coordinate: here, kind: "x", wikidata: "Q100",

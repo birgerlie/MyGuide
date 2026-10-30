@@ -28,11 +28,28 @@ public struct PlaceFacts: Sendable, Equatable, Codable {
     public var placeClass: PlaceClass
     /// The item's article title on the story language's Wikipedia; nil when it has none or none was asked for.
     public var localTitle: String?
+    /// The item is a work of art (subclass of Q838948), whatever its class: famous art is not excluded by the spot
+    /// of another item (spec 20.3.5).
+    public var isArt: Bool
 
-    public init(sitelinks: Int, placeClass: PlaceClass, localTitle: String? = nil) {
+    public init(sitelinks: Int, placeClass: PlaceClass, localTitle: String? = nil, isArt: Bool = false) {
         self.sitelinks = sitelinks
         self.placeClass = placeClass
         self.localTitle = localTitle
+        self.isArt = isArt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sitelinks, placeClass, localTitle, isArt
+    }
+
+    /// `isArt` reads false when missing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sitelinks = try c.decode(Int.self, forKey: .sitelinks)
+        placeClass = try c.decode(PlaceClass.self, forKey: .placeClass)
+        localTitle = try c.decodeIfPresent(String.self, forKey: .localTitle)
+        isArt = try c.decodeIfPresent(Bool.self, forKey: .isArt) ?? false
     }
 }
 
@@ -50,10 +67,11 @@ public actor PlaceFactsCache {
     /// Version 2: a place that is also an administrative area is `place` (final review 30 Oct). Version 3: hills,
     /// islands and settlements, and an organisation that is a place only as a work of art is `nonPlace` (spec 20.6).
     /// Version 4: streets and roads, natural places, metro stations and treaties, story-language titles, keys by
-    /// title language (spec 20.2.6).
-    static let fileName = "place-facts-v4.json"
+    /// title language (spec 20.2.6). Version 5: `isArt` (spec 20.3.5).
+    static let fileName = "place-facts-v5.json"
     /// Files of earlier formats, deleted when the cache first loads.
-    static let legacyFileNames = ["place-facts.json", "place-facts-v2.json", "place-facts-v3.json"]
+    static let legacyFileNames = ["place-facts.json", "place-facts-v2.json", "place-facts-v3.json",
+                                  "place-facts-v4.json"]
 
     private struct Entry: Codable {
         /// Nil: Wikidata answered but has no row for the id.
@@ -195,7 +213,8 @@ public actor PlaceFactsCache {
 }
 
 extension Array where Element == Candidate {
-    /// Sets `sitelinks` and `placeClass` from `facts` (by `wikidata` id); candidates without facts are unchanged.
+    /// Sets `sitelinks`, `placeClass` and `isArt` from `facts` (by `wikidata` id); candidates without facts are
+    /// unchanged.
     /// With a `language`, a Wikipedia-only candidate whose article is in another language (an English article in a
     /// Norwegian walk) takes the item's `localTitle` as its name when there is one (spec 20.2.6).
     public func applying(_ facts: [String: PlaceFacts], language: StoryLanguage? = nil) -> [Candidate] {
@@ -204,6 +223,7 @@ extension Array where Element == Candidate {
             var copy = candidate
             copy.sitelinks = found.sitelinks
             copy.placeClass = found.placeClass
+            copy.isArt = found.isArt
             if let language, let title = found.localTitle, !title.isEmpty, candidate.id.hasPrefix("wiki:"),
                !candidate.id.hasPrefix("wiki:\(language.wikipediaCode)/") {
                 copy.name = title

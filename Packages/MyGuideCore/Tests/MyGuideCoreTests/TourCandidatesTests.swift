@@ -362,7 +362,7 @@ import Testing
 
     @Test func fourHundredFiftyWikipediaOnlyTourPlacesGetFactsUpToTheTourCap() async throws {
         // OpenStreetMap fails; Wikipedia gives 450 articles, Q1001...Q1450, in that order. Through the real cache and
-        // client, 8 batches × 50 = 400 ids are asked (walking's cap would be 4 × 50 = 200). Each answered item is a
+        // client, 16 batches × 25 = 400 ids are asked (walking's cap would be 12 × 25 = 300). Each answered item is a
         // place with 40 sitelinks (≥ 30 → top); the 50 left out stay wikiOnly.
         let pages = (1...450).map { i in
             #"{"pageid":\#(i),"title":"P\#(i)","coordinates":[{"lat":0.001,"lon":0.001}],"extract":"A building.","pageprops":{"wikibase_item":"Q\#(1000 + i)"}}"#
@@ -378,7 +378,7 @@ import Testing
                                                              client: WikidataClient(http: http)))
         let places = try await source.places(in: area, language: .english)
         let wikidataRequests = http.requests.filter { $0.url?.host == "query.wikidata.org" }
-        #expect(wikidataRequests.count == 8)
+        #expect(wikidataRequests.count == 16)
         #expect(places.count == 450)
         #expect(places.filter { $0.tier == .top }.count == 400)
         #expect(places.filter { $0.tier == .wikiOnly }.count == 50)

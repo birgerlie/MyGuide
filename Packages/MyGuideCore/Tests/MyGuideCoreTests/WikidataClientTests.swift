@@ -56,7 +56,7 @@ import Foundation
         #expect(r.httpMethod == "GET")
         #expect(r.url!.absoluteString.hasPrefix("https://query.wikidata.org/sparql?query="))
         #expect(!r.url!.absoluteString.dropFirst(40).contains(" "))
-        #expect(r.timeoutInterval == 8)
+        #expect(r.timeoutInterval == 10)
         #expect(r.value(forHTTPHeaderField: "Accept") == "application/sparql-results+json")
         #expect(r.value(forHTTPHeaderField: "User-Agent") == OverpassClient.userAgent)
         #expect(Self.sparql(r) == WikidataClient.query(ids: ["Q42"]))
@@ -216,30 +216,31 @@ import Foundation
         #expect(f == ["Q3": PlaceFacts(sitelinks: 3, placeClass: .unknown)])
     }
 
-    @Test func oneHundredTwentyIdsMakeThreeRequests() async throws {
+    @Test func oneHundredTwentyIdsMakeFiveRequests() async throws {
         let http = StubHTTPClient { _ in (200, Self.body([])) }
         _ = try await WikidataClient(http: http).facts(for: Self.ids(120))
-        // 120 = 50 + 50 + 20; requests run concurrently so compare sorted.
-        #expect(http.requests.map(Self.idCount).sorted() == [20, 50, 50])
+        // Batches of 25 (spec 20.3.6): 120 = 4 × 25 + 20; requests run concurrently so compare sorted.
+        #expect(WikidataClient.batchSize == 25)
+        #expect(http.requests.map(Self.idCount).sorted() == [20, 25, 25, 25, 25])
     }
 
-    @Test func threeHundredFiftyIdsAreCappedAtSixBatches() async throws {
+    @Test func threeHundredFiftyIdsAreCappedAtTwelveBatches() async throws {
         let http = StubHTTPClient { _ in (200, Self.body([])) }
         _ = try await WikidataClient(http: http).facts(for: Self.ids(350))
-        // 6 batches × 50 = 300 ids (spec 20.2.4: walking takes 6); the last 50 are left out.
-        #expect(http.requests.map(Self.idCount) == [50, 50, 50, 50, 50, 50])
+        // 12 batches × 25 = 300 ids (spec 20.2.4 and 20.3.6: walking keeps 300); the last 50 are left out.
+        #expect(http.requests.map(Self.idCount) == Array(repeating: 25, count: 12))
         let asked = Set(http.requests.flatMap { Self.sparql($0).components(separatedBy: "VALUES ?item {")[1]
             .components(separatedBy: "}")[0].split(separator: " ").filter { $0.hasPrefix("wd:") } })
         #expect(asked.count == 300)
         #expect(asked.contains("wd:Q300") && !asked.contains("wd:Q301"))
     }
 
-    @Test func toursTakeEightBatchesFourAtATime() async throws {
+    @Test func toursTakeSixteenBatchesFourAtATime() async throws {
         let http = GaugedHTTP()
         let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(450), maxBatches: WikidataClient.tourMaxBatches)
-        // 8 batches × 50 = 400 ids: Q1...Q400 asked, Q401...Q450 left out.
-        #expect(WikidataClient.tourMaxBatches == 8)
-        #expect(http.requests.count == 8)
+        // 16 batches × 25 = 400 ids: Q1...Q400 asked, Q401...Q450 left out.
+        #expect(WikidataClient.tourMaxBatches == 16)
+        #expect(http.requests.count == 16)
         let asked = http.requests.flatMap(Self.askedIds)
         #expect(asked.count == 400 && Set(asked) == Set(Self.ids(400)))
         #expect(answer.answered == Set(Self.ids(400)))
@@ -247,23 +248,23 @@ import Foundation
         #expect(http.peak == WikidataClient.maxConcurrentBatches && WikidataClient.maxConcurrentBatches == 4)
     }
 
-    @Test func defaultCapIsSixBatchesFourAtATime() async throws {
+    @Test func defaultCapIsTwelveBatchesFourAtATime() async throws {
         let http = GaugedHTTP()
         _ = try await WikidataClient(http: http).lookup(ids: Self.ids(450))
-        // 6 × 50 = 300 ids, never more than 4 requests at once.
-        #expect(WikidataClient.maxBatches == 6)
-        #expect(http.requests.count == 6 && http.requests.flatMap(Self.askedIds).count == 300 && http.peak == 4)
+        // 12 × 25 = 300 ids, never more than 4 requests at once.
+        #expect(WikidataClient.maxBatches == 12)
+        #expect(http.requests.count == 12 && http.requests.flatMap(Self.askedIds).count == 300 && http.peak == 4)
     }
 
     @Test func failedBatchInALaterWindowIsCounted() async throws {
-        // 300 ids, cap 8 → 6 batches; the 6th (Q251...Q300) starts only after one of the first 4 is done, and fails.
-        // Its retry: Q251...Q275 fails again, Q276...Q300 answers → 6 + 2 = 8 requests, 1 failed batch,
-        // 250 + 25 = 275 ids answered.
-        let http = GaugedHTTP { r in Self.askedIds(r).contains("Q251") ? 500 : 200 }
-        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(300), maxBatches: 8)
+        // 150 ids, cap 8 → 6 batches of 25; the 6th (Q126...Q150) starts only after one of the first 4 is done, and
+        // fails. Its retry: Q126...Q138 (13, holds Q126) fails again, Q139...Q150 (12) answers → 6 + 2 = 8 requests,
+        // 1 failed batch, 125 + 12 = 137 ids answered.
+        let http = GaugedHTTP { r in Self.askedIds(r).contains("Q126") ? 500 : 200 }
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(150), maxBatches: 8)
         #expect(http.requests.count == 8 && http.peak <= 4)
         #expect(answer.failedBatches == 1)
-        #expect(answer.answered == Set(Self.ids(250) + (276...300).map { "Q\($0)" }))
+        #expect(answer.answered == Set(Self.ids(125) + (139...150).map { "Q\($0)" }))
     }
 
     @Test func duplicatesAndInvalidIdsDoNotCountTowardBatches() async throws {
@@ -277,7 +278,7 @@ import Foundation
 
     @Test func failedBatchIsLeftOutOthersSucceed() async throws {
         let http = StubHTTPClient { r in
-            // The batch holding Q1 (the first 50 ids) fails; the batch of Q51...Q60 answers.
+            // The batch holding Q1 (the first 25 ids) fails; Q26...Q50 and Q51...Q60 answer.
             Self.askedIds(r).contains("Q1")
                 ? (500, Data())
                 : (200, Self.body([Self.row("Q51", n: 5, place: true)]))
@@ -285,9 +286,9 @@ import Foundation
         let f = try await WikidataClient(http: http).facts(for: Self.ids(60))
         #expect(f == ["Q51": PlaceFacts(sitelinks: 5, placeClass: .place)])
         let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(60))
-        // The failed batch Q1...Q50 is retried as Q1...Q25 (fails again: it holds Q1) and Q26...Q50 (answers):
-        // 25 + 10 = 35 ids answered, one batch failed.
-        #expect(answer.answered == Set(Self.ids(60).suffix(35)) && answer.failedBatches == 1)
+        // The failed batch Q1...Q25 is retried as Q1...Q13 (fails again: it holds Q1) and Q14...Q25 (answers):
+        // 12 + 25 + 10 = 47 ids answered, one batch failed.
+        #expect(answer.answered == Set(Self.ids(60).suffix(47)) && answer.failedBatches == 1)
     }
 
     @Test func answeredIdsWithoutRowAreReported() async throws {
@@ -339,24 +340,25 @@ import Foundation
             if n == 1 { throw URLError(.timedOut) }
             return (200, Self.body(Self.askedIds(r).map { Self.row($0, n: 1, place: true) }))
         }
-        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(50))
-        #expect(http.requests.map(Self.idCount) == [50, 25, 25])
-        #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(50)) && answer.facts.count == 50)
-        // Every retried half keeps the 8 s timeout.
-        #expect(http.requests.allSatisfy { $0.timeoutInterval == 8 })
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(25))
+        // 25 → halves of 13 and 12.
+        #expect(http.requests.map(Self.idCount) == [25, 13, 12])
+        #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(25)) && answer.facts.count == 25)
+        // Every retried half keeps the 10 s timeout.
+        #expect(http.requests.allSatisfy { $0.timeoutInterval == 10 })
     }
     @Test func aBatchIsRetriedOnlyOnce() async throws {
         // Always failing: 1 request + 2 halves, no further splitting; one failed batch.
         let http = StubHTTPClient { _ in (500, Data()) }
-        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(50))
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(25))
         #expect(http.requests.count == 3 && answer.failedBatches == 1 && answer.answered.isEmpty)
     }
     @Test func retriedHalvesShareTheFourRequestWindow() async throws {
-        // 4 batches all fail once: 4 first requests, then 8 halves, never more than 4 in flight.
-        let http = GaugedHTTP { r in Self.askedIds(r).count == 50 ? 500 : 200 }
-        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(200))
+        // 4 batches of 25 all fail once: 4 first requests, then 8 halves (13 and 12), never more than 4 in flight.
+        let http = GaugedHTTP { r in Self.askedIds(r).count == 25 ? 500 : 200 }
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(100))
         #expect(http.requests.count == 4 + 8 && http.peak == 4)
-        #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(200)))
+        #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(100)))
     }
     @Test func cancellationIsNotRetried() async {
         let http = StubHTTPClient { _ in throw CancellationError() }
@@ -396,6 +398,27 @@ import Foundation
         let f = try WikidataClient.parse(Self.body([Self.row("Q1", n: 1, title: "  ", place: true),
                                                     Self.row("Q2", n: 1, place: true)]))
         #expect(f["Q1"]?.localTitle == nil && f["Q2"]?.localTitle == nil)
+    }
+    @Test func artFlagIsKeptAsIsArt() throws {
+        // Spec 20.3.5: Fontana della Barcaccia (Q1114231: art and place, 32 sitelinks) and the Capitoline Wolf
+        // (Q408623: art only, 43) are works of art; Il Gesù is not.
+        let f = try WikidataClient.parse(Self.body([
+            Self.row("Q1114231", n: 32, place: true, art: true),
+            Self.row("Q408623", n: 43, art: true),
+            Self.row("Q719794", n: 40, place: true, nonplace: true),
+        ]))
+        #expect(f["Q1114231"] == PlaceFacts(sitelinks: 32, placeClass: .place, isArt: true))
+        #expect(f["Q408623"] == PlaceFacts(sitelinks: 43, placeClass: .place, isArt: true))
+        #expect(f["Q719794"]?.isArt == false)
+        // Art that is also a non-place (the Order of Malta) is not art.
+        let order = try WikidataClient.parse(Self.body([Self.row("Q190353", n: 83, art: true, nonplace: true)]))
+        #expect(order["Q190353"]?.isArt == false)
+    }
+    @Test func placeFactsWithoutIsArtDecodeAsNotArt() throws {
+        let old = Data(#"{"sitelinks":32,"placeClass":"place"}"#.utf8)
+        #expect(try JSONDecoder().decode(PlaceFacts.self, from: old) == PlaceFacts(sitelinks: 32, placeClass: .place))
+        let art = PlaceFacts(sitelinks: 32, placeClass: .place, localTitle: "X", isArt: true)
+        #expect(try JSONDecoder().decode(PlaceFacts.self, from: JSONEncoder().encode(art)) == art)
     }
     @Test func metroStationAndTreatyAreNonPlacesBeforeAnything() throws {
         // Venezia (Rome Metro) is a structure; Roma-vedtektene is a treaty.

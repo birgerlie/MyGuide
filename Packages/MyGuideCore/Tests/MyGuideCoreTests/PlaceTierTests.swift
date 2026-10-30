@@ -255,28 +255,39 @@ import Testing
         #expect(PlaceTiers.tier(for: Self.osm(["historic": "memorial", "memorial": "plaque"], wiki: "it:X", .place,
                                               sitelinks: 90)) == .wikiOnly)
     }
-    @Test func osmTopWithFewerThanFiveSitelinksIsGood() {
-        // Tempio C: historic=ruins (top by tags) with 1 sitelink → good. 5 is top again; no facts (nil) stays top.
-        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .place, sitelinks: 1)) == .good)
-        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .unknown, sitelinks: 4)) == .good)
-        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .place, sitelinks: 5)) == .top)
+    @Test func osmItemWithFewerThanTenSitelinksIsAtMostWikiOnly() {
+        // Spec 20.3.4: Tempio C (historic=ruins, top by tags, 1 sitelink) and the Museo Nazionale del Palazzo di
+        // Venezia (museum with an article, top by tags, 8) → Wiki-only; 9 → Wiki-only, 10 → the tag tier again.
+        // Without facts (nil) the tags decide.
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .place, sitelinks: 1)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "museum"], wiki: "it:X", .place, sitelinks: 8)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .unknown, sitelinks: 9)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], .place, sitelinks: 10)) == .top)
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "place_of_worship"], .place, sitelinks: 9)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "place_of_worship"], .place, sitelinks: 10)) == .good)
         #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"])) == .top)
-        #expect(PlaceTiers.tier(for: Self.osm(["historic": "ruins"], wikidata: nil)) == .top)
-        // Good lifted to top by an article counts as tagged top: 4 sitelinks → good, 8 (Museo Nazionale del
-        // Palazzo di Venezia) stays top.
-        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "museum"], wiki: "it:X", .place, sitelinks: 4)) == .good)
-        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "museum"], wiki: "it:X", .place, sitelinks: 8)) == .top)
-        #expect(PlaceTiers.osmTopMinSitelinks == 5)
+        // A Wiki-only tag tier stays Wiki-only; the never-list still vetoes.
+        #expect(PlaceTiers.tier(for: Self.osm(["place": "square"], wiki: "it:X", .place, sitelinks: 3)) == .wikiOnly)
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "bank"], wiki: "it:X", .place, sitelinks: 3)) == nil)
+        #expect(PlaceTiers.osmMinSitelinks == 10)
     }
-    @Test func osmGoodWithoutArticleOrWikidataIsWikiOnly() {
-        // Fox Gallery: tourism=gallery, no article, no Wikidata id → Wiki-only. An empty id is no id. With an id
-        // (facts or not) it stays good; with an article it is lifted to top as before.
-        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wikidata: nil)) == .wikiOnly)
-        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wikidata: "")) == .wikiOnly)
+    @Test func osmItemWithoutWikidataIsDroppedUnlessAHistoricLandmark() {
+        // Spec 20.3.4: Fox Gallery (tourism=gallery), a church, a memorial without Wikidata id → dropped; an empty id
+        // is no id; an article does not save it. historic=castle, ruins, archaeological_site and monument keep
+        // their tag tier (top).
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wikidata: nil)) == nil)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wikidata: "")) == nil)
+        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wiki: "it:X", wikidata: nil)) == nil)
+        #expect(PlaceTiers.tier(for: Self.osm(["amenity": "place_of_worship"], wikidata: nil)) == nil)
+        #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial"], wikidata: nil)) == nil)
+        for value in ["castle", "ruins", "archaeological_site", "monument"] {
+            #expect(PlaceTiers.tier(for: Self.osm(["historic": value], wikidata: nil)) == .top, "\(value)")
+        }
+        #expect(PlaceTiers.tier(for: Self.osm(["historic": "palace"], wikidata: nil)) == nil)
+        // With an id (facts or not) a gallery stays good.
         #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"])) == .good)
-        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], .place, sitelinks: 2)) == .good)
-        #expect(PlaceTiers.tier(for: Self.osm(["tourism": "gallery"], wiki: "it:X", wikidata: nil)) == .top)
-        #expect(PlaceTiers.tier(for: Self.c(["historic": "memorial"], wikidata: nil)) == .wikiOnly)
+        // A Wikipedia-only candidate is not an OSM candidate: no Wikidata id keeps today's Wiki-only.
+        #expect(PlaceTiers.tier(for: Self.c(nil, kind: "wikipedia", id: "wiki:en/123", wikidata: nil)) == .wikiOnly)
     }
 
     // MARK: - Spec 20.2.2: hills and islands are at most good

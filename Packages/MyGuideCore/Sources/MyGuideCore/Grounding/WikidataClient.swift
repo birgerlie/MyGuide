@@ -3,14 +3,15 @@ import Foundation
 /// Fetches sitelink counts and place classes for Wikidata items from the Wikidata Query Service (spec 19).
 public struct WikidataClient: Sendable {
     static let endpoint = "https://query.wikidata.org/sparql"
-    static let timeout: TimeInterval = 8
+    /// Per request (spec 20.3.6).
+    static let timeout: TimeInterval = 10
     /// Ids per request, and requests per call by default (walking): ids beyond `batchSize * maxBatches` are left out.
-    /// Walking asks for up to 6 batches (300 ids): with 100 articles per language a merged list can pass 200 ids
-    /// (spec 20.2.4).
-    static let batchSize = 50
-    public static let maxBatches = 6
-    /// Requests per call for a tour, whose area holds far more articles than a walk's list (400 ids).
-    public static let tourMaxBatches = 8
+    /// Walking asks for up to 12 batches of 25 (300 ids): with 100 articles per language a merged list can pass 200
+    /// ids (spec 20.2.4). Batches of 25 answer faster than 50 (spec 20.3.6).
+    static let batchSize = 25
+    public static let maxBatches = 12
+    /// Requests per call for a tour, whose area holds far more articles than a walk's list (16 × 25 = 400 ids).
+    public static let tourMaxBatches = 16
     /// Requests in flight at once, whatever the cap, retried halves included.
     static let maxConcurrentBatches = 4
 
@@ -229,7 +230,8 @@ public struct WikidataClient: Sendable {
     /// Class precedence (spec 19.1, 20.6, 20.2.6): metro station or treaty → `nonPlace`; street or road → `street`;
     /// place, or work of art that is not also a non-place → `place`; hill or island → `natural`; settlement →
     /// `settlement`; neighbourhood or administrative area → `area`; else `nonPlace`; else `unknown`. A blank title is
-    /// no title.
+    /// no title. `isArt` (spec 20.3.5): the work-of-art flag, unless the item is also a non-place, as for the class
+    /// (the Order of Malta reaches work of art through "decoration").
     static func parse(_ data: Data) throws -> [String: PlaceFacts] {
         guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else { throw GroundingFetchError.malformed }
         var facts: [String: PlaceFacts] = [:]
@@ -248,7 +250,8 @@ public struct WikidataClient: Sendable {
             else if nonPlace { kind = .nonPlace }
             else { kind = .unknown }
             let title = row.title?.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            facts[id] = PlaceFacts(sitelinks: n, placeClass: kind, localTitle: title?.isEmpty == false ? title : nil)
+            facts[id] = PlaceFacts(sitelinks: n, placeClass: kind, localTitle: title?.isEmpty == false ? title : nil,
+                                   isArt: flag(row.art) && !nonPlace)
         }
         return facts
     }

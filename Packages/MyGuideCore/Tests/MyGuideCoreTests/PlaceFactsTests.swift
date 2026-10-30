@@ -111,8 +111,9 @@ import Foundation
         let v2 = dir.appendingPathComponent("place-facts-v2.json")
         let stamp = t0.timeIntervalSince1970
         try Data(#"{"Q1":{"facts":{"sitelinks":83,"placeClass":"place"},"fetchedAt":\#(stamp)}}"#.utf8).write(to: v2)
-        #expect(PlaceFactsCache.fileName == "place-facts-v4.json")
-        #expect(PlaceFactsCache.legacyFileNames == ["place-facts.json", "place-facts-v2.json", "place-facts-v3.json"])
+        #expect(PlaceFactsCache.fileName == "place-facts-v5.json")
+        #expect(PlaceFactsCache.legacyFileNames == ["place-facts.json", "place-facts-v2.json", "place-facts-v3.json",
+                                                    "place-facts-v4.json"])
         let (client, http) = Self.client()
         let f = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
         #expect(f == ["Q1": Self.place10] && http.requests.count == 1)
@@ -120,15 +121,15 @@ import Foundation
     }
 
     @Test func cappedLookupPassesTheCapToTheClient() async throws {
-        // 450 missing ids with cap 8 → 8 requests of 50 (400 ids); the 50 left out are not answered and not stored.
+        // 450 missing ids with cap 16 → 16 requests of 25 (400 ids); the 50 left out are not answered and not stored.
         let (client, http) = Self.client()
         let cache = PlaceFactsCache(directory: nil) { t0 }
         let ids = WikidataClientTests.ids(450)
-        let answer = try await cache.lookup(ids: ids, client: client, maxBatches: 8)
-        #expect(http.requests.count == 8 && answer.answered == Set(ids.prefix(400)) && answer.facts.count == 400)
-        // A second call asks only for the 50 left out (one request).
-        _ = try await cache.lookup(ids: ids, client: client, maxBatches: 8)
-        #expect(http.requests.count == 9 && WikidataClientTests.idCount(http.requests[8]) == 50)
+        let answer = try await cache.lookup(ids: ids, client: client, maxBatches: 16)
+        #expect(http.requests.count == 16 && answer.answered == Set(ids.prefix(400)) && answer.facts.count == 400)
+        // A second call asks only for the 50 left out (two requests of 25).
+        _ = try await cache.lookup(ids: ids, client: client, maxBatches: 16)
+        #expect(http.requests.count == 18 && http.requests.suffix(2).map(WikidataClientTests.idCount) == [25, 25])
     }
 
     @Test func failedLookupIsNotStored() async throws {
@@ -312,6 +313,15 @@ import Foundation
         let lookup = PlaceFactsLookup(cache: PlaceFactsCache(directory: nil) { t0 }, client: client)
         let answer = try await lookup.answer(for: ["Q7"], language: .norwegian)
         #expect(answer.facts["Q7"]?.localTitle == "no-Q7")
+    }
+    @Test func applyingSetsIsArt() {
+        let here = Coordinate(latitude: 41.9, longitude: 12.48)
+        let fountain = Candidate(id: "wiki:it/1", name: "Barcaccia", coordinate: here, kind: "wikipedia", wikidata: "Q1")
+        let church = Candidate(id: "wiki:it/2", name: "Gesù", coordinate: here, kind: "wikipedia", wikidata: "Q2")
+        let applied = [fountain, church].applying(["Q1": PlaceFacts(sitelinks: 32, placeClass: .place, isArt: true),
+                                                   "Q2": PlaceFacts(sitelinks: 40, placeClass: .place)])
+        #expect(applied.map(\.isArt) == [true, false])
+        #expect(fountain.isArt == nil)
     }
     @Test func englishCandidateTakesTheStoryLanguageTitle() {
         // Trevi: the English article (no Norwegian one has coordinates) gets the item's Norwegian title. A Norwegian

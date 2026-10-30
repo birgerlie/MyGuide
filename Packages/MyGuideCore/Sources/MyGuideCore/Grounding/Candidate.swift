@@ -23,6 +23,8 @@ public struct Candidate: Sendable, Equatable, Codable, Identifiable {
     public var sitelinks: Int?
     /// What the Wikidata item is; nil until looked up.
     public var placeClass: PlaceClass?
+    /// True when the Wikidata item is a work of art (`PlaceFacts.isArt`); nil until looked up.
+    public var isArt: Bool?
 
     public init(id: String, name: String, coordinate: Coordinate, kind: String,
                 summary: String? = nil, wikipediaTitle: String? = nil, wikidata: String? = nil,
