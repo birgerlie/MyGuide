@@ -642,8 +642,9 @@ Spec 20.4 changed 2 buzzes in 32 run-variants. Decision traces found two real ru
 then tuning stops until the owner's field test *(Claude's call)*:
 
 1. **The hold looks from the walker.** A lesser place is held while a better-ranked place is inside its own due
-   radius from the walker and is approaching, or has no previous distance. This replaces "within 60 m of the lesser
-   place". In the 18:25 walk, Palazzo Bonaparte (9 sitelinks) buzzed while Piazza Venezia (38) was at 78 m, 98 m
+   radius from the walker and is approaching, or has no previous distance. The old rule still holds too: a better
+   place approaching within 60 m of the lesser place. Either one holds, with the same 30 s cap. Iteration 6
+   showed San Crisogono lost to Sant'Agata at 49 m without the old rule. In the 18:25 walk, Palazzo Bonaparte (9 sitelinks) buzzed while Piazza Venezia (38) was at 78 m, 98 m
    from Bonaparte.
 2. **Places passed during a story are remembered.** At each busy decision, and at the decision that started busy,
    every tracked place counts as due-while-busy for «behind you». Tracked means it has entered its due radius and
