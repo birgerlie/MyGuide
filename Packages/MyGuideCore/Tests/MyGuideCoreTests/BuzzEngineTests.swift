@@ -572,8 +572,8 @@ import Testing
     @Test func aTrackedPlaceOutsideItsRadiusDoesNotBuzzLate() {
         // 20/h. a (good, 5 m) buzzes at t0 and spends the budget; late (good, 55 m) enters the due set.
         // t0+180 (budget 180/180 = 1) the walker is 40 m south: late is 95 m away, tracked (≤ 120) but outside its
-        // 60 m → no buzz, quiet noneDue with late listed. Coming back to 10 m south (65 m)… still outside; at the
-        // origin (55 m) it buzzes.
+        // 60 m and beyond its passed window (60 + 15 = 75) → no buzz, quiet noneDue with late listed. Coming back to
+        // 10 m south (65 m): grown 10 from its closest (55) and within 75 → it buzzes (spec 20.6.9).
         var e = Self.engine()
         let a = Self.place("a", .good, north: -5), late = Self.place("late", .good, north: 55)
         #expect(e.evaluate(places: [a, late], position: .at(), accuracy: 5, course: 180, now: Self.t0)?.place == a)
@@ -581,8 +581,8 @@ import Testing
         guard case .quiet(.noneDue, let due) = d else { Issue.record("expected noneDue, got \(d)"); return }
         #expect(due.map(\.id) == ["a", "late"])
         #expect(abs((due.last?.distance ?? 0) - 95) < 0.01)
-        #expect(e.evaluate(places: [a, late], position: .at(north: -10), accuracy: 5, course: 0, now: Self.t0 + 200) == nil)
-        #expect(e.evaluate(places: [a, late], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 220)?.place == late)
+        #expect(e.evaluate(places: [a, late], position: .at(north: -10), accuracy: 5, course: 0, now: Self.t0 + 200)?.place
+                == late)
     }
 
     // MARK: Hold for a better place just ahead (20.3)
@@ -1566,8 +1566,10 @@ import Testing
     }
     @Test func behindYouNeedsThePlaceToBePassedByFiveMetres() {
         // near (good, 38, radius 60) at 57 N: 57 m at x's decision (tracked, closest 57); the walker goes south during
-        // a 20 s story, then stands at 4.9 S: 61.9 m (beyond 60, so no normal buzz; good, so no override), grown 4.9
-        // (< 5) → nothing. At 5 S: 62 m, grown 5 (≥ 5) → «behind you».
+        // a 20 s story, then stands at 4.9 S: 61.9 m (beyond 60, not passed, so no normal buzz; good, so no override),
+        // grown 4.9 (< 5) → nothing. At 5 S: 62 m, grown 5 (≥ 5) → near buzzes. Inside its passed window (60 + 15)
+        // the normal rule takes it first (the same place, as many sitelinks), so it is not marked «behind you»; the
+        // two rules agree on "passed".
         let near = Self.place("near", .good, north: 57, sitelinks: 38)
         #expect(GeoMath.distance(.at(north: -5), near.candidate.coordinate)
                 - GeoMath.distance(.at(), near.candidate.coordinate) == 5)
@@ -1577,7 +1579,7 @@ import Testing
         var passed = story(busy: 20, near)
         let b = passed.evaluate(places: [Self.x, near], position: .at(north: -5), accuracy: 5, course: 180,
                                 now: Self.t0 + 30)
-        #expect(b?.place == near && b?.behindYou == true)
+        #expect(b?.place == near)
     }
 
     // MARK: Ordering against the place that would actually buzz (20.6.2)
@@ -1595,14 +1597,15 @@ import Testing
     static let topPiazza = place("piazza", .top, north: 50, sitelinks: 38)
 
     @Test func behindYouBeatsTheTopPlaceWithFewerSitelinksEvenWhenAnotherHasMore() {
-        // The review's probe (finding 2). Walker at 40 S at t0+45: piazza (top, 38) 90 m behind, passed (90 ≥ 55).
-        // top20 (top, 20) at 80 S: 40 m ahead, first in the due order. good40 (good, 40) at (60 S, 30 E):
-        // sqrt(20² + 30²) = 36 m, 53.9 m from x but with 40 ≥ 20 sitelinks out of the complex rule. The place
-        // that would buzz is top20, 20 < 38 → «behind you» first; good40's 40 sitelinks do not count.
+        // The review's probe (finding 2). Walker at 50 S at t0+45: piazza (top, 38) 100 m behind, passed (100 ≥ 55)
+        // and beyond its passed window (80 + 15 = 95), so it cannot buzz normally. top20 (top, 20) at 80 S: 30 m
+        // ahead, first in the due order. good40 (good, 40) at (60 S, 30 E): sqrt(10² + 30²) = 31.6 m, 53.9 m from x
+        // but with 40 ≥ 20 sitelinks out of the complex rule. The place that would buzz is top20, 20 < 38 → «behind
+        // you» first; good40's 40 sitelinks do not count.
         let top20 = Self.place("top20", .top, north: -80, sitelinks: 20)
         let good40 = Self.place("good40", .good, north: -60, east: 30, sitelinks: 40)
         var e = realStory(Self.topPiazza)
-        let b = e.evaluate(places: [Self.x, Self.topPiazza, top20, good40], position: .at(north: -40), accuracy: 5,
+        let b = e.evaluate(places: [Self.x, Self.topPiazza, top20, good40], position: .at(north: -50), accuracy: 5,
                            course: 180, now: Self.t0 + 45)
         #expect(b?.place == Self.topPiazza)
         #expect(b?.behindYou == true)
@@ -1618,14 +1621,15 @@ import Testing
         #expect(b?.place == Self.topPiazza)
     }
     @Test func aPlaceAheadWithAsManySitelinksGoesFirstAndItsPreparationEndsTheWindow() {
-        // Walker at 35 S: piazza (top, 38) 85 m behind: passed, beyond its 80 m radius, short of the 90 m override.
+        // Walker at 35 S: piazza (good, 38) 85 m behind: passed, beyond its passed window (60 + 15 = 75), and good, so
+        // no override.
         // ahead at 80 S (45 m) with 38 (equal) or 50 (more) sitelinks buzzes first at t0+45. As in the app, its story
         // then prepares from t0+45 to t0+50: a new busy period replaces the window of the story that ended at t0+30,
         // and it lasted 5 s (< 20) → no «behind you» follows, although the old window ran to t0+90.
         for sitelinks in [38, 50] {
             let ahead = Self.place("ahead", .top, north: -80, sitelinks: sitelinks)
-            var e = realStory(Self.topPiazza)
-            let places = [Self.x, Self.topPiazza, ahead]
+            var e = realStory(Self.piazza)
+            let places = [Self.x, Self.piazza, ahead]
             let first = e.evaluate(places: places, position: .at(north: -35), accuracy: 5, course: 180, now: Self.t0 + 45)
             #expect(first?.place == ahead, "ahead with \(sitelinks)")
             #expect(first?.behindYou == false)
@@ -1654,18 +1658,19 @@ import Testing
         #expect(f.evaluate(places: [castle], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 60)?.place == castle)
     }
     @Test func anOverrideDatedInTheFutureDoesNotBlockTheNext() {
-        // o1 (top, 35, radius 80) at the origin: tracked at 70 m (walker 70 S), then at 91 m (91 S): beyond its
-        // radius, ≥ 90 and 91 > 70 + 10 → override at t0+1001. The clock then goes back to t0+500: o2 (top, 35) at
-        // 1000 N, tracked at 70 m (walker 930 N), then 91 m (909 N) → override again, although the last override is
-        // dated 501 s in the future (and so is the last buzz, which holds no gap off either).
+        // o1 (top, 35, radius 80) at the origin: tracked at 70 m (walker 70 S), then at 96 m (96 S): beyond its
+        // passed window (80 + 15 = 95), ≥ 90 and 96 > 70 + 10 → override at t0+1001. The clock then goes back to
+        // t0+500: o2 (top, 35) at 1000 N, tracked at 70 m (walker 930 N), then 96 m (904 N) → override again,
+        // although the last override is dated 501 s in the future (and so is the last buzz, which holds no gap off
+        // either).
         let o1 = Self.place("o1", .top, north: 0, sitelinks: 35)
         let o2 = Self.place("o2", .top, north: 1000, sitelinks: 35)
         var e = BuzzEngine(perHour: 20, now: Self.t0, excluded: [])
         _ = e.decide(places: [o1, o2], position: .at(north: -70), accuracy: 5, course: 180, now: Self.t0 + 1000)
-        let first = e.evaluate(places: [o1, o2], position: .at(north: -91), accuracy: 5, course: 180, now: Self.t0 + 1001)
+        let first = e.evaluate(places: [o1, o2], position: .at(north: -96), accuracy: 5, course: 180, now: Self.t0 + 1001)
         #expect(first?.place == o1 && first?.usedOverride == true)
         _ = e.decide(places: [o1, o2], position: .at(north: 930), accuracy: 5, course: 0, now: Self.t0 + 500)
-        let second = e.evaluate(places: [o1, o2], position: .at(north: 909), accuracy: 5, course: 0, now: Self.t0 + 501)
+        let second = e.evaluate(places: [o1, o2], position: .at(north: 904), accuracy: 5, course: 0, now: Self.t0 + 501)
         #expect(second?.place == o2 && second?.usedOverride == true)
     }
 
@@ -1676,20 +1681,105 @@ import Testing
     static let agata = place("agata", .wikiOnly, north: 50, sitelinks: 9)
     static let crisogono = place("crisogono", .good, north: 105, sitelinks: 22)
 
-    @Test func approachingNeedsTheDistanceToShrinkByTwoMetres() {
-        // From 1.9 m S to the origin: 106.9 → 105, shrank 1.9 (< 2) → not approaching → agata (50 m) buzzes.
-        // From 2 m S: 107 → 105, shrank 2 (≥ 2) → agata held.
+    @Test func approachingNeedsTheDistanceToShrinkByTwoMetresOverFourSeconds() {
+        // Spec 20.6.5 as amended: compared with the distance at least 4 s earlier.
+        // - From 1.9 m S at t0 to the origin at t0+4: 106.9 → 105, shrank 1.9 (< 2) → not approaching → agata (50 m)
+        //   buzzes.
+        // - From 2 m S at t0 to the origin at t0+4: 107 → 105, shrank 2 (≥ 2) over 4 s (≥ 4) → agata held.
+        // - From 2 m S at t0 to the origin at t0+3.9: shrank 2, but no distance 4 s old yet → not approaching.
         #expect(GeoMath.distance(.at(north: -2), Self.crisogono.candidate.coordinate)
                 - GeoMath.distance(.at(), Self.crisogono.candidate.coordinate) == 2)
-        #expect(BuzzEngine.approachingMargin == 2)
+        #expect(BuzzEngine.approachingMargin == 2 && BuzzEngine.approachingInterval == 4)
         var f = Self.engine()
         _ = f.decide(places: [Self.crisogono], position: .at(north: -1.9), accuracy: 5, course: 0, now: Self.t0)
         #expect(f.evaluate(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0,
-                           now: Self.t0 + 5)?.place == Self.agata)
+                           now: Self.t0 + 4)?.place == Self.agata)
         var e = Self.engine()
         _ = e.decide(places: [Self.crisogono], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0)
-        let d = e.decide(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 5)
+        let d = e.decide(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 4)
         guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
+        var g = Self.engine()
+        _ = g.decide(places: [Self.crisogono], position: .at(north: -2), accuracy: 5, course: 0, now: Self.t0)
+        #expect(g.evaluate(places: [Self.agata, Self.crisogono], position: .at(), accuracy: 5, course: 0,
+                           now: Self.t0 + 3.9)?.place == Self.agata)
+    }
+
+    /// The iteration-7 walk: fixes 1 s apart while the walker walks north at about 1.1 m/s. San Crisogono (good, 22,
+    /// radius 60) at 64.4 N, so the walker at 0, 1.1, 2.2, 3.2 and 4.3 N is 64.4, 63.3, 62.2, 61.2 and 60.1 m from
+    /// it: each fix only 1–1.1 m closer, never inside its radius. Sant'Agata (Wiki-only, 9) at (15.573 N, 4.113 E):
+    /// (15.573 − 64.4)² + 4.113² = 2384.07 + 16.92 = 2400.99 → 49.0 m from San Crisogono; at the last fix
+    /// (15.573 − 4.3)² + 4.113² = 127.08 + 16.92 = 144.0 → 12.0 m from the walker.
+    static let walkCrisogono = place("crisogono", .good, north: 64.4, sitelinks: 22)
+    static let walkAgata = place("agata", .wikiOnly, north: 15.573, east: 4.113, sitelinks: 9)
+
+    @Test func aBetterPlaceApproachingAtWalkingPaceHolds() {
+        #expect(abs(GeoMath.distance(Self.walkAgata.candidate.coordinate, Self.walkCrisogono.candidate.coordinate) - 49)
+                < 0.01)
+        #expect(abs(GeoMath.distance(.at(north: 4.3), Self.walkAgata.candidate.coordinate) - 12) < 0.01)
+        // Sant'Agata waits for its 240 s gap through the first four fixes: `other` (top, far away) buzzed 236 s before
+        // the first. At the fifth (t0+4, 240 s after `other`) it may buzz, but San Crisogono is 60.1 m away, 4.3 m
+        // closer than 4 s ago (64.4) → approaching within 60 m of Sant'Agata → held. Compared with the previous fix
+        // only (61.2 → 60.1, 1.1 m) it would have buzzed.
+        let other = Self.place("other", .top, north: -2000, sitelinks: 40)
+        var e = BuzzEngine(perHour: 60, now: Self.t0 - 236 - 180, excluded: [])
+        #expect(e.evaluate(places: [other], position: .at(north: -2000), accuracy: 5, course: 0, now: Self.t0 - 236)?.place
+                == other)
+        let places = [Self.walkAgata, Self.walkCrisogono]
+        for (t, y) in [(0.0, 0.0), (1, 1.1), (2, 2.2), (3, 3.2)] {
+            let d = e.decide(places: places, position: .at(north: y), accuracy: 5, course: 0, now: Self.t0 + t)
+            guard case .quiet(.minGap, _) = d else { Issue.record("expected minGap at +\(t), got \(d)"); return }
+        }
+        let d = e.decide(places: places, position: .at(north: 4.3), accuracy: 5, course: 0, now: Self.t0 + 4)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
+        #expect(e.heldBy?.id == "crisogono")
+    }
+
+    // MARK: Passed window (20.6.9)
+
+    @Test func aPassedPlaceMayBuzzUpToItsRadiusPlusFifteenMetres() {
+        // Augustus' Forum (top, 38, radius 80) at the origin. The walker is first 74 m S (tracked, closest 74, not
+        // passed). Then 90 m S: grown 16 (≥ 5) and 90 ≤ 80 + 15 = 95 → a normal buzz. At 95 m (inclusive) still normal.
+        // At 95.1 m (> 95) not a normal buzz: only the override can take it (95.1 ≥ 90 and 95.1 > 74 + 10).
+        #expect(BuzzEngine.passedWindow == 15)
+        let forum = Self.place("forum", .top, north: 0, sitelinks: 38)
+        for (y, normal) in [(-90.0, true), (-95, true), (-95.1, false)] {
+            var e = Self.engine()
+            let first = e.decide(places: [forum], position: .at(north: -74), accuracy: 5, course: 180, now: Self.t0)
+            guard case .quiet(.noneDue, _) = first else { Issue.record("expected noneDue, got \(first)"); return }
+            let b = e.evaluate(places: [forum], position: .at(north: y), accuracy: 5, course: 180, now: Self.t0 + 10)
+            #expect(b?.place == forum, "at \(y)")
+            #expect(b?.usedOverride == !normal, "at \(y)")
+        }
+    }
+
+    // MARK: «Behind you» not for a place the walker turns back towards (re-review R1)
+
+    @Test func behindYouSkipsAPlaceTheWalkerIsApproachingAgain() {
+        // x buzzes at t0 (origin); busy t0 … t0+30 with decisions every 5 s while walking south at 1.4 m/s to 35 S
+        // (piazza, good 38 at 50 N: closest 50, then 85 m). Turning back: 1 m/s north from t0+26 (34 S, 84 m) to
+        // t0+30 (30 S, 80 m). At t0+30 piazza has grown 30 m from its closest (passed) and is beyond its passed window
+        // (60 + 15 = 75, so no normal buzz), but it is 84 − 80 = 4 m (≥ 2) closer than 4 s ago → approaching → no
+        // «behind you». Standing at 35 S instead (85 m, as 4 s ago) → «behind you».
+        func run(turning: Bool) -> Buzz? {
+            var e = Self.engine()
+            _ = e.evaluate(places: [Self.x, Self.piazza], position: .at(), accuracy: 5, course: 180, now: Self.t0)
+            e.setBusy(true, at: Self.t0)
+            for t in stride(from: 5.0, through: 25, by: 5) {
+                _ = e.decide(places: [Self.x, Self.piazza], position: .at(north: -1.4 * t), accuracy: 5, course: 180,
+                             now: Self.t0 + t)
+            }
+            for t in stride(from: 26.0, through: 29, by: 1) {
+                let y = turning ? -(60 - t) : -35
+                _ = e.decide(places: [Self.x, Self.piazza], position: .at(north: y), accuracy: 5, course: 0,
+                             now: Self.t0 + t)
+            }
+            e.setBusy(false, at: Self.t0 + 30)
+            return e.evaluate(places: [Self.x, Self.piazza], position: .at(north: turning ? -30 : -35), accuracy: 5,
+                              course: 0, now: Self.t0 + 30)
+        }
+        #expect(run(turning: true) == nil)
+        let b = run(turning: false)
+        #expect(b?.place == Self.piazza && b?.behindYou == true)
     }
 
     // MARK: Log: the holder (20.6.6)

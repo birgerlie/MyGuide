@@ -28,8 +28,8 @@ extension Buzz {
 }
 
 /// Why the engine did not buzz (design 4.3), in the order the reasons are checked. `noneDue` is checked twice: no
-/// place tracked at all (`due` empty), and, after `allExcluded`, no place that may buzz is within its own due radius
-/// and none qualifies for the override (`due` lists the tracked places). `minGap`: the place that would buzz waits
+/// place tracked at all (`due` empty), and, after `allExcluded`, no place that may buzz may do so now
+/// (`BuzzEngine.mayBuzz`) and none qualifies for the override (`due` lists the tracked places). `minGap`: the place that would buzz waits
 /// for its `BuzzEngine.minimumGap(for:)` since the last buzz (spec 20.2.1; checked once a place is chosen, after
 /// `allExcluded`). `held`: the best due place waits for a better one (spec 20.3, 20.3.2, 20.5.1; the engine's `heldBy`
 /// names it). `tourCadence` and `tourStopHeld` are not the engine's: the app did not ask it, because a tour's 3-minute
@@ -41,8 +41,8 @@ public enum QuietReason: String, Sendable, Codable, CaseIterable {
 // `minGap` keeps its place in the raw-value order for the walk log; the engine checks it after `allExcluded`.
 
 /// A place the engine tracks at the moment of a decision: it came within its due radius and is not yet more than
-/// `BuzzEngine.dropRadius` away. It may buzz normally only within 60 m, or within its due radius once passed
-/// (`BuzzEngine.mayBuzz`, spec 20.2, 20.2.3).
+/// `BuzzEngine.dropRadius` away. It may buzz normally only within 60 m, or within its due radius plus
+/// `BuzzEngine.passedWindow` once passed (`BuzzEngine.mayBuzz`, spec 20.2, 20.2.3, 20.6.9).
 public struct DuePlace: Sendable, Equatable, Codable {
     public var id: String
     public var name: String
@@ -80,13 +80,15 @@ public enum BuzzDecision: Sendable, Equatable {
 /// Decides which nearby place, if any, deserves a buzz right now (design 7.4, spec 19, 20 and 20.2).
 /// - **Due radius** (spec 20.2): 100 m for a top place with at least `famousSitelinks` sitelinks, 80 m for another top
 ///   place, 60 m for the rest (`dueRadius(for:)`). A place is tracked from its due radius until it is more than
-///   `dropRadius` (120 m) away. It buzzes normally within `dueRadius` (60 m), and between 60 m and its own radius only
-///   once passed: its distance has grown at least `passedMargin` from the smallest seen (spec 20.2.3).
+///   `dropRadius` (120 m) away. It buzzes normally within `dueRadius` (60 m), and beyond that only once passed (its
+///   distance has grown at least `passedMargin` from the smallest seen, spec 20.2.3), out to its own radius plus
+///   `passedWindow` (15 m, spec 20.6.9).
 /// - **Order** among places that may buzz: tier, then Wikidata sitelinks (more first, none counts as 0), then
 ///   distance (spec 19.3).
 /// - **Hold** (spec 20.3, 20.5.1, 20.6.5): the first place in that order waits while a better-ranked (tier, then
 ///   sitelinks), not excluded place that may not buzz yet is inside its own due radius from the walker, or is
-///   approaching (closer by at least `approachingMargin` than at the last fix) within `holdRadius` of it; at most
+///   approaching (closer by at least `approachingMargin` than `approachingInterval` or more ago) within
+///   `holdRadius` of it; at most
 ///   `maxHold` from the first fix that held it, while it stays tracked.
 /// - **Budget and override**: the budget paces buzzes; a top-tier place the walker is passing by (tracked, at least
 ///   `overrideMinDistance` away and `overridePassingMargin` beyond its closest) can override the budget at most once
@@ -120,16 +122,20 @@ public struct BuzzEngine: Sendable {
     public static let complexRadius = 55.0
     public static let complexMaxSitelinks = 20
     /// Beyond `dueRadius`, a place buzzes once its distance has grown this much (metres) from its closest (spec
-    /// 20.2.3).
+    /// 20.2.3), out to its own due radius plus `passedWindow` (spec 20.6.9).
     public static let passedMargin = 5.0
+    public static let passedWindow = 15.0
     /// A better place approaching within this far (metres, inclusive) of the first due place holds it too, inside
     /// its own radius or not (spec 20.3, 20.5.1 as amended).
     public static let holdRadius = 60.0
     /// A hold lasts at most this long (spec 20.3).
     public static let maxHold: TimeInterval = 30
-    /// A better place is approaching for the hold's neighbour rule when its distance shrank at least this much
-    /// (metres) since the last fix, so GPS jitter does not hold (spec 20.6.5).
+    /// A place is approaching (the hold's neighbour rule, and «behind you») when its distance shrank at least
+    /// `approachingMargin` metres compared with the newest fix at least `approachingInterval` seconds earlier: at
+    /// walking pace a fix 1 s earlier is only 1–1.5 m further, and GPS jitter is of that size (spec 20.6.5 as
+    /// amended).
     public static let approachingMargin = 2.0
+    public static let approachingInterval: TimeInterval = 4
     /// The least time from the last buzz of the engine to a buzz of a top place or one with at least
     /// `topGapSitelinks`, of one with `highGapSitelinks` up to that, of one with `middleGapSitelinks` up to that, and
     /// of any other or Wiki-only place (spec 20.3.1, 20.4.4).
@@ -218,8 +224,14 @@ public struct BuzzEngine: Sendable {
     private var lastOverride: Date?
     /// When the engine last buzzed (normal or override).
     private var lastBuzz: Date?
-    /// Every place of the last usable fix (by id) with its distance then, to tell an approaching place.
-    private var lastDistance: [String: Double] = [:]
+    /// One distance of a place at a usable fix.
+    private struct DistanceSample: Sendable {
+        var at: Date
+        var distance: Double
+    }
+    /// Every place of the last usable fix (by id) with its recent distances, oldest first: the newest one at least
+    /// `approachingInterval` old and every later one, to tell an approaching place (spec 20.6.5 as amended).
+    private var recentDistances: [String: [DistanceSample]] = [:]
     /// Tracked places (by id) with the smallest distance seen while tracked.
     private var closest: [String: Double] = [:]
     /// Tracked places (by id) held for a better place, with the time of the first fix that held them.
@@ -227,7 +239,7 @@ public struct BuzzEngine: Sendable {
     private let makeID: @Sendable () -> UUID
 
     /// The best-ranked place that held the last decision, when it was quiet with `held` (spec 20.6.6); nil after any
-    /// other decision.
+    /// other decision. Valid only until the next `decide`: read it right after the decision it belongs to.
     public private(set) var heldBy: HoldingPlace?
 
     public init(perHour: Int, now: Date, excluded: Set<String>, makeID: @escaping @Sendable () -> UUID = UUID.init) {
@@ -259,10 +271,11 @@ public struct BuzzEngine: Sendable {
     }
 
     /// Whether a place at `distance`, with `closest` the smallest distance seen while tracked (this fix included),
-    /// may buzz normally (spec 20.2, 20.2.3): within `dueRadius`, or within its own due radius once its distance has
-    /// grown at least `passedMargin` from `closest`.
+    /// may buzz normally (spec 20.2, 20.2.3, 20.6.9): within `dueRadius`, or, once its distance has grown at least
+    /// `passedMargin` from `closest`, within its own due radius plus `passedWindow` (inclusive).
     static func mayBuzz(_ place: WalkingPlace, distance: Double, closest: Double) -> Bool {
-        distance <= dueRadius || (distance <= dueRadius(for: place) && distance >= closest + passedMargin)
+        distance <= dueRadius
+            || (distance <= dueRadius(for: place) + passedWindow && distance >= closest + passedMargin)
     }
 
     /// Sets `isBusy`; a busy spell starting (free → busy) or ending (busy → free) is dated `now` for «behind you»
@@ -340,8 +353,7 @@ public struct BuzzEngine: Sendable {
         }
         closest = stillDue
         trackedAtLastDecision = Set(stillDue.keys)
-        let previousDistance = lastDistance
-        lastDistance = distances
+        recordDistances(distances, now: now)
         heldSince = heldSince.filter { stillDue[$0.key] != nil }
 
         let ordered = due.sorted { Self.orderKey($0.place, $0.distance) < Self.orderKey($1.place, $1.distance) }
@@ -371,7 +383,7 @@ public struct BuzzEngine: Sendable {
             let ordinaryFirst = first.map { first in
                 gapPassed(first.place) && (first.place.candidate.sitelinks ?? 0) >= behindSitelinks
                     && !wouldBeHeld(first.place, places: places, distances: distances, closest: stillDue,
-                                    previous: previousDistance, now: now)
+                                    now: now)
             } ?? false
             if !ordinaryFirst, budget.spend(at: now) {
                 busyEnd = nil
@@ -396,7 +408,7 @@ public struct BuzzEngine: Sendable {
                 waitsForGap = true
             } else if budget.canSpend(at: now) {
                 if let better = holder(of: first.place, places: places, distances: distances, closest: stillDue,
-                                       previous: previousDistance), noteHold(of: first.place, now: now) {
+                                       now: now), noteHold(of: first.place, now: now) {
                     holding = better
                 } else if budget.spend(at: now) {
                     return .buzz(buzz(first.place, first.distance, first.bearing, course, usedOverride: false, now: now))
@@ -428,10 +440,10 @@ public struct BuzzEngine: Sendable {
     /// when that spell lasted at least `behindYouMinStory` and no skip came since it began, and at least `topGap`
     /// after the last buzz: the best (in the due order) of `places` that was due during it, has at least
     /// `behindYouSitelinks` sitelinks, is at most `behindYouRadius` away (inclusive), has been passed (its distance at
-    /// least `passedMargin` beyond its closest; one no longer tracked went beyond `dropRadius` and so was passed) and
-    /// is not excluded. Nil outside the window (a story end dated after `now`, the clock set back, is outside; so is a
+    /// least `passedMargin` beyond its closest; one no longer tracked went beyond `dropRadius` and so was passed), is
+    /// not approaching again (`isApproaching`) and is not excluded. Nil outside the window (a story end dated after `now`, the clock set back, is outside; so is a
     /// spell whose end is dated before its start), with no such place, or when the budget cannot pay. Call after
-    /// `closest` is updated for this fix.
+    /// `closest` and `recentDistances` are updated for this fix.
     private func behindYou(places: [WalkingPlace], distances: [String: Double], now: Date) -> WalkingPlace? {
         guard !skippedSinceBusy, case .at(let start)? = busyStart, case .at(let end)? = busyEnd,
               end.timeIntervalSince(start) >= Self.behindYouMinStory,
@@ -443,7 +455,9 @@ public struct BuzzEngine: Sendable {
             let id = place.candidate.id
             guard dueWhileBusy.contains(id), (place.candidate.sitelinks ?? 0) >= Self.behindYouSitelinks,
                   let distance = distances[id], distance <= Self.behindYouRadius,
-                  closest[id].map({ distance >= $0 + Self.passedMargin }) ?? true else { return false }
+                  closest[id].map({ distance >= $0 + Self.passedMargin }) ?? true,
+                  // A place the walker turns back towards is ahead again (re-review R1).
+                  !isApproaching(id, distance: distance, now: now) else { return false }
             return !isExcluded(place)
         }
         .min { Self.orderKey($0, distances[$0.candidate.id] ?? 0) < Self.orderKey($1, distances[$1.candidate.id] ?? 0) }
@@ -459,11 +473,12 @@ public struct BuzzEngine: Sendable {
     /// its smallest tracked distance from `closest`), and either
     /// - is inside its own due radius from the walker (approaching, new or waiting for its closest approach: inside
     ///   its radius it is tracked, so all three reduce to "not passed"), however far it is from `place`; or
-    /// - is approaching (at least `approachingMargin` closer than at the last fix, `previous`) within `holdRadius` of
-    ///   `place`, inside its own radius or not.
-    /// Nil when there is none. The `maxHold` cap is not part of it (`noteHold(of:now:)`).
+    /// - is approaching (`isApproaching`: at least `approachingMargin` closer than `approachingInterval` or more ago)
+    ///   within `holdRadius` of `place`, inside its own radius or not.
+    /// The first rule needs no history, so it covers the first decision of a run and a place just listed
+    /// (spec 20.4.2). Nil when there is none. The `maxHold` cap is not part of it (`noteHold(of:now:)`).
     private func holder(of place: WalkingPlace, places: [WalkingPlace], distances: [String: Double],
-                        closest: [String: Double], previous: [String: Double]) -> WalkingPlace? {
+                        closest: [String: Double], now: Date) -> WalkingPlace? {
         let rank = Rank(tier: place.tier, sitelinks: place.candidate.sitelinks)
         return places.filter { other in
             guard other.candidate.id != place.candidate.id,
@@ -472,12 +487,38 @@ public struct BuzzEngine: Sendable {
                   !Self.mayBuzz(other, distance: distance, closest: closest[other.candidate.id] ?? distance)
             else { return false }
             let insideItsRadius = distance <= Self.dueRadius(for: other)
-            let approachingNearby = previous[other.candidate.id].map { $0 - distance >= Self.approachingMargin } == true
+            let approachingNearby = isApproaching(other.candidate.id, distance: distance, now: now)
                 && GeoMath.distance(other.candidate.coordinate, place.candidate.coordinate) <= Self.holdRadius
             guard insideItsRadius || approachingNearby else { return false }
             return !isExcluded(other)
         }
         .min { Self.orderKey($0, distances[$0.candidate.id] ?? 0) < Self.orderKey($1, distances[$1.candidate.id] ?? 0) }
+    }
+
+    /// Adds this fix's distances to `recentDistances` and forgets places not in it. Per place it keeps the newest
+    /// sample at least `approachingInterval` old and every later one; a sample dated after `now` (the clock set back)
+    /// is dropped.
+    private mutating func recordDistances(_ distances: [String: Double], now: Date) {
+        var recorded: [String: [DistanceSample]] = [:]
+        for (id, distance) in distances {
+            var samples = (recentDistances[id] ?? []).filter { $0.at <= now }
+            samples.append(DistanceSample(at: now, distance: distance))
+            if let reference = samples.lastIndex(where: { now.timeIntervalSince($0.at) >= Self.approachingInterval }) {
+                samples.removeFirst(reference)
+            }
+            recorded[id] = samples
+        }
+        recentDistances = recorded
+    }
+
+    /// Whether the place `id`, now at `distance`, is approaching (spec 20.6.5 as amended): at least
+    /// `approachingMargin` closer than at the newest fix at least `approachingInterval` before `now`. False without
+    /// such a fix (a place first seen less than that long ago). Call after `recordDistances` for this fix.
+    private func isApproaching(_ id: String, distance: Double, now: Date) -> Bool {
+        guard let reference = recentDistances[id]?.last(where: {
+            now.timeIntervalSince($0.at) >= Self.approachingInterval
+        }) else { return false }
+        return reference.distance - distance >= Self.approachingMargin
     }
 
     /// `place` has a holder at this fix: notes the first fix that held it, and returns whether the hold still runs
@@ -491,8 +532,8 @@ public struct BuzzEngine: Sendable {
     /// Whether an ordinary decision would hold `place` now (`holder(of:…)` and the `maxHold` cap), without noting the
     /// hold.
     private func wouldBeHeld(_ place: WalkingPlace, places: [WalkingPlace], distances: [String: Double],
-                             closest: [String: Double], previous: [String: Double], now: Date) -> Bool {
-        guard holder(of: place, places: places, distances: distances, closest: closest, previous: previous) != nil
+                             closest: [String: Double], now: Date) -> Bool {
+        guard holder(of: place, places: places, distances: distances, closest: closest, now: now) != nil
         else { return false }
         return Self.isWithin(Self.maxHold, of: heldSince[place.candidate.id] ?? now, now: now)
     }
