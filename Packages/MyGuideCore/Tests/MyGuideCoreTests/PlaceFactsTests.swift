@@ -252,6 +252,40 @@ import Foundation
         #expect(ra.failedBatches == 1 && rb.failedBatches == 1)
     }
 
+    // MARK: Deadline (spec 20.6.3)
+
+    @Test func aDeadlineReturnsAndStoresWhatAnswered() async throws {
+        // 60 ids, the second batch (Q26…Q50) hangs: at a 300 ms deadline the cache returns the 35 answered ids with one
+        // failed batch, and stores them: a repeat for the answered ids makes no request.
+        let http = WikidataClientTests.hangingSecondBatch()
+        let client = WikidataClient(http: http)
+        let cache = PlaceFactsCache(directory: nil) { t0 }
+        let answer = try await cache.lookup(ids: WikidataClientTests.ids(60), client: client,
+                                            deadline: .now + .milliseconds(300))
+        #expect(answer.answered.count == 35 && answer.failedBatches == 1)
+        let requests = http.requests.count
+        let again = try await cache.lookup(ids: WikidataClientTests.ids(25), client: client)
+        #expect(again.answered == Set(WikidataClientTests.ids(25)) && http.requests.count == requests)
+    }
+    @Test func waitingForAnotherCallersRequestStopsAtTheDeadline() async throws {
+        // A first caller without a deadline starts the request for Q1, which never answers. A second caller with a
+        // 300 ms deadline waits on that request only until its deadline: nothing answered, one failed batch.
+        let http = AsyncStubHTTPClient { _ in
+            try await Task.sleep(for: .seconds(60))
+            return (200, WikidataClientTests.body([]))
+        }
+        let client = WikidataClient(http: http)
+        let cache = PlaceFactsCache(directory: nil) { t0 }
+        let first = Task { try await cache.lookup(ids: ["Q1"], client: client) }
+        defer { first.cancel() }
+        while http.requests.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        let start = ContinuousClock.now
+        let answer = try await cache.lookup(ids: ["Q1"], client: client, deadline: start + .milliseconds(300))
+        #expect(answer.answered.isEmpty && answer.failedBatches == 1)
+        #expect(ContinuousClock.now - start < .seconds(5))
+        #expect(http.requests.count == 1)
+    }
+
     // MARK: applying
 
     @Test func applyingSetsFactsByWikidataId() {

@@ -114,8 +114,11 @@ public actor PlaceFactsCache {
     /// `maxBatches` caps the ids this call sends to the client (`WikidataClient.lookup(ids:maxBatches:)`); ids it
     /// leaves out, or ids in flight for another caller's capped request that left them out, are not answered.
     /// `language` selects the title language (and so the cache keys); the answer is keyed by plain Wikidata id.
+    /// With a `deadline` (spec 20.6.3) the request this call starts returns at it with what answered by then (stored
+    /// as usual), and waiting for another caller's request stops at it, counting that request as one failed batch.
     public func lookup(ids: [String], client: WikidataClient, maxBatches: Int = WikidataClient.maxBatches,
-                       language: StoryLanguage? = nil) async throws -> WikidataClient.Answer {
+                       language: StoryLanguage? = nil,
+                       deadline: ContinuousClock.Instant? = nil) async throws -> WikidataClient.Answer {
         loadIfNeeded()
         let code = WikidataClient.titleCode(language)
         func key(_ id: String) -> String { code.map { "\($0):\(id)" } ?? id }
@@ -134,14 +137,17 @@ public actor PlaceFactsCache {
         guard !missing.isEmpty else { return answer }
 
         let fresh = missing.filter { inFlight[key($0)] == nil }
+        var ownFlight: Int?
         if !fresh.isEmpty {
             let flightKey = nextKey
             nextKey += 1
+            ownFlight = flightKey
             let keys = fresh.map(key)
             // Unstructured on purpose: one caller's cancellation must not fail the others waiting on the same ids.
             let task = Task<WikidataClient.Answer, Error> {
                 do {
-                    let fetched = try await client.lookup(ids: fresh, maxBatches: maxBatches, language: language)
+                    let fetched = try await client.lookup(ids: fresh, maxBatches: maxBatches, language: language,
+                                                          deadline: deadline)
                     complete(fresh, keys: keys, with: fetched)
                     return fetched
                 } catch {
@@ -155,7 +161,18 @@ public actor PlaceFactsCache {
         var waitedFailures = 0
         for id in missing {
             guard let flight = inFlight[key(id)], waited.insert(flight.key).inserted else { continue }
-            waitedFailures += try await flight.task.value.failedBatches
+            // This call's own request keeps the deadline itself (and stores its partial answer before returning);
+            // another caller's may not.
+            guard let deadline, flight.key != ownFlight else {
+                waitedFailures += try await flight.task.value.failedBatches
+                continue
+            }
+            let task = flight.task
+            do {
+                waitedFailures += try await Deadline.withTimeout(deadline - .now) { try await task.value }.failedBatches
+            } catch is Deadline.Timeout {
+                waitedFailures += 1
+            }
         }
         try Task.checkCancellation()
         answer.failedBatches = waitedFailures
@@ -236,41 +253,65 @@ extension Array where Element == Candidate {
 /// How a place source gets Wikidata facts: through a `PlaceFactsCache` and a `WikidataClient` in the app, or any
 /// closure in tests. Without one, a source tiers by tags and articles alone, as before facts existed.
 public struct PlaceFactsLookup: Sendable {
-    /// The ids, the most batches of 50 the client may send for them (`WikidataClient.lookup(ids:maxBatches:)`), and
-    /// the story language whose titles to read.
-    private let lookup: @Sendable ([String], Int, StoryLanguage?) async throws -> WikidataClient.Answer
+    /// The ids, the most batches of `WikidataClient.batchSize` the client may send for them
+    /// (`WikidataClient.lookup(ids:maxBatches:)`), the story language whose titles to read, and the deadline.
+    private let lookup: @Sendable ([String], Int, StoryLanguage?, ContinuousClock.Instant?) async throws -> WikidataClient.Answer
+    /// True when `lookup` returns by the deadline itself, with what answered by then; otherwise `answer` cuts it off
+    /// there.
+    private let keepsDeadline: Bool
 
-    /// A lookup that ignores the batch cap and the language.
+    /// A lookup that ignores the batch cap, the language and the deadline.
     public init(_ lookup: @escaping @Sendable ([String]) async throws -> WikidataClient.Answer) {
-        self.lookup = { ids, _, _ in try await lookup(ids) }
+        self.lookup = { ids, _, _, _ in try await lookup(ids) }
+        keepsDeadline = false
     }
 
-    /// A lookup that is told the batch cap with the ids, and ignores the language.
+    /// A lookup that is told the batch cap with the ids, and ignores the language and the deadline.
     public init(capped lookup: @escaping @Sendable (_ ids: [String], _ maxBatches: Int) async throws -> WikidataClient.Answer) {
-        self.lookup = { ids, maxBatches, _ in try await lookup(ids, maxBatches) }
+        self.lookup = { ids, maxBatches, _, _ in try await lookup(ids, maxBatches) }
+        keepsDeadline = false
     }
 
-    /// A lookup that is told the batch cap and the story language with the ids.
+    /// A lookup that is told the batch cap and the story language with the ids, and ignores the deadline.
     public init(full lookup: @escaping @Sendable (_ ids: [String], _ maxBatches: Int,
                                                   _ language: StoryLanguage?) async throws -> WikidataClient.Answer) {
+        self.lookup = { ids, maxBatches, language, _ in try await lookup(ids, maxBatches, language) }
+        keepsDeadline = false
+    }
+
+    /// A lookup that is told the deadline too, and keeps it: it returns by then with what answered.
+    public init(deadlined lookup: @escaping @Sendable (_ ids: [String], _ maxBatches: Int, _ language: StoryLanguage?,
+                                                       _ deadline: ContinuousClock.Instant?) async throws -> WikidataClient.Answer) {
         self.lookup = lookup
+        keepsDeadline = true
     }
 
     public init(cache: PlaceFactsCache, client: WikidataClient) {
-        self.init(full: { ids, maxBatches, language in
-            try await cache.lookup(ids: ids, client: client, maxBatches: maxBatches, language: language)
+        self.init(deadlined: { ids, maxBatches, language, deadline in
+            try await cache.lookup(ids: ids, client: client, maxBatches: maxBatches, language: language,
+                                   deadline: deadline)
         })
     }
 
-    /// The facts for `ids`, at most `maxBatches` batches of 50 of them (walking keeps the default 6; tours ask for
-    /// `WikidataClient.tourMaxBatches`); an empty answer for no ids, without a call. Never throws except
+    /// The facts for `ids`, at most `maxBatches` batches of `WikidataClient.batchSize` of them (walking keeps the
+    /// default `WikidataClient.maxBatches`, 12; tours ask for `WikidataClient.tourMaxBatches`); an empty answer for no
+    /// ids, without a call. With a `deadline` (spec 20.6.3) the answer comes by then: a lookup that keeps it returns
+    /// what answered; any other is abandoned there, which counts as one failed batch. Never throws except
     /// CancellationError (also for `URLError.cancelled`): any other error is an answer without facts that counts as one
     /// failed batch, so a failing lookup leaves every tier as it was.
     func answer(for ids: [String], maxBatches: Int = WikidataClient.maxBatches,
-                language: StoryLanguage? = nil) async throws -> WikidataClient.Answer {
+                language: StoryLanguage? = nil, deadline: ContinuousClock.Instant? = nil) async throws -> WikidataClient.Answer {
         guard !ids.isEmpty else { return WikidataClient.Answer() }
         do {
-            return try await lookup(ids, maxBatches, language)
+            if let deadline, !keepsDeadline {
+                let lookup = lookup
+                do {
+                    return try await Deadline.withTimeout(deadline - .now) { try await lookup(ids, maxBatches, language, nil) }
+                } catch is Deadline.Timeout {
+                    return WikidataClient.Answer(failedBatches: 1)
+                }
+            }
+            return try await lookup(ids, maxBatches, language, deadline)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as URLError where error.code == .cancelled {

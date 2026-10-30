@@ -375,6 +375,37 @@ import Foundation
         #expect(http.requests.count == 2 && answer.failedBatches == 1)
     }
 
+    // MARK: - Spec 20.6.3: one overall deadline
+
+    /// 60 ids → batches Q1…Q25, Q26…Q50, Q51…Q60. The batch holding Q26 never answers (until cancelled); the others
+    /// answer at once.
+    static func hangingSecondBatch() -> AsyncStubHTTPClient {
+        AsyncStubHTTPClient { r in
+            let ids = Self.askedIds(r)
+            if ids.contains("Q26") { try await Task.sleep(for: .seconds(60)) }
+            return (200, Self.body(ids.map { Self.row($0, n: 1, place: true) }))
+        }
+    }
+    @Test func atTheDeadlineTheAnsweredBatchesAreKeptAndTheRestCountAsFailed() async throws {
+        // Deadline 300 ms: Q1…Q25 and Q51…Q60 answered (25 + 10 = 35 ids); Q26…Q50 cut off → 1 failed batch. The call
+        // returns at the deadline, not after the 60 s the hanging request would take.
+        let start = ContinuousClock.now
+        let answer = try await WikidataClient(http: Self.hangingSecondBatch())
+            .lookup(ids: Self.ids(60), deadline: start + .milliseconds(300))
+        let elapsed = ContinuousClock.now - start
+        #expect(answer.answered == Set(Self.ids(25) + (51...60).map { "Q\($0)" }))
+        #expect(answer.facts.count == 35 && answer.failedBatches == 1)
+        #expect(elapsed >= .milliseconds(300) && elapsed < .seconds(5))
+    }
+    @Test func aDeadlineThatIsNotReachedChangesNothing() async throws {
+        // Every batch answers well before a 30 s deadline: as without one, and the call does not wait for it.
+        let http = StubHTTPClient { r in (200, Self.body(Self.askedIds(r).map { Self.row($0, n: 1, place: true) })) }
+        let start = ContinuousClock.now
+        let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(60), deadline: start + .seconds(30))
+        #expect(answer.answered == Set(Self.ids(60)) && answer.failedBatches == 0)
+        #expect(ContinuousClock.now - start < .seconds(5))
+    }
+
     // MARK: - Spec 20.2.6: story-language titles, roads, metro stations and treaties
 
     @Test func titleIsAskedForInTheStoryLanguageOnly() {

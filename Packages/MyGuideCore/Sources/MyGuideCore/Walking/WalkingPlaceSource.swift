@@ -14,7 +14,8 @@ public struct PlaceSearchResult: Sendable, Equatable {
     /// Names of the Wikipedia-only candidates the tiering drops for their Wikidata class (`nonPlace`, a settlement,
     /// or an area with too few sitelinks; `PlaceTiers.isDroppedByClass`).
     public var dropped: [String]
-    /// Wikidata batches that failed (their candidates keep their tiers without facts).
+    /// Wikidata batches that failed or were cut off by the facts deadline (their candidates keep their tiers without
+    /// facts); a lookup skipped because the deadline had passed counts as one.
     public var factsFailed: Int
 
     /// The `osmErrors` line when OpenStreetMap was cut off after the grace.
@@ -39,19 +40,25 @@ public struct WalkingPlaceSource: Sendable {
     public static let wikiLimit = 100
     /// How long OpenStreetMap may still take once Wikipedia and the facts are in (spec 19.5).
     public static let osmGrace: Duration = .seconds(5)
+    /// How long the Wikidata facts may take in all, from the start of the first lookup, retries and the second lookup
+    /// for OpenStreetMap ids included (spec 20.6.3).
+    public static let factsDeadline: Duration = .seconds(12)
 
     private let overpass: OverpassClient
     private let wikipedia: WikipediaClient
     private let facts: PlaceFactsLookup?
     private let osmGrace: Duration
+    private let factsDeadline: Duration
 
-    /// Without `facts`, candidates keep the tiers of tags and articles alone. `osmGrace` is injectable for tests.
+    /// Without `facts`, candidates keep the tiers of tags and articles alone. `osmGrace` and `factsDeadline` are
+    /// injectable for tests.
     public init(overpass: OverpassClient, wikipedia: WikipediaClient, facts: PlaceFactsLookup? = nil,
-                osmGrace: Duration = Self.osmGrace) {
+                osmGrace: Duration = Self.osmGrace, factsDeadline: Duration = Self.factsDeadline) {
         self.overpass = overpass
         self.wikipedia = wikipedia
         self.facts = facts
         self.osmGrace = osmGrace
+        self.factsDeadline = factsDeadline
     }
 
     /// `candidates(around:language:)` with tiers; places with a nil tier are dropped.
@@ -64,8 +71,9 @@ public struct WalkingPlaceSource: Sendable {
     /// One part of a search, as its task in the group ends.
     private enum Part: Sendable {
         case osm(Result<[Candidate], Error>)
-        /// Wikipedia's articles, and the facts for them when Wikipedia answered and there is a lookup.
-        case wiki(Result<[Candidate], Error>, WikidataClient.Answer?)
+        /// Wikipedia's articles, and the facts for them when Wikipedia answered and there is a lookup, with the facts
+        /// deadline that lookup started.
+        case wiki(Result<[Candidate], Error>, WikidataClient.Answer?, ContinuousClock.Instant?)
         case graceOver
     }
 
@@ -78,10 +86,12 @@ public struct WalkingPlaceSource: Sendable {
     /// errors in `osmErrors`); both failing → the OSM error is thrown, an `OverpassFailure` when every endpoint
     /// answered with an error. When OpenStreetMap answered, the ids of its candidates that the first lookup did not
     /// answer are looked up too (for their sitelinks), unless that lookup had failed batches: Wikidata is then down or
-    /// slow, and is not waited for twice. CancellationError always propagates.
+    /// slow, and is not waited for twice. Both lookups share one deadline, `factsDeadline` from the start of the
+    /// first (spec 20.6.3): what has not answered by then stays without facts, and the second lookup is skipped when
+    /// no time is left. CancellationError always propagates.
     public func candidates(around: Coordinate, language: StoryLanguage) async throws -> PlaceSearchResult {
-        let overpass = overpass, wikipedia = wikipedia, facts = facts, grace = osmGrace
-        let (osmResult, wikiResult, wikiAnswer) = try await withThrowingTaskGroup(of: Part.self) { group in
+        let overpass = overpass, wikipedia = wikipedia, facts = facts, grace = osmGrace, within = factsDeadline
+        let (osmResult, wikiResult, wikiAnswer, wikiDeadline) = try await withThrowingTaskGroup(of: Part.self) { group in
             group.addTask {
                 .osm(try await Self.outcome {
                     try await overpass.placesReportingEndpoints(around: around, radius: Self.radius, language: language)
@@ -92,20 +102,22 @@ public struct WalkingPlaceSource: Sendable {
                     try await wikipedia.articles(around: around, radius: Self.radius, language: language,
                                                  limit: Self.wikiLimit)
                 }
-                guard case .success(let articles) = wiki, let facts else { return .wiki(wiki, nil) }
-                return .wiki(wiki, try await facts.answer(for: PlaceFactsLookup.ids(of: articles), language: language))
+                guard case .success(let articles) = wiki, let facts else { return .wiki(wiki, nil, nil) }
+                let deadline = ContinuousClock.now + within
+                return .wiki(wiki, try await facts.answer(for: PlaceFactsLookup.ids(of: articles), language: language,
+                                                          deadline: deadline), deadline)
             }
             // Nil OSM result after the loop: the grace ran out.
             var osm: Result<[Candidate], Error>?
-            var wiki: (Result<[Candidate], Error>, WikidataClient.Answer?)?
+            var wiki: (Result<[Candidate], Error>, WikidataClient.Answer?, ContinuousClock.Instant?)?
             loop: while osm == nil || wiki == nil {
                 // The children always end with a part or an error, so next() never runs dry before both are in.
                 guard let part = try await group.next() else { break }
                 switch part {
                 case .osm(let result):
                     osm = result
-                case .wiki(let result, let answer):
-                    wiki = (result, answer)
+                case .wiki(let result, let answer, let deadline):
+                    wiki = (result, answer, deadline)
                     if osm == nil, case .success(let articles) = result, !articles.isEmpty {
                         group.addTask {
                             try await Task.sleep(for: grace)
@@ -119,7 +131,7 @@ public struct WalkingPlaceSource: Sendable {
             // Ends the grace timer, or OpenStreetMap when the grace ran out; their errors are discarded.
             group.cancelAll()
             guard let wiki else { throw CancellationError() }
-            return (osm, wiki.0, wiki.1)
+            return (osm, wiki.0, wiki.1, wiki.2)
         }
         // Some sources signal cancellation with their own error type; do not report that as a failure.
         try Task.checkCancellation()
@@ -147,12 +159,18 @@ public struct WalkingPlaceSource: Sendable {
         }
 
         var answer = wikiAnswer ?? WikidataClient.Answer()
-        if let facts, answer.failedBatches == 0 {
-            let missing = PlaceFactsLookup.ids(of: merged).filter { !answer.answered.contains($0) }
-            let more = try await facts.answer(for: missing, language: language)
-            answer.facts.merge(more.facts) { first, _ in first }
-            answer.answered.formUnion(more.answered)
-            answer.failedBatches += more.failedBatches
+        if let facts, answer.failedBatches == 0,
+           case let missing = PlaceFactsLookup.ids(of: merged).filter({ !answer.answered.contains($0) }), !missing.isEmpty {
+            // The first lookup's deadline; this one is the first when Wikipedia gave no articles to look up.
+            let deadline = wikiDeadline ?? ContinuousClock.now + factsDeadline
+            if ContinuousClock.now < deadline {
+                let more = try await facts.answer(for: missing, language: language, deadline: deadline)
+                answer.facts.merge(more.facts) { first, _ in first }
+                answer.answered.formUnion(more.answered)
+                answer.failedBatches += more.failedBatches
+            } else {
+                answer.failedBatches += 1
+            }
         }
         let enriched = PlaceFactsEnrichment(merged, facts: answer.facts, language: language)
         result.candidates = enriched.candidates

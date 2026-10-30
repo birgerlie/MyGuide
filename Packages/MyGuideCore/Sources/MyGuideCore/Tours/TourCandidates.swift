@@ -106,7 +106,7 @@ public struct TourPlaceSource: Sendable {
     /// reported in the result; both failing → the OpenStreetMap error is thrown (an `OverpassFailure` when every
     /// endpoint answered with an error). Wikipedia counts as failed only when every tile failed; single failed tiles
     /// are counted in `failedTiles`. The merged candidates then get their Wikidata facts (Wikipedia-only ones first,
-    /// since their tier depends on them; at most `WikidataClient.tourMaxBatches` batches of 50, the rest are left out); a failed lookup leaves the tiers as they were. Unlike walking,
+    /// since their tier depends on them; at most `WikidataClient.tourMaxBatches` batches of `WikidataClient.batchSize`, the rest are left out); a failed lookup leaves the tiers as they were. Unlike walking,
     /// OpenStreetMap is awaited fully: a tour is planned once, and its 30 s query is worth the wait. Cancellation
     /// always propagates.
     public func search(in area: TourArea, language: StoryLanguage) async throws -> TourPlaceSearch {

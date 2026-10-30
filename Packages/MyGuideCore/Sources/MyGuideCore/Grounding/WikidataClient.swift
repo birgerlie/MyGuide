@@ -25,7 +25,7 @@ public struct WikidataClient: Sendable {
     /// is a decoration in Wikidata (order of chivalry → state order → state decoration → decoration → work of art),
     /// so religious orders such as the Sovereign Military Order of Malta reached `place` this way (spec 20.6, live
     /// check 30 Oct). Kept as its own flag: a SPARQL test per direct class was 4–10 times slower (beyond the 8 s
-    /// timeout).
+    /// timeout of the time; now `timeout`).
     static let artClasses = ["Q838948"]
     /// Metro station and treaty (spec 20.2.6): `nonPlace` before every other class, since a station is a structure.
     static let neverClasses = ["Q928830", "Q131569"]
@@ -60,21 +60,23 @@ public struct WikidataClient: Sendable {
         }
     }
 
-    /// Facts for up to any number of ids (batched by 50, at most `maxBatches` batches; ids beyond are left out). A
-    /// failed batch is left out of the result; never throws except CancellationError.
+    /// Facts for up to any number of ids (batched by `batchSize`, at most `maxBatches` batches; ids beyond are left
+    /// out). A failed batch is left out of the result; never throws except CancellationError.
     public func facts(for ids: [String]) async throws -> [String: PlaceFacts] {
         try await lookup(ids: ids).facts
     }
 
     /// Like `facts(for:)`, and also reports which ids were answered and how many batches failed. At most
-    /// `maxBatches` batches of 50 are asked for, in `ids` order (later ids are left out), at most
-    /// `maxConcurrentBatches` requests at a time. A batch that fails (an error, a bad answer or the 8 s timeout) is
+    /// `maxBatches` batches of `batchSize` are asked for, in `ids` order (later ids are left out), at most
+    /// `maxConcurrentBatches` requests at a time. A batch that fails (an error, a bad answer or the `timeout`) is
     /// asked once more as two halves, which go first in the queue and so run concurrently when there is room
     /// (spec 20.2.7); it counts as failed when either half fails, and the ids of a half that answered are answered.
     /// With a `language` other than English, each item's article title in that language is read too
     /// (`PlaceFacts.localTitle`).
+    /// At a `deadline` (spec 20.6.3) the call returns what has answered by then: requests still running are
+    /// cancelled, and every batch not yet answered (queued, running or retrying) counts as failed.
     public func lookup(ids: [String], maxBatches: Int = WikidataClient.maxBatches,
-                       language: StoryLanguage? = nil) async throws -> Answer {
+                       language: StoryLanguage? = nil, deadline: ContinuousClock.Instant? = nil) async throws -> Answer {
         var seen = Set<String>()
         let valid = ids.filter { Self.isValid($0) && seen.insert($0).inserted }
             .prefix(Self.batchSize * max(0, maxBatches))
@@ -89,23 +91,30 @@ public struct WikidataClient: Sendable {
             var batch: Int
             var isRetry: Bool
         }
-        return try await withThrowingTaskGroup(of: (work: Work, facts: [String: PlaceFacts]?).self) { group in
+        /// A request's outcome (nil facts: it failed), or the deadline.
+        enum Part: Sendable {
+            case done(Work, [String: PlaceFacts]?)
+            case deadline
+        }
+        return try await withThrowingTaskGroup(of: Part.self) { group in
             func add(_ work: Work) {
                 group.addTask {
                     do {
-                        return (work, try await Self.fetch(work.ids, titleCode: titleCode, http: http))
+                        return .done(work, try await Self.fetch(work.ids, titleCode: titleCode, http: http))
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
-                        // The caller is gone: no retry.
+                        // The caller is gone, or the deadline passed: no retry.
                         throw CancellationError()
                     } catch {
-                        return (work, nil)
+                        return .done(work, nil)
                     }
                 }
             }
             var pending = batches.enumerated().map { Work(ids: $0.element, batch: $0.offset, isRetry: false) }
             var running = 0
+            /// Requests queued or running per batch; a batch with none left is answered or failed.
+            var open = Dictionary(uniqueKeysWithValues: batches.indices.map { ($0, 1) })
             func fill() {
                 // None starts once the caller is cancelled.
                 while running < Self.maxConcurrentBatches, !pending.isEmpty, !Task.isCancelled {
@@ -113,24 +122,39 @@ public struct WikidataClient: Sendable {
                     running += 1
                 }
             }
-            fill()
             var answer = Answer()
             var failed = Set<Int>()
-            while let part = try await group.next() {
+            guard !batches.isEmpty else { return answer }
+            if let deadline {
+                group.addTask {
+                    try await Task.sleep(until: deadline, clock: .continuous)
+                    return .deadline
+                }
+            }
+            fill()
+            while running > 0, let part = try await group.next() {
+                guard case .done(let work, let facts) = part else {
+                    // The deadline: whatever has not answered stays without facts.
+                    failed.formUnion(open.filter { $0.value > 0 }.keys)
+                    break
+                }
                 running -= 1
-                if let facts = part.facts {
-                    answer.answered.formUnion(part.work.ids)
+                open[work.batch, default: 0] -= 1
+                if let facts {
+                    answer.answered.formUnion(work.ids)
                     answer.facts.merge(facts) { first, _ in first }
-                } else if part.work.isRetry {
-                    failed.insert(part.work.batch)
+                } else if work.isRetry {
+                    failed.insert(work.batch)
                 } else {
-                    pending.insert(contentsOf: Self.halves(part.work.ids).map {
-                        Work(ids: $0, batch: part.work.batch, isRetry: true)
-                    }, at: 0)
+                    let halves = Self.halves(work.ids)
+                    open[work.batch, default: 0] += halves.count
+                    pending.insert(contentsOf: halves.map { Work(ids: $0, batch: work.batch, isRetry: true) }, at: 0)
                 }
                 // A finished request makes room for the next.
                 fill()
             }
+            // Ends the deadline's timer, or the requests it cut off; their errors are discarded.
+            group.cancelAll()
             try Task.checkCancellation()
             answer.failedBatches = failed.count
             return answer

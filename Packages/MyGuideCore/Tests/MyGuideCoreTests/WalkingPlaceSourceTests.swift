@@ -257,7 +257,7 @@ import Testing
             return (200, Data(Self.romeWikiBody.utf8))
         }
         let client = WikidataClient(http: http)
-        // Down first: nothing is stored, tiers as today, one failed batch (3 ids fit one batch of 50).
+        // Down first: nothing is stored, tiers as today, one failed batch (3 ids fit one batch of 25).
         wikidataUp.set(false)
         let down = try await source(http, facts: PlaceFactsLookup(cache: PlaceFactsCache(directory: nil), client: client))
             .candidates(around: here, language: .english)
@@ -532,6 +532,71 @@ import Testing
         await #expect(throws: CancellationError.self) {
             _ = try await source(Self.stub(), facts: urlCancelled).candidates(around: here, language: .english)
         }
+    }
+    // MARK: - Spec 20.6.3: one overall deadline for the facts
+
+    func source(_ http: any HTTPClient, facts: PlaceFactsLookup?, deadline: Duration) -> WalkingPlaceSource {
+        WalkingPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http), facts: facts,
+                           factsDeadline: deadline)
+    }
+    @Test func factsDeadlineIsTwelveSeconds() {
+        #expect(WalkingPlaceSource.factsDeadline == .seconds(12))
+    }
+    @Test func bothLookupsShareOneDeadlineFromTheStartOfTheFirst() async throws {
+        // The first lookup (Wikipedia ids) and the second (the OSM id Q20) are given the same instant: the deadline
+        // counts from the start of the first lookup, it does not restart.
+        let deadlines = LockedBox<[ContinuousClock.Instant?]>([])
+        let starts = LockedBox<[ContinuousClock.Instant]>([])
+        let lookup = PlaceFactsLookup(deadlined: { ids, _, _, deadline in
+            starts.withValue { $0.append(.now) }
+            deadlines.withValue { $0.append(deadline) }
+            return WikidataClient.Answer(answered: Set(ids))
+        })
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        _ = try await source(http, facts: lookup, deadline: .seconds(12)).candidates(around: here, language: .english)
+        let given = deadlines.value.compactMap { $0 }
+        #expect(given.count == 2 && given[0] == given[1])
+        // 12 s after the first lookup began: fixed just before the lookup reads the clock, so at most 12 s after
+        // that reading, and not a second less.
+        let first = try #require(starts.value.first)
+        #expect(given[0] - first <= .seconds(12) && given[0] - first > .seconds(11))
+    }
+    @Test func aLookupThatIgnoresTheDeadlineIsCutOffAtIt() async throws {
+        // A plain lookup that would take 60 s: the facts give up at the 300 ms deadline. The tiers stay as without
+        // facts and the cut counts as one failed batch; no second lookup (the first had a failed batch).
+        let calls = LockedBox<[[String]]>([])
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        let start = ContinuousClock.now
+        let result = try await source(http, facts: Self.lookup(delay: .seconds(60), calls: calls),
+                                      deadline: .milliseconds(300)).candidates(around: here, language: .english)
+        #expect(ContinuousClock.now - start < .seconds(5))
+        #expect(result.factsCount == 0 && result.factsFailed == 1)
+        #expect(calls.value == [["Q1", "Q2", "Q3"]])
+    }
+    @Test func noSecondLookupOnceTheDeadlineHasPassed() async throws {
+        // The first lookup answers everything but only after the 200 ms deadline (a lookup told the deadline that
+        // overran it): the OSM id Q20 is not asked for, stays without facts, and counts as one failed batch.
+        let calls = LockedBox<[[String]]>([])
+        let lookup = PlaceFactsLookup(deadlined: { ids, _, _, deadline in
+            calls.withValue { $0.append(ids) }
+            if let deadline { try await Task.sleep(until: deadline + .milliseconds(50), clock: .continuous) }
+            return WikidataClient.Answer(facts: Self.romeFacts.filter { ids.contains($0.key) }, answered: Set(ids))
+        })
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        let result = try await source(http, facts: lookup, deadline: .milliseconds(200))
+            .candidates(around: here, language: .english)
+        #expect(calls.value == [["Q1", "Q2", "Q3"]])
+        // Q1, Q2 and Q3 have facts; Q20 (Burg) does not.
+        #expect(result.factsCount == 3 && result.factsFailed == 1)
+        #expect(result.candidates.first { $0.name == "Burg" }?.sitelinks == nil)
+    }
+    @Test func anOSMObjectWithoutAWikidataIdIsKeptAsWikiOnly() async throws {
+        // Spec 20.6.4: the Museum (tourism=museum, no wikidata tag, no article) was dropped; now it is Wiki-only. Burg
+        // (historic=castle) keeps its tag tier, top.
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(#"{"query":{"pages":[]}}"#.utf8)) })
+        let places = try await source(http, facts: nil).places(around: here, language: .english)
+        #expect(places.first { $0.candidate.name == "Museum" }?.tier == .wikiOnly)
+        #expect(places.first { $0.candidate.name == "Burg" }?.tier == .top)
     }
     @Test func defaultGraceIsFiveSeconds() {
         #expect(WalkingPlaceSource.osmGrace == .seconds(5))
