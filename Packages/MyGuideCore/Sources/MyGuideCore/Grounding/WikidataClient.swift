@@ -95,7 +95,8 @@ public struct WikidataClient: Sendable {
                         return (work, try await Self.fetch(work.ids, titleCode: titleCode, http: http))
                     } catch is CancellationError {
                         throw CancellationError()
-                    } catch let error as URLError where error.code == .cancelled {
+                    } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
+                        // The caller is gone: no retry.
                         throw CancellationError()
                     } catch {
                         return (work, nil)

@@ -359,9 +359,16 @@ import Foundation
         #expect(answer.failedBatches == 0 && answer.answered == Set(Self.ids(200)))
     }
     @Test func cancellationIsNotRetried() async {
-        let http = StubHTTPClient { _ in throw URLError(.cancelled) }
+        let http = StubHTTPClient { _ in throw CancellationError() }
         await #expect(throws: CancellationError.self) { try await WikidataClient(http: http).facts(for: ["Q1"]) }
         #expect(http.requests.count == 1)
+    }
+    @Test func aStrayURLCancelledWhileTheCallerRunsIsAFailureLikeAnyOther() async throws {
+        // URLError.cancelled without the caller being cancelled (as before spec 20.2.7: a failed batch) → retried
+        // once as one half (one id): 2 requests, 1 failed batch.
+        let http = StubHTTPClient { _ in throw URLError(.cancelled) }
+        let answer = try await WikidataClient(http: http).lookup(ids: ["Q1"])
+        #expect(http.requests.count == 2 && answer.failedBatches == 1)
     }
 
     // MARK: - Spec 20.2.6: story-language titles, roads, metro stations and treaties
