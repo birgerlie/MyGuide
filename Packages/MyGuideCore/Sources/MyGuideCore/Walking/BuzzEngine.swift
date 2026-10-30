@@ -102,15 +102,43 @@ public struct BuzzEngine: Sendable {
     /// seconds (spec 20.3).
     public static let holdRadius = 60.0
     public static let maxHold: TimeInterval = 30
-    /// The least time from the last buzz of the engine to a buzz of a top place, of a good place with at least
-    /// `PlaceTiers.goodSitelinks` sitelinks, and of any other place (spec 20.2.1).
-    public static let topGap: TimeInterval = 30, goodGap: TimeInterval = 90, otherGap: TimeInterval = 240
+    /// The least time from the last buzz of the engine to a buzz of a top place or one with at least
+    /// `topGapSitelinks`, of one with `middleGapSitelinks` up to that, and of any other or Wiki-only place
+    /// (spec 20.3.1).
+    public static let topGap: TimeInterval = 30, middleGap: TimeInterval = 120, otherGap: TimeInterval = 240
+    public static let topGapSitelinks = 25, middleGapSitelinks = 15
+    /// «Behind you» (spec 20.3.3): within this long after a story ends, a place with at least `behindYouSitelinks`
+    /// sitelinks that was due during the story and is at most `dropRadius` away buzzes once, whatever the gap.
+    public static let behindYouWindow: TimeInterval = 60
+    public static let behindYouSitelinks = 30
+    /// A work of art with at least this many sitelinks is not excluded by the spot of another item (spec 20.3.5).
+    public static let famousArtSitelinks = 30
     public static let overrideMinDistance = 90.0, overridePassingMargin = 10.0
     public static let overrideInterval: TimeInterval = 600, skipQuiet: TimeInterval = 60
     public static let maxFixAccuracy = 50.0
 
-    /// True while a previous buzz is still being presented; nothing new is buzzed meanwhile.
-    public var isBusy = false
+    /// True while a previous buzz is still being presented; nothing new is buzzed meanwhile. Setting it without a
+    /// time (`setBusy(_:at:)` gives one) counts a story's end from the next decision.
+    public var isBusy = false {
+        didSet {
+            guard oldValue != isBusy else { return }
+            if isBusy {
+                dueWhileBusy = []
+                busyEnd = nil
+            } else {
+                busyEnd = .pending
+            }
+        }
+    }
+
+    /// When the last story ended, for «behind you»; `pending` until the next decision when no time was given.
+    private enum BusyEnd: Sendable {
+        case pending
+        case at(Date)
+    }
+    private var busyEnd: BusyEnd?
+    /// Places (by id) due (tracked within their due radius) at a decision while busy, since the story began.
+    private var dueWhileBusy: Set<String> = []
 
     /// Where a place was buzzed, heard or chosen, and how it ranked (nil when it has no tier: it then excludes every
     /// place at its spot). A hill or island excludes no place around it.
@@ -166,13 +194,15 @@ public struct BuzzEngine: Sendable {
         return (place.candidate.sitelinks ?? 0) >= famousSitelinks ? famousTopDueRadius : topDueRadius
     }
 
-    /// The least time from the engine's last buzz to a buzz of `place` (spec 20.2.1): `topGap` for top, `goodGap`
-    /// for good with at least `PlaceTiers.goodSitelinks` sitelinks, `otherGap` otherwise (none counts as 0).
+    /// The least time from the engine's last buzz to a buzz of `place` (spec 20.3.1): `topGap` for top or at least
+    /// `topGapSitelinks` sitelinks, `middleGap` for `middleGapSitelinks` up to that, `otherGap` for fewer (none
+    /// counts as 0) and for every Wiki-only place.
     public static func minimumGap(for place: WalkingPlace) -> TimeInterval {
+        let sitelinks = place.candidate.sitelinks ?? 0
         switch place.tier {
-        case .top: topGap
-        case .good: (place.candidate.sitelinks ?? 0) >= PlaceTiers.goodSitelinks ? goodGap : otherGap
-        case .wikiOnly: otherGap
+        case .top: return topGap
+        case .wikiOnly: return otherGap
+        case .good: return sitelinks >= topGapSitelinks ? topGap : sitelinks >= middleGapSitelinks ? middleGap : otherGap
         }
     }
 
@@ -181,6 +211,12 @@ public struct BuzzEngine: Sendable {
     /// grown at least `passedMargin` from `closest`.
     static func mayBuzz(_ place: WalkingPlace, distance: Double, closest: Double) -> Bool {
         distance <= dueRadius || (distance <= dueRadius(for: place) && distance >= closest + passedMargin)
+    }
+
+    /// Sets `isBusy`; a story ending (busy → free) is dated `now` for «behind you» (spec 20.3.3).
+    public mutating func setBusy(_ busy: Bool, at now: Date) {
+        isBusy = busy
+        if !busy, case .pending? = busyEnd { busyEnd = .at(now) }
     }
 
     public mutating func setPerHour(_ value: Int, at now: Date) {
@@ -222,6 +258,7 @@ public struct BuzzEngine: Sendable {
     /// Like `evaluate`, but says why nothing was buzzed. Quiet reasons are checked in the order of `QuietReason`.
     public mutating func decide(places: [WalkingPlace], position: Coordinate, accuracy: Double,
                                 course: Double?, now: Date) -> BuzzDecision {
+        if case .pending? = busyEnd { busyEnd = .at(now) }
         guard WalkingFix.isUsable(accuracy: accuracy) else { return .quiet(.badAccuracy, due: []) }
 
         // Update the tracked set and the distances. A place that is no longer in `places` is forgotten.
@@ -249,6 +286,19 @@ public struct BuzzEngine: Sendable {
         let duePlaces = ordered.map {
             DuePlace(id: $0.place.candidate.id, name: $0.place.candidate.name, tier: $0.place.tier,
                      distance: $0.distance, excluded: isExcluded($0.place))
+        }
+
+        if isBusy {
+            for item in due where item.distance <= Self.dueRadius(for: item.place) {
+                dueWhileBusy.insert(item.place.candidate.id)
+            }
+        } else if !(lastSkip.map { now.timeIntervalSince($0) < Self.skipQuiet } ?? false),
+                  let behind = behindYou(places: places, distances: distances, now: now), budget.spend(at: now) {
+            busyEnd = nil
+            dueWhileBusy = []
+            return .buzz(buzz(behind, distances[behind.candidate.id] ?? 0,
+                              GeoMath.bearing(from: position, to: behind.candidate.coordinate), course,
+                              usedOverride: false, now: now))
         }
 
         if due.isEmpty { return .quiet(.noneDue, due: []) }
@@ -296,14 +346,30 @@ public struct BuzzEngine: Sendable {
         return .quiet(candidates.contains(where: mayBuzz) ? .budget : .noneDue, due: duePlaces)
     }
 
+    /// The «behind you» place (spec 20.3.3): within `behindYouWindow` of the end of the last story, the best (in the
+    /// due order) of `places` that was due during it, has at least `behindYouSitelinks` sitelinks, is at most
+    /// `dropRadius` away (inclusive) and is not excluded. Nil outside the window (a story end dated after `now`, the
+    /// clock set back, is outside), with no such place, or when the budget cannot pay.
+    private func behindYou(places: [WalkingPlace], distances: [String: Double], now: Date) -> WalkingPlace? {
+        guard case .at(let end)? = busyEnd, Self.isWithin(Self.behindYouWindow, of: end, now: now),
+              !dueWhileBusy.isEmpty, budget.canSpend(at: now) else { return nil }
+        return places.filter { place in
+            guard dueWhileBusy.contains(place.candidate.id), (place.candidate.sitelinks ?? 0) >= Self.behindYouSitelinks,
+                  let distance = distances[place.candidate.id], distance <= Self.dropRadius else { return false }
+            return !isExcluded(place)
+        }
+        .min { Self.orderKey($0, distances[$0.candidate.id] ?? 0) < Self.orderKey($1, distances[$1.candidate.id] ?? 0) }
+    }
+
     /// The due order: tier, then sitelinks (more first, nil as 0), then distance.
     private static func orderKey(_ place: WalkingPlace, _ distance: Double) -> (PlaceTier, Int, Double) {
         (place.tier, -(place.candidate.sitelinks ?? 0), distance)
     }
 
-    /// True when `place` must wait for a better one just ahead (spec 20.3): a place of `places` that ranks above it,
-    /// is not excluded, lies within `holdRadius` of it, may not buzz yet (`mayBuzz`, with its smallest tracked
-    /// distance from `closest`) and is closer than at the last fix. Notes the first fix that held `place`; false once
+    /// True when `place` must wait for a better one just ahead (spec 20.3, 20.3.2): a place of `places` that ranks
+    /// above it, is not excluded, lies within `holdRadius` of it, may not buzz yet (`mayBuzz`, with its smallest
+    /// tracked distance from `closest`), and is either closer than at the last fix or due (tracked within its due
+    /// radius) and waiting for its closest approach. Notes the first fix that held `place`; false once
     /// `maxHold` has passed since (or when that fix is dated after `now`, the clock set back).
     private mutating func isHeld(_ place: WalkingPlace, places: [WalkingPlace], distances: [String: Double],
                                  closest: [String: Double], previous: [String: Double], now: Date) -> Bool {
@@ -311,9 +377,10 @@ public struct BuzzEngine: Sendable {
         let better = places.contains { other in
             guard other.candidate.id != place.candidate.id,
                   Rank(tier: other.tier, sitelinks: other.candidate.sitelinks) < rank,
-                  let distance = distances[other.candidate.id], let before = previous[other.candidate.id],
+                  let distance = distances[other.candidate.id],
                   !Self.mayBuzz(other, distance: distance, closest: closest[other.candidate.id] ?? distance),
-                  distance < before,
+                  previous[other.candidate.id].map({ distance < $0 }) == true
+                    || (closest[other.candidate.id] != nil && distance <= Self.dueRadius(for: other)),
                   GeoMath.distance(other.candidate.coordinate, place.candidate.coordinate) <= Self.holdRadius
             else { return false }
             return !isExcluded(other)
@@ -326,10 +393,12 @@ public struct BuzzEngine: Sendable {
 
     /// Excluded by id, by a Wikidata id buzzed this run, ranked equal or lower than a place buzzed this run within
     /// `sameSpotRadius` (inclusive) of it (any rank when that place had none), or ranked lower than one within
-    /// `complexRadius` (inclusive) of it. Spots of hills and islands exclude nothing around them.
+    /// `complexRadius` (inclusive) of it. Spots of hills and islands exclude nothing around them, and no spot
+    /// excludes a work of art with at least `famousArtSitelinks` sitelinks (spec 20.3.5).
     private func isExcluded(_ place: WalkingPlace) -> Bool {
         if excluded.contains(place.candidate.id) { return true }
         if place.candidate.wikidata.map({ buzzedWikidata.contains($0) }) == true { return true }
+        if place.candidate.isArt == true, (place.candidate.sitelinks ?? 0) >= Self.famousArtSitelinks { return false }
         let rank = Rank(tier: place.tier, sitelinks: place.candidate.sitelinks)
         return buzzedSpots.contains { spot in
             guard spot.excludesNeighbours else { return false }

@@ -4,11 +4,11 @@ import Testing
 
 @Suite struct BuzzEngineTests {
     static let t0 = Date(timeIntervalSince1970: 1_000_000)
-    /// 10 sitelinks, so a good place waits 90 s after a buzz (spec 20.2.1), not more than the 180 s the budget
+    /// 25 sitelinks, so a good place waits 30 s after a buzz (spec 20.3.1), not more than the 180 s the budget
     /// spaces buzzes at 20/h in these tests.
     static func place(_ id: String, _ tier: PlaceTier, north: Double = 0, east: Double = 0) -> WalkingPlace {
         WalkingPlace(candidate: Candidate(id: id, name: id, coordinate: .at(north: north, east: east), kind: "x",
-                                          sitelinks: 10),
+                                          sitelinks: 25),
                      tier: tier)
     }
     static func engine(perHour: Int = 20, excluded: Set<String> = []) -> BuzzEngine {
@@ -524,8 +524,8 @@ import Testing
 
 @Suite struct BuzzEngineTuningTests {
     static let t0 = Date(timeIntervalSince1970: 1_000_000)
-    /// 10 sitelinks unless given, so a good place waits 90 s after a buzz (spec 20.2.1).
-    static func place(_ id: String, _ tier: PlaceTier, north: Double, east: Double = 0, sitelinks: Int? = 10,
+    /// 25 sitelinks unless given, so a good place waits 30 s after a buzz (spec 20.3.1).
+    static func place(_ id: String, _ tier: PlaceTier, north: Double, east: Double = 0, sitelinks: Int? = 25,
                       wikidata: String? = nil) -> WalkingPlace {
         WalkingPlace(candidate: Candidate(id: id, name: id, coordinate: .at(north: north, east: east), kind: "x",
                                           wikidata: wikidata, sitelinks: sitelinks),
@@ -721,7 +721,7 @@ import Testing
         guard case .quiet(.minGap, let due) = d else { Issue.record("expected minGap, got \(d)"); return }
         #expect(Set(due.map(\.id)) == ["a", "b"])
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 150)?.place == b)
-        #expect(BuzzEngine.topGap == 30 && BuzzEngine.goodGap == 90 && BuzzEngine.otherGap == 240)
+        #expect(BuzzEngine.topGap == 30 && BuzzEngine.middleGap == 120 && BuzzEngine.otherGap == 240)
     }
     @Test func theGapHoldsBackAnOverrideToo() {
         // 5/h. a (top, 5 m S) buzzes at t0; the castle (top, 30 m N, 35 m from a: equal rank, not excluded) is due,
@@ -764,7 +764,8 @@ import Testing
     @Test func gapDependsOnTheNextPlacesRank() {
         #expect(BuzzEngine.minimumGap(for: Self.place("a", .top, north: 0)) == 30)
         #expect(BuzzEngine.minimumGap(for: Self.place("a", .top, north: 0, sitelinks: 148)) == 30)
-        #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: 10)) == 90)
+        // Spec 20.3.1 replaced the 90 s for good with ≥ 10 sitelinks: 10 and 9 both wait 240 s.
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: 10)) == 240)
         #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: 9)) == 240)
         #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: nil)) == 240)
         #expect(BuzzEngine.minimumGap(for: Self.place("a", .wikiOnly, north: 0, sitelinks: 344)) == 240)
@@ -783,8 +784,9 @@ import Testing
     @Test func topWaitsThirtySeconds() {
         expectGap(Self.place("top", .top, north: -50, sitelinks: 32), gap: 30)
     }
-    @Test func goodWithTenSitelinksWaitsNinetySeconds() {
-        expectGap(Self.place("good", .good, north: -50, sitelinks: 10), gap: 90)
+    @Test func goodWithTenSitelinksWaitsFourMinutes() {
+        // Spec 20.3.1 (was 90 s in 20.2.1).
+        expectGap(Self.place("good", .good, north: -50, sitelinks: 10), gap: 240)
     }
     @Test func minorPlacesWaitFourMinutes() {
         expectGap(Self.place("minor", .good, north: -50, sitelinks: 9), gap: 240)
@@ -829,7 +831,7 @@ import Testing
     }
     @Test func hillsAndIslandsExcludeNoOtherPlace() {
         // Capitoline Hill (natural, good 68) buzzes at 30 m (t0+120). A Wiki-only place 5 m from it buzzes after its
-        // 240 s gap (t0+360), then the Capitoline Museums (good 46, 20 m from the hill) after 90 s (t0+450); only
+        // 240 s gap (t0+360), then the Capitoline Museums (good 46, 20 m from the hill) after its 30 s (t0+450); only
         // the hill's own Wikidata id stays excluded.
         var e = Self.engine()
         let hill = Self.place("hill", .good, north: 30, sitelinks: 68, wikidata: "Q34925", placeClass: .natural)
@@ -914,5 +916,225 @@ import Testing
             guard case .quiet(.held, _) = d else { Issue.record("expected held at \(y), got \(d)"); return }
         }
         #expect(e.evaluate(places: [a, b], position: .at(north: 92), accuracy: 5, course: 0, now: Self.t0 + 28)?.place == b)
+    }
+}
+
+// MARK: - Spec 20.3: gap by importance, hold for closest approach, «behind you», famous art
+
+@Suite struct BuzzEngineIteration3Tests {
+    static let t0 = Date(timeIntervalSince1970: 1_000_000)
+    static func place(_ id: String, _ tier: PlaceTier, north: Double, east: Double = 0, sitelinks: Int? = nil,
+                      wikidata: String? = nil, isArt: Bool? = nil) -> WalkingPlace {
+        var candidate = Candidate(id: id, name: id, coordinate: .at(north: north, east: east), kind: "x",
+                                  wikidata: wikidata, sitelinks: sitelinks)
+        candidate.isArt = isArt
+        return WalkingPlace(candidate: candidate, tier: tier)
+    }
+    static func engine(perHour: Int = 60) -> BuzzEngine {
+        BuzzEngine(perHour: perHour, now: t0, excluded: [])
+    }
+
+    // MARK: Gap by importance (20.3.1)
+
+    @Test func gapFollowsSitelinksNotTier() {
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .top, north: 0)) == 30)
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: 25)) == 30)
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: 24)) == 120)
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: 15)) == 120)
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: 14)) == 240)
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .good, north: 0, sitelinks: nil)) == 240)
+        // Wiki-only waits 240 s whatever its sitelinks.
+        #expect(BuzzEngine.minimumGap(for: Self.place("a", .wikiOnly, north: 0, sitelinks: 59)) == 240)
+        #expect(BuzzEngine.topGap == 30 && BuzzEngine.middleGap == 120 && BuzzEngine.otherGap == 240)
+        #expect(BuzzEngine.topGapSitelinks == 25 && BuzzEngine.middleGapSitelinks == 15)
+    }
+    /// 60/h: at t0+120 the budget holds 3 tokens. a (top, 10 m N) buzzes; then `next` (50 m S, 60 m from a, beyond
+    /// 55 m) waits `gap`: minGap one second before, a buzz at the gap.
+    func expectGap(_ next: WalkingPlace, gap: TimeInterval) {
+        var e = Self.engine()
+        let a = Self.place("a", .top, north: 10, sitelinks: 40)
+        #expect(e.evaluate(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 120)?.place == a)
+        let d = e.decide(places: [a, next], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 120 + gap - 1)
+        guard case .quiet(.minGap, _) = d else { Issue.record("expected minGap for \(next.candidate.id), got \(d)"); return }
+        #expect(e.evaluate(places: [a, next], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 120 + gap)?.place
+                == next)
+    }
+    @Test func goodWithTwentyFiveSitelinksWaitsThirtySeconds() {
+        // Vespasian's Forum (28) and Pons Fabricius (25) are no longer held back 90 s.
+        expectGap(Self.place("forum", .good, north: -50, sitelinks: 25), gap: 30)
+    }
+    @Test func goodWithFifteenSitelinksWaitsTwoMinutes() {
+        expectGap(Self.place("callisto", .good, north: -50, sitelinks: 15), gap: 120)
+    }
+    @Test func goodWithFourteenSitelinksWaitsFourMinutes() {
+        expectGap(Self.place("pigna", .good, north: -50, sitelinks: 14), gap: 240)
+    }
+
+    // MARK: Hold for closest approach (20.3.2)
+
+    /// B (top, 40 sitelinks, radius 100) at the origin; A (good, 12) at 40 N 40 E, sqrt(40² + 40²) = 56.6 m from B.
+    static let waitingB = place("B", .top, north: 0, sitelinks: 40)
+    static let lesserA = place("A", .good, north: 40, east: 40, sitelinks: 12)
+
+    @Test func aLesserPlaceWaitsWhileABetterOneWaitsForItsClosestApproach() {
+        // t0 at (−69.28 N, 40 E): B sqrt(69.28² + 40²) = 80.0 m (tracked, closest 80); A 109.3 m.
+        // t0+10 at (0 N, 82 E): B 82 m, receding but not passed (82 < 80 + 5) → due and waiting; A
+        // sqrt(40² + 42²) = 58.0 m may buzz → held (B is not approaching: the 20.3.2 rule, not 20.1.3).
+        // t0+20 same spot: still held. t0+40: 30 s since the hold began → A buzzes.
+        var e = Self.engine()
+        let places = [Self.lesserA, Self.waitingB]
+        _ = e.decide(places: places, position: .at(north: -69.28, east: 40), accuracy: 5, course: 0, now: Self.t0)
+        for dt in [10.0, 20, 39] {
+            let d = e.decide(places: places, position: .at(east: 82), accuracy: 5, course: 0, now: Self.t0 + dt)
+            guard case .quiet(.held, _) = d else { Issue.record("expected held at +\(dt), got \(d)"); return }
+        }
+        #expect(e.evaluate(places: places, position: .at(east: 82), accuracy: 5, course: 0, now: Self.t0 + 40)?.place
+                == Self.lesserA)
+    }
+    @Test func theBetterPlaceBuzzesOncePassed() {
+        // As above; at t0+20 the walker is at (0 N, 86 E): B 86 m ≥ 80 + 5 → passed → B (top) buzzes.
+        var e = Self.engine()
+        let places = [Self.lesserA, Self.waitingB]
+        _ = e.decide(places: places, position: .at(north: -69.28, east: 40), accuracy: 5, course: 0, now: Self.t0)
+        _ = e.decide(places: places, position: .at(east: 82), accuracy: 5, course: 0, now: Self.t0 + 10)
+        #expect(e.evaluate(places: places, position: .at(east: 86), accuracy: 5, course: 0, now: Self.t0 + 20)?.place
+                == Self.waitingB)
+    }
+    @Test func aWaitingPlaceFartherThanSixtyMetresHoldsNothing() {
+        // A moved to 45 N 42 E: sqrt(45² + 42²) = 61.6 m from B (> 60). t0 at (−69.28 N, 40 E): B 80.0 m, A 114.3 m.
+        // t0+10 at (5 N, 82 E): B sqrt(5² + 82²) = 82.2 m, due and waiting (< 85); A sqrt(40² + 40²) = 56.6 m → no
+        // hold, A buzzes.
+        var e = Self.engine()
+        let farA = Self.place("A", .good, north: 45, east: 42, sitelinks: 12)
+        let places = [farA, Self.waitingB]
+        _ = e.decide(places: places, position: .at(north: -69.28, east: 40), accuracy: 5, course: 0, now: Self.t0)
+        #expect(e.evaluate(places: places, position: .at(north: 5, east: 82), accuracy: 5, course: 0,
+                           now: Self.t0 + 10)?.place == farA)
+    }
+
+    // MARK: «Behind you» (20.3.3)
+
+    /// x (top, 40, at 10 S 50 E: 51 m) buzzes at t0. The story runs from t0+1 to t0+10. p (good, 32 sitelinks, 50 m
+    /// N, 78 m from x) is due during it (tracked within 60 m at t0+5). The walker is then 40 m S: p 90 m behind. The
+    /// engine starts at t0 − 180 at 60/h, so its budget is full (3) at t0.
+    static let x = place("x", .top, north: -10, east: 50, sitelinks: 40)
+    func storyPassing(_ p: WalkingPlace, end: Date = t0 + 10) -> BuzzEngine {
+        var e = BuzzEngine(perHour: 60, now: Self.t0 - 180, excluded: [])
+        #expect(e.evaluate(places: [Self.x], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == Self.x)
+        e.setBusy(true, at: Self.t0 + 1)
+        let d = e.decide(places: [Self.x, p], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
+        guard case .quiet(.busy, _) = d else { Issue.record("expected busy, got \(d)"); return e }
+        _ = e.decide(places: [Self.x, p], position: .at(north: -40), accuracy: 5, course: 180, now: Self.t0 + 9)
+        e.setBusy(false, at: end)
+        return e
+    }
+    static let p32 = place("p", .good, north: 50, sitelinks: 32)
+
+    @Test func aFamousPlacePassedDuringAStoryBuzzesWhenItEnds() {
+        // End at t0+10; at t0+10 + 59.9 the walker is 40 m S: p 90 m (> 60, not passed-and-buzzable for good) →
+        // «behind you», although only 69.9 s after x's buzz (its 30 s gap is ignored anyway) and p is beyond 60 m.
+        var e = storyPassing(Self.p32)
+        let b = e.evaluate(places: [Self.x, Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 10 + 59.9)
+        #expect(b?.place == Self.p32)
+        #expect(b?.detail == "90 m behind you")
+        #expect(BuzzEngine.behindYouWindow == 60 && BuzzEngine.behindYouSitelinks == 30)
+    }
+    @Test func behindYouEndsSixtySecondsAfterTheStory() {
+        var e = storyPassing(Self.p32)
+        let d = e.decide(places: [Self.x, Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
+                         now: Self.t0 + 10 + 60)
+        #expect(d.buzz == nil)
+    }
+    @Test func behindYouReachesOneHundredTwentyMetresInclusive() {
+        // −70 → 50 N: exactly 120 m (checked); −71 → 121 m.
+        #expect(GeoMath.distance(.at(north: -70), .at(north: 50)) == 120)
+        var e = storyPassing(Self.p32), f = storyPassing(Self.p32)
+        #expect(e.evaluate(places: [Self.x, Self.p32], position: .at(north: -70), accuracy: 5, course: 180,
+                           now: Self.t0 + 20)?.place == Self.p32)
+        #expect(f.evaluate(places: [Self.x, Self.p32], position: .at(north: -71), accuracy: 5, course: 180,
+                           now: Self.t0 + 20) == nil)
+    }
+    @Test func behindYouNeedsThirtySitelinks() {
+        let p29 = Self.place("p", .good, north: 50, sitelinks: 29)
+        var e = storyPassing(p29)
+        #expect(e.evaluate(places: [Self.x, p29], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 20) == nil)
+        let p30 = Self.place("p", .good, north: 50, sitelinks: 30)
+        var f = storyPassing(p30)
+        #expect(f.evaluate(places: [Self.x, p30], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 20)?.place == p30)
+    }
+    @Test func behindYouSkipsExcludedPlacesAndPlacesNotDueDuringTheStory() {
+        var e = storyPassing(Self.p32)
+        e.exclude("p")
+        #expect(e.evaluate(places: [Self.x, Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 20) == nil)
+        // q (good, 40 sitelinks, 70 m N) was 70 m away during the story: never due (radius 60) → nothing after.
+        let q = Self.place("q", .good, north: 70, sitelinks: 40)
+        var f = storyPassing(q)
+        #expect(f.evaluate(places: [Self.x, q], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 20) == nil)
+    }
+    @Test func behindYouHappensOncePerStory() {
+        // p and r (good, 35, at 20 N 56 W: 59.5 m from the walker, 63.5 m from p, so its buzz does not exclude p)
+        // were both due. The first «behind you» is r (more sitelinks), at sqrt(60² + 56²) = 82 m; p then waits for
+        // its normal rules: 90 m away (> 60) → no second buzz, although the window (to t0+70) is still open.
+        let r = Self.place("r", .good, north: 20, east: -56, sitelinks: 35)
+        var e = BuzzEngine(perHour: 60, now: Self.t0 - 180, excluded: [])
+        #expect(e.evaluate(places: [Self.x], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == Self.x)
+        e.setBusy(true, at: Self.t0 + 1)
+        _ = e.decide(places: [Self.x, Self.p32, r], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
+        e.setBusy(false, at: Self.t0 + 10)
+        #expect(e.evaluate(places: [Self.x, Self.p32, r], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 15)?.place == r)
+        #expect(e.evaluate(places: [Self.x, Self.p32, r], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 50) == nil)
+    }
+    @Test func busyEndSetThroughThePropertyCountsFromTheNextFix() {
+        // isBusy = false without a time: the window starts at the next decision (t0+30) and ends 60 s later.
+        var e = Self.engine()
+        e.isBusy = true
+        _ = e.decide(places: [Self.p32], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
+        e.isBusy = false
+        _ = e.decide(places: [], position: .at(north: -40), accuracy: 5, course: 180, now: Self.t0 + 30)
+        #expect(e.evaluate(places: [Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 89.9)?.place == Self.p32)
+        var f = Self.engine()
+        f.isBusy = true
+        _ = f.decide(places: [Self.p32], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 5)
+        f.isBusy = false
+        _ = f.decide(places: [], position: .at(north: -40), accuracy: 5, course: 180, now: Self.t0 + 30)
+        #expect(f.evaluate(places: [Self.p32], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 90) == nil)
+    }
+
+    // MARK: Famous art (20.3.5)
+
+    @Test func famousArtIsNotExcludedByTheSquareAroundIt() {
+        // Piazza Navona (top, 47) buzzes at 20 m. The Fountain of the Four Rivers (art, 36) stands at the same spot
+        // and ranks lower: not excluded, it buzzes after its 30 s gap. Art with 29 sitelinks, or a non-art item with
+        // 36, at that spot is excluded; so is art with the square's own Wikidata id.
+        var e = Self.engine()
+        let navona = Self.place("navona", .top, north: 20, sitelinks: 47, wikidata: "Q1")
+        let fountain = Self.place("fountain", .top, north: 20, sitelinks: 36, isArt: true)
+        let minorArt = Self.place("minorArt", .good, north: 21, sitelinks: 29, isArt: true)
+        let plain = Self.place("plain", .top, north: 22, sitelinks: 36)
+        let twin = Self.place("twin", .top, north: 23, sitelinks: 36, wikidata: "Q1", isArt: true)
+        #expect(e.evaluate(places: [navona], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == navona)
+        let d = e.decide(places: [navona, minorArt, plain, twin], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 600)
+        guard case .quiet(.allExcluded, _) = d else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(e.evaluate(places: [navona, minorArt, plain, twin, fountain], position: .at(), accuracy: 5, course: 0,
+                           now: Self.t0 + 600)?.place == fountain)
+        #expect(BuzzEngine.famousArtSitelinks == 30)
+    }
+    @Test func famousArtIsNotExcludedByTheComplexRuleEither() {
+        // A church (top, 60) buzzes at 20 m; a fountain (art, 30, good) 40 m from it is lower but not excluded.
+        var e = Self.engine()
+        let church = Self.place("church", .top, north: 20, sitelinks: 60)
+        let fountain = Self.place("fountain", .good, north: -20, sitelinks: 30, isArt: true)
+        #expect(e.evaluate(places: [church], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == church)
+        #expect(e.evaluate(places: [church, fountain], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 600)?.place
+                == fountain)
     }
 }

@@ -161,7 +161,8 @@ final class WalkingController {
         self.hasAPIKey = hasAPIKey
         // No buzz while a story is preparing, being continued or playing.
         stories.onBusyChanged = { [weak self] busy in
-            self?.engine?.isBusy = busy
+            // Dated, so a famous place passed during the story can still buzz «behind you» (spec 20.3.3).
+            self?.engine?.setBusy(busy, at: .now)
             // A stop waiting for the engine goes out once it is free; after this event is handled, never inside it.
             if !busy { Task { @MainActor [weak self] in self?.deliverHeldStop(now: .now) } }
         }
@@ -304,7 +305,7 @@ final class WalkingController {
         appliedPerHour = Self.configuredPerHour()
         var engine = BuzzEngine(perHour: appliedPerHour, now: now, excluded: excluded)
         // A story from before this run may still be playing or ending.
-        engine.isBusy = stories.isBusy
+        engine.setBusy(stories.isBusy, at: now)
         self.engine = engine
         let run = UUID()
         runToken = run
