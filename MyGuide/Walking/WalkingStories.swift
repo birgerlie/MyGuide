@@ -71,8 +71,8 @@ final class WalkingStories {
     /// Called after every playback event with `playback.isBusy`.
     @ObservationIgnored var onBusyChanged: ((Bool) -> Void)?
     /// A place was heard (a level of its story started playing) or read (its story opened): it does not buzz again
-    /// this run, and memory rests it for 30 days.
-    @ObservationIgnored var onHeard: ((String) -> Void)?
+    /// this run, nor does any place at its spot or with its Wikidata id (spec 19.4), and memory rests it for 30 days.
+    @ObservationIgnored var onHeard: ((Candidate) -> Void)?
     /// A level of a story about a place chosen on the map started playing; memory has already marked it heard.
     @ObservationIgnored var onChosenHeard: ((Candidate) -> Void)?
     /// A level of a buzzed or chosen place's story started playing (not a stop story): the Live Activity shows it.
@@ -348,7 +348,7 @@ final class WalkingStories {
         }
         // Also after an applied outcome: harmless (the level never drops), and a refused one still counts the read.
         do { try memory.markHeard(candidate, level: 1, at: now) } catch { fail("read failed", error) }
-        onHeard?(candidate.id)
+        onHeard?(candidate)
     }
 
     /// Walking mode is off: cancel the buzz and stop stories being prepared or fetched (each still ends with its
@@ -679,7 +679,7 @@ final class WalkingStories {
         } catch {
             fail("heard outcome failed", error)
         }
-        if let placeID = story.place?.id { onHeard?(placeID) }
+        if let candidate = story.place { onHeard?(candidate) }
     }
 
     /// Saves into `tripID`. Without a trip (a story continued after a relaunch, before walking mode started) the

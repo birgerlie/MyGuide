@@ -378,19 +378,93 @@ import Testing
     }
     @Test func excludeSpotCoversPlacesAtATourStop() {
         // A tour stop buzzed outside the engine at 35 m north: a place at 60 m (25 m from it) is excluded, one at
-        // 10 m (25 m on the other side) too, one at 9 m (26 m) is not.
+        // 10 m (25 m on the other side) too, one at 9 m (26 m) is not; the stop itself is excluded by id.
         var e = Self.engine()
-        e.excludeSpot(.at(north: 35))
+        let stop = Candidate(id: "stop", name: "Stop", coordinate: .at(north: 35), kind: "x")
+        e.excludeSpot(of: stop)
         let far = Self.place("far", .top, north: 60), near = Self.place("near", .top, north: 10)
         let free = Self.place("free", .good, north: 9)
-        let d = e.decide(places: [far, near], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        let again = WalkingPlace(candidate: stop, tier: .top)
+        let d = e.decide(places: [far, near, again], position: .at(), accuracy: 5, course: 0, now: Self.t0)
         guard case .quiet(.allExcluded, _) = d else { Issue.record("expected allExcluded, got \(d)"); return }
         #expect(e.evaluate(places: [far, near, free], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == free)
         // The reset forgets the stop's spot too.
         var f = Self.engine()
-        f.excludeSpot(.at(north: 35))
+        f.excludeSpot(of: stop)
         f.clearExclusions()
         #expect(f.evaluate(places: [far], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == far)
+    }
+
+    // MARK: - Same Wikidata id (spec 19.4)
+
+    static func place(_ id: String, _ tier: PlaceTier, north: Double = 0, wikidata: String?) -> WalkingPlace {
+        WalkingPlace(candidate: Candidate(id: id, name: id, coordinate: .at(north: north), kind: "x", wikidata: wikidata),
+                     tier: tier)
+    }
+
+    @Test func twinWithTheSameWikidataIdIsExcludedBeyondTheSpot() {
+        // Palazzo Venezia buzzes as wiki:it/1 (Q1) at 0 m. A later list carries it as osm:way/1 with the OSM centre
+        // 60 m away (60 > 25: not the spot), same Q1 → excluded at t0+180 although the budget is 1 again.
+        var e = Self.engine()
+        let wiki = Self.place("wiki:it/1", .top, north: 0, wikidata: "Q1")
+        let osm = Self.place("osm:way/1", .top, north: 60, wikidata: "Q1")
+        #expect(e.evaluate(places: [wiki], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == wiki)
+        let d = e.decide(places: [osm], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0 + 180)
+        guard case .quiet(.allExcluded, let due) = d else { Issue.record("expected allExcluded, got \(d)"); return }
+        #expect(due.map(\.id) == ["osm:way/1"] && due.map(\.excluded) == [true])
+    }
+
+    @Test func placeWithAnotherWikidataIdSixtyMetresAwayCanBuzz() {
+        // As above, but Q2: neither the spot (60 > 25) nor the id matches → buzzes at t0+180 (budget 180/180 = 1).
+        var e = Self.engine()
+        let wiki = Self.place("wiki:it/1", .top, north: 0, wikidata: "Q1")
+        let other = Self.place("osm:way/2", .top, north: 60, wikidata: "Q2")
+        #expect(e.evaluate(places: [wiki], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == wiki)
+        #expect(e.evaluate(places: [other], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0 + 180)?.place
+                == other)
+    }
+
+    @Test func placesWithoutWikidataIdAreNotTwins() {
+        // A buzzed place without a Wikidata id must not exclude other places without one (nil is no id).
+        var e = Self.engine()
+        let a = Self.place("a", .top, north: 0, wikidata: nil), b = Self.place("b", .top, north: 60, wikidata: nil)
+        #expect(e.evaluate(places: [a], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)
+        #expect(e.evaluate(places: [b], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0 + 180)?.place == b)
+    }
+
+    @Test func excludeSpotOfATourStopCoversItsWikidataTwin() {
+        // A tour stop (Q7) at 0 m; its twin osm:way/7 has the OSM centre 60 m away → excluded; a Q8 place there is not.
+        var e = Self.engine()
+        e.excludeSpot(of: Candidate(id: "wiki:en/7", name: "Stop", coordinate: .at(), kind: "x", wikidata: "Q7"))
+        let twin = Self.place("osm:way/7", .top, north: 60, wikidata: "Q7")
+        let other = Self.place("osm:way/8", .good, north: 60, wikidata: "Q8")
+        #expect(e.evaluate(places: [twin, other], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)?.place
+                == other)
+    }
+
+    @Test func clearExclusionsForgetsBuzzedWikidataIds() {
+        // wiki:it/1 (Q1) buzzes at t0; after the reset its 60 m twin buzzes at t0+180 (budget 1 again).
+        var e = Self.engine()
+        let wiki = Self.place("wiki:it/1", .top, north: 0, wikidata: "Q1")
+        let osm = Self.place("osm:way/1", .top, north: 60, wikidata: "Q1")
+        #expect(e.evaluate(places: [wiki], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == wiki)
+        e.clearExclusions()
+        #expect(e.evaluate(places: [osm], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0 + 180)?.place == osm)
+    }
+
+    @Test func heardPlaceExcludesItsSpotAndWikidataTwin() {
+        // A place heard or chosen on the map (spec 19.4) at 35 m: excludeSpot(of:) excludes it by id, a place 25 m
+        // away (60 m), and its Q3 twin 65 m away (30 > 25 from the heard place, same Q3). A Q4 place at 65 m is free.
+        var e = Self.engine()
+        let heard = Candidate(id: "wiki:it/3", name: "Il Gesù", coordinate: .at(north: 35), kind: "x", wikidata: "Q3")
+        e.excludeSpot(of: heard)
+        let same = Self.place("same", .top, north: 60, wikidata: nil)
+        let twin = Self.place("osm:way/3", .top, north: 65, wikidata: "Q3")
+        let free = Self.place("free", .good, north: 65, wikidata: "Q4")
+        let d = e.decide(places: [WalkingPlace(candidate: heard, tier: .top), same, twin, free], position: .at(north: 30),
+                         accuracy: 5, course: 0, now: Self.t0)
+        guard case .buzz(let b) = d else { Issue.record("expected a buzz, got \(d)"); return }
+        #expect(b.place == free)
     }
     @Test func overrideBuzzExcludesItsSpotToo() {
         // As topTierOverrideWhilePassing: "a" (5 m south) buzzes at t0; the castle (30 m) is due from t0, closest

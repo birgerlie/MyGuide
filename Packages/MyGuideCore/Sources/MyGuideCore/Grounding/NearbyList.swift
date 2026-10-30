@@ -119,6 +119,15 @@ public struct NearbyList: Sendable, Equatable, Codable {
         return copy
     }
 
+    /// True when the list has no facts (`factsCount` 0: stored before facts existed, or every lookup failed) while it
+    /// holds a Wikipedia-only candidate with a Wikidata id, whose tier depends on facts. A walk re-tiers such a list
+    /// with `withFacts(from:within:)` before using it, also when it still `serves` (spec 19.6).
+    public var needsFacts: Bool {
+        factsCount == 0 && candidates.contains {
+            !PlaceTiers.hasOSMTags($0) && $0.wikidata.map(WikidataClient.isValid) == true
+        }
+    }
+
     /// The candidates that can buzz while walking, in list order, with their tiers; nil tiers are dropped.
     public var walkingPlaces: [WalkingPlace] {
         candidates.compactMap { candidate in

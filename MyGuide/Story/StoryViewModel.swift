@@ -405,7 +405,7 @@ final class StoryViewModel {
             saveFailed = true
         }
         // A story about a matched place retires it from walking mode, saved or not.
-        if let placeID = session.matchedCandidate?.candidate.id { services.walking.noteHeard(placeID: placeID) }
+        if let candidate = session.matchedCandidate?.candidate { services.walking.noteHeard(candidate) }
     }
 
     /// Decodes a screen-sized copy of the photo off the main thread.

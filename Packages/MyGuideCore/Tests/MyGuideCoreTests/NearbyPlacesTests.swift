@@ -347,6 +347,39 @@ private struct Boom: Error {}
         #expect(!called.value)
     }
 
+    @Test func servingListWithoutFactsNeedsThem() async {
+        // Il Gesù and the order are Wikipedia-only with Wikidata ids, and the list has no facts (factsCount 0): it is
+        // re-tiered before a walk uses it (spec 19.6, final review finding 6).
+        let list = Self.preFactsList()
+        #expect(list.factsCount == 0 && list.needsFacts)
+        // Once facts are applied it does not.
+        let facts = PlaceFactsLookup { ids in
+            WikidataClient.Answer(facts: ["Q1062394": PlaceFacts(sitelinks: 40, placeClass: .place)], answered: Set(ids))
+        }
+        let retiered = await list.withFacts(from: facts, within: .seconds(5))
+        #expect(retiered.factsCount == 1 && !retiered.needsFacts)
+    }
+
+    @Test func listNeedsNoFactsWithoutWikipediaOnlyIds() {
+        // Only a tagged castle, without a Wikidata id.
+        #expect(!Self.list().needsFacts)
+        // A tagged OSM place with a Wikidata id: its tier comes from its tags, facts would only add sitelinks.
+        let tagged = Candidate(id: "osm:node/9", name: "Burg", coordinate: .at(), kind: "historic=castle",
+                               wikidata: "Q9", tags: ["historic": "castle"])
+        #expect(!NearbyList(centre: .at(), fetchedAt: Self.t0, language: .english, candidates: [tagged],
+                            articleTexts: [:]).needsFacts)
+        // A Wikipedia-only article without a (valid) Wikidata id cannot be looked up.
+        let noId = Candidate(id: "wiki:it/5", name: "X", coordinate: .at(), kind: "wikipedia", wikipediaTitle: "it:X")
+        let badId = Candidate(id: "wiki:it/6", name: "Y", coordinate: .at(), kind: "wikipedia", wikipediaTitle: "it:Y",
+                              wikidata: "bad")
+        #expect(!NearbyList(centre: .at(), fetchedAt: Self.t0, language: .english, candidates: [noId, badId],
+                            articleTexts: [:]).needsFacts)
+        // A list that already has facts (factsCount 1), whatever else it holds.
+        var withFacts = Self.preFactsList()
+        withFacts.factsCount = 1
+        #expect(!withFacts.needsFacts)
+    }
+
     @Test func listStatusForTheTimingsScreen() {
         let list = Self.list()   // centre (0, 0), fetched at t0
         // t0 + 125.9 s: 125.9 rounded down → 125 s. Position 85.4 m north: `.at(north:)` is that many metres up to

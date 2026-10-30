@@ -165,7 +165,7 @@ final class WalkingController {
             // A stop waiting for the engine goes out once it is free; after this event is handled, never inside it.
             if !busy { Task { @MainActor [weak self] in self?.deliverHeldStop(now: .now) } }
         }
-        stories.onHeard = { [weak self] placeID in self?.noteHeard(placeID: placeID) }
+        stories.onHeard = { [weak self] candidate in self?.noteHeard(candidate) }
         stories.onChosenHeard = { [weak self] candidate in self?.noteChosenHeard(candidate) }
         stories.onRetire = { [weak self] id, candidate, level in self?.retire(id, candidate: candidate, deepestLevel: level) }
         stories.currentTripID = { [weak self] in self?.tripID }
@@ -633,8 +633,8 @@ final class WalkingController {
     /// Buzzes a stop as a place chosen on the map is told (`Buzz(chosen:position:)`): the feed's place when the stop
     /// is in it, else the candidate the planner kept with the stop, else (a tour stored before that) a bare one.
     /// Delivered like any buzz, so it is recorded (marked as a tour stop in the walk log), notified, sent to the watch
-    /// and its story prepared. The engine never buzzes it, nor any place at its spot (within 25 m), this run, and the
-    /// cadence counts it.
+    /// and its story prepared. The engine never buzzes it, nor any place at its spot (within 25 m) or with its Wikidata
+    /// id, this run, and the cadence counts it.
     private func deliverTourStop(_ stop: TourStop, position: Coordinate, direction: Double?, now: Date) {
         let place = feed.places.first { $0.candidate.id == stop.id }
             ?? WalkingPlace(candidate: stop.candidate
@@ -642,7 +642,7 @@ final class WalkingController {
                             tier: stop.tier)
         let buzz = Buzz(chosen: place, position: position)
         engine?.exclude(stop.id)
-        engine?.excludeSpot(place.candidate.coordinate)
+        engine?.excludeSpot(of: place.candidate)
         tourCadence.noteBuzz(at: now)
         walkLog.log(.buzz(WalkLogBuzz(buzz, tourStop: true)), at: now)
         walkLog.resetQuiet()
@@ -668,9 +668,9 @@ final class WalkingController {
     }
 
     /// A level of a story about this place started playing, or its story was opened: it does not buzz again this run
-    /// (memory rests it for 30 days).
-    func noteHeard(placeID: String) {
-        engine?.exclude(placeID)
+    /// (memory rests it for 30 days), nor does any place within 25 m of it or with its Wikidata id (spec 19.4).
+    func noteHeard(_ place: Candidate) {
+        engine?.excludeSpot(of: place)
     }
 
     /// The reset button (spec 13.5), after memory's `resetPlaceNotifications()`: the running engine forgets every
@@ -699,10 +699,11 @@ final class WalkingController {
         shownGate.mapHidden()
     }
 
-    /// Called by `WalkingStories` when a level of a `.chosen` story starts playing: the place does not buzz this run.
-    /// `WalkingStories` has already marked it heard in memory, which rests it for 30 days (spec 12.1, 13.1).
+    /// Called by `WalkingStories` when a level of a `.chosen` story starts playing: the place does not buzz this run,
+    /// nor does any place within 25 m of it or with its Wikidata id (spec 19.4). `WalkingStories` has already marked
+    /// it heard in memory, which rests it for 30 days (spec 12.1, 13.1).
     func noteChosenHeard(_ place: Candidate) {
-        engine?.exclude(place.id)
+        engine?.excludeSpot(of: place)
     }
 
     /// Tells a place chosen on the map (spec 12.1), with walking mode on or off; see `WalkingStories.tellPlace`.
@@ -1196,7 +1197,8 @@ final class WalkingController {
     /// - a network refresh: walk log `fetchStarted`, then `fetched` or `fetchFailed`, as before;
     /// - its current list, when that is near and recent enough that it would not refresh (for example one the camera
     ///   just fetched here): the feed takes it, logged as `fetched` around the list's centre with no `fetchStarted`,
-    ///   since nothing was fetched;
+    ///   since nothing was fetched. A list without facts (`NearbyList.needsFacts`) is re-tiered through the facts
+    ///   lookup first (cache-first, at most `staleFactsTimeout`), as a stale list is;
     /// - neither (it would not refresh, within the attempt spacing of another fetch (60 s, or the feed's shorter
     ///   failure retry while the walk is empty), and has no usable list): nothing now, and the next fix asks again.
     ///
@@ -1223,7 +1225,17 @@ final class WalkingController {
             guard refreshes else {
                 let current = await nearby.current(language: language)
                 guard self.runToken == run else { return }
-                if let list = current, list.serves(walkerAt: position, now: .now), !Task.isCancelled {
+                if let current, current.serves(walkerAt: position, now: .now), !Task.isCancelled {
+                    // A list without facts (stored by a build before them, or every lookup failed) is re-tiered
+                    // first, cache-first, as a stale list is (spec 19.6).
+                    let list = current.needsFacts
+                        ? await current.withFacts(from: AppServices.sharedPlaceFacts, within: Self.staleFactsTimeout)
+                        : current
+                    guard self.runToken == run else { return }
+                    guard !Task.isCancelled else {
+                        self.feed.fetchCancelled()
+                        return
+                    }
                     let places = list.walkingPlaces
                     self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
                                              fetchedAt: list.fetchedAt)
@@ -1273,7 +1285,8 @@ final class WalkingController {
         }
     }
 
-    /// The facts lookup of a stale list waits at most this long; the list then stands in as stored.
+    /// The facts lookup of a stale list, or of a serving list without facts, waits at most this long; the list is
+    /// then used as stored.
     private static let staleFactsTimeout: Duration = .seconds(8)
 
     /// Spec 19.6: once per run, while the feed has no places, `stored` (the nearby list's current list) stands in

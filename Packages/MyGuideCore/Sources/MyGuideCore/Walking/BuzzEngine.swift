@@ -38,7 +38,7 @@ public struct DuePlace: Sendable, Equatable, Codable {
     public var name: String
     public var tier: PlaceTier
     public var distance: Double
-    /// Already buzzed, heard or retired.
+    /// Already buzzed, heard or retired, or at the spot (or with the Wikidata id) of a place buzzed, heard or chosen.
     public var excluded: Bool
 }
 
@@ -56,9 +56,11 @@ public enum BuzzDecision: Sendable, Equatable {
 /// A place is "due" from 60 m until it is more than 120 m away; the budget paces buzzes, and a top-tier place
 /// the walker is passing by can override the budget at most once per 10 minutes. Due places are ordered by tier, then
 /// Wikidata sitelinks (more first, none counts as 0), then distance (spec 19.3). The engine remembers where it buzzed
-/// this run: every place within `sameSpotRadius` of a buzzed spot counts as excluded at each later decision, whatever
-/// its id, so one spot buzzes once even when a later list names it differently (an OSM id after a Wikipedia-only list)
-/// (spec 19.4).
+/// this run, and the Wikidata ids of what it buzzed: every place within `sameSpotRadius` of a buzzed spot, and every
+/// place with a buzzed Wikidata id, counts as excluded at each later decision, whatever its id, so one spot buzzes
+/// once even when a later list names it differently (an OSM id after a Wikipedia-only list), also when the OSM centre
+/// of a large building lies more than 25 m from the article's coordinate (spec 19.4). Places heard, chosen on the
+/// map or buzzed as tour stops are noted the same way (`excludeSpot(of:)`).
 public struct BuzzEngine: Sendable {
     public static let dueRadius = 60.0, dropRadius = 120.0
     /// Places at most this far (metres, inclusive) from a buzzed place are excluded with it.
@@ -72,8 +74,10 @@ public struct BuzzEngine: Sendable {
 
     private var budget: BuzzBudget
     private var excluded: Set<String>
-    /// Coordinates of the places buzzed this run (by the engine or noted with `excludeSpot`).
+    /// Coordinates of the places buzzed this run (by the engine or noted with `excludeSpot(of:)`).
     private var buzzedSpots: [Coordinate] = []
+    /// Wikidata ids of the same places (those that have one).
+    private var buzzedWikidata: Set<String> = []
     private var lastSkip: Date?
     private var lastOverride: Date?
     /// Due places (by id) with the smallest distance seen while due.
@@ -94,17 +98,21 @@ public struct BuzzEngine: Sendable {
         excluded.insert(placeID)
     }
 
-    /// A place buzzed outside the engine (a tour stop) stands at `coordinate`: every place within `sameSpotRadius`
-    /// of it counts as excluded from now on, as for the engine's own buzzes.
-    public mutating func excludeSpot(_ coordinate: Coordinate) {
-        buzzedSpots.append(coordinate)
+    /// `place` was buzzed outside the engine (a tour stop), heard, or chosen on the map (spec 19.4): it is excluded by
+    /// id, and every place within `sameSpotRadius` of it or with its Wikidata id counts as excluded from now on, as
+    /// for the engine's own buzzes.
+    public mutating func excludeSpot(of place: Candidate) {
+        excluded.insert(place.id)
+        rememberSpot(of: place)
     }
 
     /// Every place may buzz again (the reset button, spec 13.5): forgets the places retired at start and those
-    /// buzzed, heard or skipped this run, and the buzzed spots. The budget, the skip pause and the due set are kept.
+    /// buzzed, heard or skipped this run, and the buzzed spots and Wikidata ids. The budget, the skip pause and the due
+    /// set are kept.
     public mutating func clearExclusions() {
         excluded.removeAll()
         buzzedSpots.removeAll()
+        buzzedWikidata.removeAll()
     }
 
     /// The owner skipped a buzz: stay quiet for `skipQuiet` seconds.
@@ -172,18 +180,25 @@ public struct BuzzEngine: Sendable {
         (place.tier, -(place.candidate.sitelinks ?? 0), distance)
     }
 
-    /// Excluded by id, or within `sameSpotRadius` (inclusive) of a spot buzzed this run.
+    /// Excluded by id, by a Wikidata id buzzed this run, or within `sameSpotRadius` (inclusive) of a spot buzzed
+    /// this run.
     private func isExcluded(_ place: WalkingPlace) -> Bool {
-        excluded.contains(place.candidate.id) || buzzedSpots.contains {
-            GeoMath.distance($0, place.candidate.coordinate) <= Self.sameSpotRadius
-        }
+        excluded.contains(place.candidate.id)
+            || place.candidate.wikidata.map { buzzedWikidata.contains($0) } == true
+            || buzzedSpots.contains { GeoMath.distance($0, place.candidate.coordinate) <= Self.sameSpotRadius }
     }
 
-    /// Excludes `place` by id and remembers its spot, then builds the buzz.
+    /// Remembers `place`'s spot and its Wikidata id (an empty one is no id).
+    private mutating func rememberSpot(of place: Candidate) {
+        buzzedSpots.append(place.coordinate)
+        if let wikidata = place.wikidata, !wikidata.isEmpty { buzzedWikidata.insert(wikidata) }
+    }
+
+    /// Excludes `place` by id and remembers its spot and Wikidata id, then builds the buzz.
     private mutating func buzz(_ place: WalkingPlace, _ distance: Double, _ bearing: Double,
                                _ course: Double?, usedOverride: Bool) -> Buzz {
         excluded.insert(place.candidate.id)
-        buzzedSpots.append(place.candidate.coordinate)
+        rememberSpot(of: place.candidate)
         return Buzz(id: makeID(), place: place, distance: distance, bearing: bearing,
                     title: place.candidate.name,
                     detail: BuzzText.detail(distance: distance, bearing: bearing, course: course),
