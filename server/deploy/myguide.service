@@ -1,0 +1,20 @@
+[Unit]
+Description=MyGuide guide server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=myguide
+Group=myguide
+WorkingDirectory=/opt/myguide/src
+ExecStart=/opt/myguide/venv/bin/python -m myguide --env /etc/myguide/env --db /srv/myguide/guide.db
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/myguide
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

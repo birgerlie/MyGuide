@@ -1,6 +1,8 @@
 #!/bin/sh
 # Run as root. Every command but `reload` runs as the service user, so the SQLite -wal/-shm files it may
 # create stay writable by the service; `reload` needs systemctl, hence root.
+# The package is imported from the source directory, the same WorkingDirectory the service unit uses.
+cd /opt/myguide/src || exit 1
 if [ "$1" = "reload" ]; then
     exec /opt/myguide/venv/bin/python -m myguide.admin --env /etc/myguide/env --db /srv/myguide/guide.db "$@"
 fi
