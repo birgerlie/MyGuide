@@ -535,3 +535,32 @@ prioriterte riktig og den hoppet litt». Approved plan: «go» (2026-10-30).
    `buzz`, `cleared`). Only changes are logged, so the next walk can be compared with what was shown.
 8. The `fetched` log line gains `facts` (how many candidates got facts), `factsFailed` (Wikidata batches that failed) and `dropped` (names removed as
    `nonPlace`).
+
+## 20. Tuning from replayed walks (owner: «simuler … optimaliser 10 iterasjoner», 2026-10-30)
+
+The four logged walks and four synthetic Rome routes were replayed offline through the core pipeline. The tool is
+in the scratchpad, since the GPS tracks stay private. Iteration 1 findings and decisions *(Claude's calls; the
+owner's earlier rulings «bedre med for mye enn for lite» and «for mange buzz om kjedelige steder» both apply)*:
+
+1. **Coverage.** Norwegian articles often lack coordinates (Trevi, Campo de' Fiori, Porticus Octaviae). The
+   English geosearch is always merged with the story-language one. Duplicates are matched by Wikidata id, and the
+   story-language article wins for name and summary.
+2. **Big objects.** The due radius grows with importance: top with ≥ 40 sitelinks 100 m, other top 80 m, the rest
+   60 m. A place buzzes only while within its own due radius. It stays tracked out to 120 m for the override and
+   for the "passed" check, but a late buzz at 92–107 m with "60 m left" no longer happens.
+3. **Better place just ahead.** A due place is held while a better-ranked, not-excluded place within 60 m of it is
+   still approaching (its distance shrank on the last fix) and is not yet due. The hold lasts at most 30 s.
+4. **Complexes.** After a buzz, lower-ranked places within 40 m are excluded too. Every place within 25 m and every
+   place with the same Wikidata id stays excluded.
+5. **OSM tags and facts:**
+   - an OSM candidate whose facts say `place` with ≥ 30 sitelinks is at least `top`;
+   - one tagged top with fewer than 5 sitelinks is `good`;
+   - an OSM candidate tiered `good` by tags, with no article and no Wikidata id, is `wikiOnly`.
+6. **Classes:**
+   - hill Q54050 and island Q23442 count as `place`;
+   - human settlement Q486972 is `area`;
+   - a Wikipedia-only `area` is dropped, unless it has ≥ 20 sitelinks and is not a settlement, in which case it
+     is `wikiOnly`.
+7. **Cadence.** At least 30 s between two buzzes, whatever the hourly setting.
+8. **Refetching while OSM fails.** The OSM retry backs off 60 s → 120 s → 300 s while the list keeps failing, and
+   resets when OSM answers or the walker moves 250 m.
