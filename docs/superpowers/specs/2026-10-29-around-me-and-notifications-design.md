@@ -635,3 +635,19 @@ median of 2.6 s and 1.4 % timeouts, all saved by the retry. Decisions *(Claude's
    otherwise.
 5. **`unknown` is always dropped.** Classes found so far cover the landmarks. Rione Campo Marzio (terrain, 44)
    went out this way.
+
+### 20.5 Iteration 5 (replay after 20.4): diminishing returns
+
+Spec 20.4 changed 2 buzzes in 32 run-variants. Decision traces found two real rule gaps; both are fixed here, and
+then tuning stops until the owner's field test *(Claude's call)*:
+
+1. **The hold looks from the walker.** A lesser place is held while a better-ranked place is inside its own due
+   radius from the walker and is approaching, or has no previous distance. This replaces "within 60 m of the lesser
+   place". In the 18:25 walk, Palazzo Bonaparte (9 sitelinks) buzzed while Piazza Venezia (38) was at 78 m, 98 m
+   from Bonaparte.
+2. **Places passed during a story are remembered.** At each busy decision, and at the decision that started busy,
+   every tracked place counts as due-while-busy for «behind you». Tracked means it has entered its due radius and
+   is still within 120 m. In the same walk, Piazza Venezia was 2 cm outside its 80 m radius on the first busy fix
+   and was never told.
+3. **No change to the gap between neighbours in one piazza** (Sant'Agnese after Navona, the Synagogue after
+   Porticus Octaviae). The walker has just heard about the place next door.
