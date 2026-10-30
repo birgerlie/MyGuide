@@ -18,13 +18,13 @@ public struct WikidataClient: Sendable {
     /// Instance-of classes (through subclass-of) that make an item a place (spec 19.1): architectural structure,
     /// square, park, archaeological site, monument and fountain.
     static let placeClasses = ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q483453"]
-    /// Hill and island (spec 20.6): `natural`, a place that is at most good and excludes no other place
+    /// Hill and island (spec 20, item 6): `natural`, a place that is at most good and excludes no other place
     /// (spec 20.2.2).
     static let naturalClasses = ["Q54050", "Q23442"]
     /// Work of art: a place too, unless the item is also an organisation, person or event. An order of chivalry
     /// is a decoration in Wikidata (order of chivalry → state order → state decoration → decoration → work of art),
-    /// so religious orders such as the Sovereign Military Order of Malta reached `place` this way (spec 20.6, live
-    /// check 30 Oct). Kept as its own flag: a SPARQL test per direct class was 4–10 times slower (beyond the 8 s
+    /// so religious orders such as the Sovereign Military Order of Malta reached `place` this way (spec 20, item 6,
+    /// live check 30 Oct). Kept as its own flag: a SPARQL test per direct class was 4–10 times slower (beyond the 8 s
     /// timeout of the time; now `timeout`).
     static let artClasses = ["Q838948"]
     /// Metro station and treaty (spec 20.2.6): `nonPlace` before every other class, since a station is a structure.
@@ -32,7 +32,7 @@ public struct WikidataClient: Sendable {
     /// Streets and roads (spec 19.1, 20.2.6): `street` even when also a place, since streets are structures in
     /// Wikidata.
     static let streetClasses = ["Q79007", "Q34442"]
-    /// Human settlements: `settlement`, below street and place (spec 20.6).
+    /// Human settlements: `settlement`, below street and place (spec 20, item 6).
     static let settlementClasses = ["Q486972"]
     /// Neighbourhoods and administrative territorial entities: `area` only when not also a place, since castles,
     /// city gates and walls reach Q56061 through odd subclass chains (spec 19.1).
@@ -47,16 +47,20 @@ public struct WikidataClient: Sendable {
     }
 
     /// The outcome of a lookup: the facts found, the ids whose batch succeeded (an answered id without facts is
-    /// unknown to Wikidata), and how many batches failed (for the caller to log; core has no logging dependency).
+    /// unknown to Wikidata), how many batches failed (for the caller to log; core has no logging dependency), and
+    /// whether a deadline cut it off with batches unanswered (spec 20.6.3; those count among the failed).
     public struct Answer: Sendable, Equatable {
         public var facts: [String: PlaceFacts] = [:]
         public var answered: Set<String> = []
         public var failedBatches = 0
+        public var cut = false
 
-        public init(facts: [String: PlaceFacts] = [:], answered: Set<String> = [], failedBatches: Int = 0) {
+        public init(facts: [String: PlaceFacts] = [:], answered: Set<String> = [], failedBatches: Int = 0,
+                    cut: Bool = false) {
             self.facts = facts
             self.answered = answered
             self.failedBatches = failedBatches
+            self.cut = cut
         }
     }
 
@@ -136,6 +140,7 @@ public struct WikidataClient: Sendable {
                 guard case .done(let work, let facts) = part else {
                     // The deadline: whatever has not answered stays without facts.
                     failed.formUnion(open.filter { $0.value > 0 }.keys)
+                    answer.cut = true
                     break
                 }
                 running -= 1
@@ -250,8 +255,8 @@ public struct WikidataClient: Sendable {
         var results: Results
     }
 
-    /// Rows without a readable id or count are skipped; the first row of an item wins; a missing flag is false.
-    /// Class precedence (spec 19.1, 20.6, 20.2.6): metro station or treaty → `nonPlace`; street or road → `street`;
+    /// Rows without a readable id or count are skipped; the first row of an item wins; a missing flag is false. Class
+    /// precedence (spec 19.1, 20 item 6, 20.2.6): metro station or treaty → `nonPlace`; street or road → `street`;
     /// place, or work of art that is not also a non-place → `place`; hill or island → `natural`; settlement →
     /// `settlement`; neighbourhood or administrative area → `area`; else `nonPlace`; else `unknown`. A blank title is
     /// no title. `isArt` (spec 20.3.5): the work-of-art flag, unless the item is also a non-place, as for the class

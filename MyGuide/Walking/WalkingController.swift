@@ -1243,7 +1243,8 @@ final class WalkingController {
                                              fetchedAt: list.fetchedAt, osmRetryAge: list.osmRetryAge)
                     self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
                                                           osmErrors: list.osmErrors, facts: list.factsCount,
-                                                          dropped: list.dropped, factsFailed: list.factsFailed))
+                                                          dropped: list.dropped, factsFailed: list.factsFailed,
+                                                          factsSeconds: list.factsSeconds, factsCut: list.factsCut))
                 } else {
                     // Within the attempt spacing of another fetch and no list that serves: a stale one may stand in.
                     if !Task.isCancelled { self.startStaleList(current, around: position, language: language) }
@@ -1274,7 +1275,8 @@ final class WalkingController {
                                          fetchedAt: list.fetchedAt, osmRetryAge: list.osmRetryAge)
                 self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
                                                       osmErrors: list.osmErrors, facts: list.factsCount,
-                                                      dropped: list.dropped, factsFailed: list.factsFailed))
+                                                      dropped: list.dropped, factsFailed: list.factsFailed,
+                                                      factsSeconds: list.factsSeconds, factsCut: list.factsCut))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
                 // A real failure waits 60 s before the next try; 15, 30, then 60 s while the walk has no places (or
                 // stale ones).
@@ -1312,7 +1314,8 @@ final class WalkingController {
             guard self.feed.takeStaleList(places) else { return }
             self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
                                                   osmErrors: list.osmErrors, facts: list.factsCount,
-                                                  dropped: list.dropped, factsFailed: list.factsFailed, stale: true))
+                                                  dropped: list.dropped, factsFailed: list.factsFailed, stale: true,
+                                                  factsSeconds: list.factsSeconds, factsCut: list.factsCut))
         }
     }
 

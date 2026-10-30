@@ -1,6 +1,6 @@
 import Foundation
 
-/// What a Wikidata item is, for ranking (spec 19.1, 20.6, 20.2.6). Precedence: a metro station or treaty is
+/// What a Wikidata item is, for ranking (spec 19.1, 20 item 6, 20.2.6). Precedence: a metro station or treaty is
 /// `nonPlace`; else a street or road is `street` (even when also a place); else a place is `place` (a work of art only
 /// when it is not also an organisation, person or event); else a hill or island is `natural`; else a human settlement
 /// is `settlement`; else a neighbourhood or administrative area is `area`; else `nonPlace`; else `unknown`.
@@ -65,8 +65,8 @@ public actor PlaceFactsCache {
     /// How long "Wikidata has no such item" is remembered.
     public static let negativeLifetime: TimeInterval = 7 * 24 * 3600
     /// Version 2: a place that is also an administrative area is `place` (final review 30 Oct). Version 3: hills,
-    /// islands and settlements, and an organisation that is a place only as a work of art is `nonPlace` (spec 20.6).
-    /// Version 4: streets and roads, natural places, metro stations and treaties, story-language titles, keys by
+    /// islands and settlements, and an organisation that is a place only as a work of art is `nonPlace` (spec 20, item
+    /// 6). Version 4: streets and roads, natural places, metro stations and treaties, story-language titles, keys by
     /// title language (spec 20.2.6). Version 5: `isArt` (spec 20.3.5).
     static let fileName = "place-facts-v5.json"
     /// Files of earlier formats, deleted when the cache first loads.
@@ -159,23 +159,30 @@ public actor PlaceFactsCache {
         }
         var waited = Set<Int>()
         var waitedFailures = 0
+        var cut = false
         for id in missing {
             guard let flight = inFlight[key(id)], waited.insert(flight.key).inserted else { continue }
             // This call's own request keeps the deadline itself (and stores its partial answer before returning);
             // another caller's may not.
             guard let deadline, flight.key != ownFlight else {
-                waitedFailures += try await flight.task.value.failedBatches
+                let fetched = try await flight.task.value
+                waitedFailures += fetched.failedBatches
+                cut = cut || fetched.cut
                 continue
             }
             let task = flight.task
             do {
-                waitedFailures += try await Deadline.withTimeout(deadline - .now) { try await task.value }.failedBatches
+                let fetched = try await Deadline.withTimeout(deadline - .now) { try await task.value }
+                waitedFailures += fetched.failedBatches
+                cut = cut || fetched.cut
             } catch is Deadline.Timeout {
                 waitedFailures += 1
+                cut = true
             }
         }
         try Task.checkCancellation()
         answer.failedBatches = waitedFailures
+        answer.cut = cut
         let after = now().timeIntervalSince1970
         for id in missing {
             guard let entry = entries[key(id)], entry.isFresh(at: after) else { continue }
@@ -308,7 +315,7 @@ public struct PlaceFactsLookup: Sendable {
                 do {
                     return try await Deadline.withTimeout(deadline - .now) { try await lookup(ids, maxBatches, language, nil) }
                 } catch is Deadline.Timeout {
-                    return WikidataClient.Answer(failedBatches: 1)
+                    return WikidataClient.Answer(failedBatches: 1, cut: true)
                 }
             }
             return try await lookup(ids, maxBatches, language, deadline)

@@ -12,7 +12,7 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
     private var result: Result<[Candidate], Error>
     private var osmFailed = false
     private var osmErrors: [String] = []
-    private var facts: (count: Int, dropped: [String], failed: Int) = (0, [], 0)
+    private var facts: (count: Int, dropped: [String], failed: Int, seconds: Double?, cut: Bool) = (0, [], 0, nil, false)
     private let suspends: Bool
     private var released = false
 
@@ -32,8 +32,8 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
         }
     }
 
-    func setFacts(count: Int, dropped: [String], failed: Int) {
-        lock.withLock { facts = (count, dropped, failed) }
+    func setFacts(count: Int, dropped: [String], failed: Int, seconds: Double? = nil, cut: Bool = false) {
+        lock.withLock { facts = (count, dropped, failed, seconds, cut) }
     }
 
     func resume() {
@@ -49,19 +49,22 @@ private final class StubFetcher: NearbyFetching, @unchecked Sendable {
 
     func candidates(around: Coordinate, language: StoryLanguage) async throws -> PlaceSearchResult {
         let (result, released, osmFailed, osmErrors, facts) = lock.withLock {
-            () -> (Result<[Candidate], Error>, Bool, Bool, [String], (count: Int, dropped: [String], failed: Int)) in
+            () -> (Result<[Candidate], Error>, Bool, Bool, [String],
+                   (count: Int, dropped: [String], failed: Int, seconds: Double?, cut: Bool)) in
             calls += 1
             return (self.result, self.released, self.osmFailed, self.osmErrors, self.facts)
         }
         guard suspends, !released else {
             return PlaceSearchResult(candidates: try result.get(), osmFailed: osmFailed, osmErrors: osmErrors,
-                                     factsCount: facts.count, dropped: facts.dropped, factsFailed: facts.failed)
+                                     factsCount: facts.count, dropped: facts.dropped, factsFailed: facts.failed,
+                                     factsSeconds: facts.seconds, factsCut: facts.cut)
         }
         let candidates = try await withCheckedThrowingContinuation { continuation in
             lock.withLock { waiters.append(continuation) }
         }
         return PlaceSearchResult(candidates: candidates, osmFailed: osmFailed, osmErrors: osmErrors,
-                                 factsCount: facts.count, dropped: facts.dropped, factsFailed: facts.failed)
+                                 factsCount: facts.count, dropped: facts.dropped, factsFailed: facts.failed,
+                                 factsSeconds: facts.seconds, factsCut: facts.cut)
     }
 }
 
@@ -1040,10 +1043,11 @@ private struct Boom: Error {}
     }
     @Test func listKeepsTheFactsCountsAndOldFilesDecodeWithout() async throws {
         let fetcher = StubFetcher(.success([Self.article("A", north: 0)]))
-        fetcher.setFacts(count: 4, dropped: ["Jesuittordenen"], failed: 1)
+        fetcher.setFacts(count: 4, dropped: ["Jesuittordenen"], failed: 1, seconds: 12.04, cut: true)
         let nearby = Self.places(fetcher, clock: LockedBox(Self.t0))
         let list = try await nearby.refresh(at: .at(), language: .english)
         #expect(list.factsCount == 4 && list.dropped == ["Jesuittordenen"] && list.factsFailed == 1)
+        #expect(list.factsSeconds == 12.04 && list.factsCut)
         let back = try JSONDecoder().decode(NearbyList.self, from: JSONEncoder().encode(list))
         #expect(back == list)
         // A stored list written before the fields existed reads with 0 / [] / 0.
@@ -1051,8 +1055,11 @@ private struct Boom: Error {}
         old["factsCount"] = nil
         old["dropped"] = nil
         old["factsFailed"] = nil
+        old["factsSeconds"] = nil
+        old["factsCut"] = nil
         let decodedOld = try JSONDecoder().decode(NearbyList.self, from: JSONSerialization.data(withJSONObject: old))
         #expect(decodedOld.factsCount == 0 && decodedOld.dropped.isEmpty && decodedOld.factsFailed == 0)
+        #expect(decodedOld.factsSeconds == nil && !decodedOld.factsCut)
         #expect(decodedOld.candidates == list.candidates)
     }
     @Test func walkingPlacesUseTheCandidatesFacts() {

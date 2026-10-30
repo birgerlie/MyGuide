@@ -215,7 +215,7 @@ import Testing
         let src = source(http, facts: Self.lookup())
         let result = try await src.candidates(around: here, language: .english)
         // Q1, Q2 and Q3 got facts: 3. Jesuittordenen is nonPlace without tags → dropped; Via del Plebiscito is an
-        // area with 7 < 20 sitelinks → dropped too (spec 20.6).
+        // area with 7 < 20 sitelinks → dropped too (spec 20, item 6).
         #expect(result.factsCount == 3)
         #expect(result.dropped == ["Jesuittordenen", "Via del Plebiscito"])
         #expect(result.factsFailed == 0)
@@ -464,8 +464,9 @@ import Testing
         #expect(enriched.factsCount == 2)
     }
     @Test func settlementsAndSmallAreasAreListedAsDropped() {
-        // Spec 20.6, 20.2.6: Rome (settlement), the Province of Rome (area, 68) and a 19-sitelink street are dropped
-        // and listed; a 20-sitelink street stays (Wiki-only), and an OSM-tagged settlement is the tags' business.
+        // Spec 20 item 6, 20.2.6: Rome (settlement), the Province of Rome (area, 68) and a 19-sitelink street are
+        // dropped and listed; a 20-sitelink street stays (Wiki-only), and an OSM-tagged settlement is the tags'
+        // business.
         let rome = Candidate(id: "wiki:no/1", name: "Roma", coordinate: here, kind: "wikipedia", wikidata: "Q220")
         let small = Candidate(id: "wiki:no/2", name: "Small lane", coordinate: here, kind: "wikipedia", wikidata: "Q2")
         let big = Candidate(id: "wiki:no/3", name: "Via del Corso", coordinate: here, kind: "wikipedia", wikidata: "Q3")
@@ -571,6 +572,9 @@ import Testing
                                       deadline: .milliseconds(300)).candidates(around: here, language: .english)
         #expect(ContinuousClock.now - start < .seconds(5))
         #expect(result.factsCount == 0 && result.factsFailed == 1)
+        #expect(result.factsCut)
+        // About the 300 ms deadline (re-review R3).
+        #expect((result.factsSeconds ?? 0) >= 0.3 && (result.factsSeconds ?? 99) < 5)
         #expect(calls.value == [["Q1", "Q2", "Q3"]])
     }
     @Test func noSecondLookupOnceTheDeadlineHasPassed() async throws {
@@ -588,7 +592,16 @@ import Testing
         #expect(calls.value == [["Q1", "Q2", "Q3"]])
         // Q1, Q2 and Q3 have facts; Q20 (Burg) does not.
         #expect(result.factsCount == 3 && result.factsFailed == 1)
+        #expect(result.factsCut)
         #expect(result.candidates.first { $0.name == "Burg" }?.sitelinks == nil)
+    }
+    @Test func factsTimeIsMeasuredOnlyWhenTheFactsAreLookedUp() async throws {
+        // Re-review R3: both lookups answer at once → a time under a second, not cut. Without a lookup: nil.
+        let http = Self.stub(osm: { (200, Data(Self.osmWithIdBody.utf8)) }, wiki: { (200, Data(Self.romeWikiBody.utf8)) })
+        let looked = try await source(http, facts: Self.lookup()).candidates(around: here, language: .english)
+        #expect(looked.factsSeconds.map { $0 >= 0 && $0 < 1 } == true && !looked.factsCut)
+        let none = try await source(http, facts: nil).candidates(around: here, language: .english)
+        #expect(none.factsSeconds == nil && !none.factsCut)
     }
     @Test func anOSMObjectWithoutAWikidataIdIsKeptAsWikiOnly() async throws {
         // Spec 20.6.4: the Museum (tourism=museum, no wikidata tag, no article) was dropped; now it is Wiki-only. Burg

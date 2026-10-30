@@ -209,7 +209,7 @@ import Testing
         var places: [WalkingPlace] = []
         for i in 0..<160 { places.append(place(i, i < 10 ? .top : (i < 110 ? .good : .wikiOnly))) }
         let kind = WalkLogEvent.fetched(places.reversed(), around: around, osmFailed: false)
-        guard case .fetched(let count, let top, let good, let wikiOnly, let listed, let osmFailed, _, _, _, _, _) = kind else { Issue.record("not fetched"); return }
+        guard case .fetched(let count, let top, let good, let wikiOnly, let listed, let osmFailed, _, _, _, _, _, _, _) = kind else { Issue.record("not fetched"); return }
         #expect(!osmFailed)
         #expect(count == 160)
         #expect(top == 10)
@@ -242,6 +242,35 @@ import Testing
         #expect(WalkLogCodec.event(from: Data(bad.utf8)) == nil)
     }
 
+    @Test func factsTimeAndCutAreWrittenOnlyWhenPresentAndOldLinesDecode() throws {
+        // Re-review R3: `factsSeconds` to one decimal (12.34 → 12.3; 7.96 → 8), `factsCut: true` only when the
+        // deadline cut the lookup. Both absent in a line without them, which reads nil / false.
+        let kind = WalkLogEvent.fetched([], around: Self.c, osmFailed: false, factsSeconds: 12.34, factsCut: true)
+        let o = Self.json(WalkLogEvent(at: Self.t0, kind: kind))
+        #expect((o["factsSeconds"] as? NSNumber)?.doubleValue == 12.3)
+        #expect(o["factsCut"] as? Bool == true)
+        let decoded = try #require(WalkLogCodec.event(from: WalkLogCodec.line(WalkLogEvent(at: Self.t0, kind: kind)))?.kind)
+        #expect(decoded == .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: false,
+                                    factsSeconds: 12.3, factsCut: true))
+        let rounded = Self.json(WalkLogEvent(at: Self.t0, kind: WalkLogEvent.fetched([], around: Self.c, osmFailed: false,
+                                                                                     factsSeconds: 7.96)))
+        #expect((rounded["factsSeconds"] as? NSNumber)?.doubleValue == 8)
+        #expect(rounded["factsCut"] == nil)
+        let plain = Self.json(WalkLogEvent(at: Self.t0, kind: WalkLogEvent.fetched([], around: Self.c, osmFailed: false)))
+        #expect(plain["factsSeconds"] == nil && plain["factsCut"] == nil)
+        // A line from before: nil and false.
+        let old = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":false,"facts":3}"#
+        #expect(WalkLogCodec.event(from: Data(old.utf8))?.kind
+                == .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: false, facts: 3))
+        // Present but of the wrong type: unreadable.
+        for bad in [#""factsSeconds":"slow""#, #""factsCut":"yes""#] {
+            let line = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":false,"#
+                + bad + "}"
+            #expect(WalkLogCodec.event(from: Data(line.utf8)) == nil, "\(bad)")
+        }
+        #expect(WalkLogText.line(kind).hasSuffix(" · facts 12.3 s, cut"))
+    }
+
     @Test func factsAndDroppedAreWrittenOnlyWhenPresentAndOldLinesDecode() throws {
         let place = WalkingPlace(candidate: Candidate(id: "wiki:it/1", name: "Il Gesù", coordinate: Self.c,
                                                       kind: "wikipedia"), tier: .top)
@@ -258,7 +287,7 @@ import Testing
         #expect(plain["facts"] == nil && plain["dropped"] == nil && plain["factsFailed"] == nil)
         // A line written before the fields existed reads with 0 / [] / 0.
         let old = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":false}"#
-        guard case .fetched(_, _, _, _, _, _, _, let facts, let dropped, let factsFailed, _)?
+        guard case .fetched(_, _, _, _, _, _, _, let facts, let dropped, let factsFailed, _, _, _)?
                 = WalkLogCodec.event(from: Data(old.utf8))?.kind else { Issue.record("not fetched"); return }
         #expect(facts == 0 && dropped.isEmpty && factsFailed == 0)
         // Present but unreadable: the line is unreadable, like every other field.
@@ -282,7 +311,7 @@ import Testing
         #expect(fresh["stale"] == nil)
         // A line written before the field existed reads as fresh.
         let old = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":false}"#
-        guard case .fetched(_, _, _, _, _, _, _, _, _, _, let stale)? = WalkLogCodec.event(from: Data(old.utf8))?.kind
+        guard case .fetched(_, _, _, _, _, _, _, _, _, _, let stale, _, _)? = WalkLogCodec.event(from: Data(old.utf8))?.kind
         else { Issue.record("not fetched"); return }
         #expect(!stale)
         // An explicit false (hand-written) reads as fresh; a present non-Bool makes the line unreadable.

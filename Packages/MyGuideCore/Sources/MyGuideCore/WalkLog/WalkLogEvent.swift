@@ -165,9 +165,11 @@ public struct WalkLogEvent: Sendable, Equatable {
         /// Wikipedia-only candidates dropped for their Wikidata class; `factsFailed`: Wikidata batches that failed (spec 19.8).
         /// All three are 0 or empty in lines written before they existed. `stale`: a stored list standing in at the
         /// start of a walk until the fresh one arrives (spec 19.6); false in lines written before it existed.
+        /// `factsSeconds`: how long the Wikidata facts took (re-review R3); `factsCut`: the facts deadline cut them
+        /// (spec 20.6.3). Nil / false when absent and in lines written before they existed.
         case fetched(count: Int, top: Int, good: Int, wikiOnly: Int, places: [WalkLogPlace], osmFailed: Bool,
                      osmErrors: [String] = [], facts: Int = 0, dropped: [String] = [], factsFailed: Int = 0,
-                     stale: Bool = false)
+                     stale: Bool = false, factsSeconds: Double? = nil, factsCut: Bool = false)
         /// `osmErrors` as in `fetched`, when the failure was every Overpass endpoint's.
         case fetchFailed(error: String, osmErrors: [String] = [])
         /// `heldBy`: the place that held a `held` decision (spec 20.6.6); nil for other reasons and in lines written
@@ -210,7 +212,8 @@ public struct WalkLogEvent: Sendable, Equatable {
     /// Counts over every place; the listed places are capped at 150 by tier, then distance from `around`.
     public static func fetched(_ places: [WalkingPlace], around: Coordinate, osmFailed: Bool,
                                osmErrors: [String] = [], facts: Int = 0, dropped: [String] = [],
-                               factsFailed: Int = 0, stale: Bool = false) -> Kind {
+                               factsFailed: Int = 0, stale: Bool = false, factsSeconds: Double? = nil,
+                               factsCut: Bool = false) -> Kind {
         let ranked = places
             .map { ($0, GeoMath.distance(around, $0.candidate.coordinate)) }
             .sorted { a, b in
@@ -231,6 +234,8 @@ public struct WalkLogEvent: Sendable, Equatable {
             facts: facts,
             dropped: dropped,
             factsFailed: factsFailed,
-            stale: stale)
+            stale: stale,
+            factsSeconds: factsSeconds,
+            factsCut: factsCut)
     }
 }

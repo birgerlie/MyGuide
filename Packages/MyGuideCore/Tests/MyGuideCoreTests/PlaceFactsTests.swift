@@ -103,7 +103,7 @@ import Foundation
     }
 
     @Test func answersStoredUnderTheSecondClassRuleAreDiscarded() async throws {
-        // Spec 20.6 changed the classes (settlement, hill, island, organisations that are works of art): a fresh
+        // Spec 20, item 6 changed the classes (settlement, hill, island, organisations that are works of art): a fresh
         // answer in place-facts-v2.json is ignored, asked again, and the old file removed.
         let dir = Self.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -262,7 +262,7 @@ import Foundation
         let cache = PlaceFactsCache(directory: nil) { t0 }
         let answer = try await cache.lookup(ids: WikidataClientTests.ids(60), client: client,
                                             deadline: .now + .milliseconds(300))
-        #expect(answer.answered.count == 35 && answer.failedBatches == 1)
+        #expect(answer.answered.count == 35 && answer.failedBatches == 1 && answer.cut)
         let requests = http.requests.count
         let again = try await cache.lookup(ids: WikidataClientTests.ids(25), client: client)
         #expect(again.answered == Set(WikidataClientTests.ids(25)) && http.requests.count == requests)
@@ -281,7 +281,7 @@ import Foundation
         while http.requests.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         let start = ContinuousClock.now
         let answer = try await cache.lookup(ids: ["Q1"], client: client, deadline: start + .milliseconds(300))
-        #expect(answer.answered.isEmpty && answer.failedBatches == 1)
+        #expect(answer.answered.isEmpty && answer.failedBatches == 1 && answer.cut)
         #expect(ContinuousClock.now - start < .seconds(5))
         #expect(http.requests.count == 1)
     }

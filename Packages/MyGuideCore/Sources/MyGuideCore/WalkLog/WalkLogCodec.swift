@@ -94,7 +94,7 @@ public enum WalkLogCodec {
         case .fetchStarted(let c):
             return ["lat": coordinate(c.latitude), "lon": coordinate(c.longitude)]
         case .fetched(let count, let top, let good, let wikiOnly, let places, let osmFailed, let osmErrors, let facts,
-                      let dropped, let factsFailed, let stale):
+                      let dropped, let factsFailed, let stale, let factsSeconds, let factsCut):
             let list: [[String: Any]] = places.map {
                 ["id": $0.id, "name": $0.name, "tier": $0.tier.rawValue,
                  "lat": coordinate($0.coordinate.latitude), "lon": coordinate($0.coordinate.longitude)]
@@ -107,6 +107,8 @@ public enum WalkLogCodec {
             if !dropped.isEmpty { o["dropped"] = dropped }
             if factsFailed != 0 { o["factsFailed"] = factsFailed }
             if stale { o["stale"] = true }
+            if let factsSeconds { o["factsSeconds"] = seconds(factsSeconds) }
+            if factsCut { o["factsCut"] = true }
             return o
         case .fetchFailed(let error, let osmErrors):
             var o: [String: Any] = ["error": error]
@@ -292,8 +294,16 @@ public enum WalkLogCodec {
                 guard let flag = bool(o, "stale") else { return nil }
                 stale = flag
             }
+            // Absent in lines written before the facts time (re-review R3) and when nothing was looked up or cut.
+            var factsSeconds: Double?
+            if o["factsSeconds"] != nil {
+                guard let value = double(o, "factsSeconds") else { return nil }
+                factsSeconds = value
+            }
+            guard let factsCut = optionalFlag(o, "factsCut") else { return nil }
             return .fetched(count: count, top: top, good: good, wikiOnly: wikiOnly, places: places, osmFailed: osmFailed,
-                            osmErrors: osmErrors, facts: facts, dropped: dropped, factsFailed: factsFailed, stale: stale)
+                            osmErrors: osmErrors, facts: facts, dropped: dropped, factsFailed: factsFailed,
+                            stale: stale, factsSeconds: factsSeconds, factsCut: factsCut)
         case "fetchFailed":
             guard let error = string(o, "error"), let osmErrors = osmErrors(o) else { return nil }
             return .fetchFailed(error: error, osmErrors: osmErrors)

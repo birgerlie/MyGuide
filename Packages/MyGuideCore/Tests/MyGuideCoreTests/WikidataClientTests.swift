@@ -131,7 +131,7 @@ import Foundation
         #expect(area.contains("wd:Q123705") && area.contains("wd:Q56061") && !area.contains("wd:Q79007"))
     }
 
-    // MARK: - Spec 20.6: hills, islands, settlements; organisations that are places only as works of art
+    // MARK: - Spec 20, item 6: hills, islands, settlements; organisations that are places only as works of art
 
     /// The query's line that binds `name`.
     static func flagLine(_ name: String) -> String {
@@ -185,8 +185,8 @@ import Foundation
             + #""place":{"type":"literal","value":"false"},"nonplace":{"type":"literal","value":"false"}}"#
         #expect(try WikidataClient.parse(Self.body([old])) == ["Q5": PlaceFacts(sitelinks: 7, placeClass: .area)])
     }
-    /// Flags from the live WDQS answers of 30 Oct (the query of spec 20.6 run on every id the replays met; the ids
-    /// are the real items).
+    /// Flags from the live WDQS answers of 30 Oct (the query of spec 20, item 6, run on every id the replays met; the
+    /// ids are the real items).
     @Test func recordedLiveClassesOfIteration1() throws {
         let f = try WikidataClient.parse(Self.body([
             Self.row("Q190353", n: 83, art: true, nonplace: true),            // Sovereign Military Order of Malta
@@ -394,7 +394,7 @@ import Foundation
             .lookup(ids: Self.ids(60), deadline: start + .milliseconds(300))
         let elapsed = ContinuousClock.now - start
         #expect(answer.answered == Set(Self.ids(25) + (51...60).map { "Q\($0)" }))
-        #expect(answer.facts.count == 35 && answer.failedBatches == 1)
+        #expect(answer.facts.count == 35 && answer.failedBatches == 1 && answer.cut)
         #expect(elapsed >= .milliseconds(300) && elapsed < .seconds(5))
     }
     @Test func aDeadlineThatIsNotReachedChangesNothing() async throws {
@@ -402,7 +402,7 @@ import Foundation
         let http = StubHTTPClient { r in (200, Self.body(Self.askedIds(r).map { Self.row($0, n: 1, place: true) })) }
         let start = ContinuousClock.now
         let answer = try await WikidataClient(http: http).lookup(ids: Self.ids(60), deadline: start + .seconds(30))
-        #expect(answer.answered == Set(Self.ids(60)) && answer.failedBatches == 0)
+        #expect(answer.answered == Set(Self.ids(60)) && answer.failedBatches == 0 && !answer.cut)
         #expect(ContinuousClock.now - start < .seconds(5))
     }
 

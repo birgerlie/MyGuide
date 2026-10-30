@@ -165,7 +165,8 @@ public actor NearbyPlaces {
                                                                             language: language),
                                           osmFailed: found.osmFailed, osmErrors: found.osmErrors,
                                           factsCount: found.factsCount, dropped: found.dropped,
-                                          factsFailed: found.factsFailed, osmFailedStreak: streak.streak,
+                                          factsFailed: found.factsFailed, factsSeconds: found.factsSeconds,
+                                          factsCut: found.factsCut, osmFailedStreak: streak.streak,
                                           osmFailedSince: streak.since)
                     generation[language, default: 0] += 1
                     keep(list)

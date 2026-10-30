@@ -45,11 +45,18 @@ public struct NearbyList: Sendable, Equatable, Codable {
     public var factsCount: Int
     public var dropped: [String]
     public var factsFailed: Int
+    /// For the walk log, as in `PlaceSearchResult` (re-review R3): how long the facts took, and whether the deadline
+    /// cut them. Nil / false in a file written before they existed.
+    public var factsSeconds: Double?
+    public var factsCut: Bool
 
     public init(centre: Coordinate, fetchedAt: Date, language: StoryLanguage, candidates: [Candidate],
                 articleTexts: [String: String], osmFailed: Bool = false, osmErrors: [String] = [],
                 factsCount: Int = 0, dropped: [String] = [], factsFailed: Int = 0,
+                factsSeconds: Double? = nil, factsCut: Bool = false,
                 osmFailedStreak: Int? = nil, osmFailedSince: Coordinate? = nil) {
+        self.factsSeconds = factsSeconds
+        self.factsCut = factsCut
         self.centre = centre
         self.fetchedAt = fetchedAt
         self.language = language
@@ -84,6 +91,8 @@ public struct NearbyList: Sendable, Equatable, Codable {
         factsCount = try c.decodeIfPresent(Int.self, forKey: .factsCount) ?? 0
         dropped = try c.decodeIfPresent([String].self, forKey: .dropped) ?? []
         factsFailed = try c.decodeIfPresent(Int.self, forKey: .factsFailed) ?? 0
+        factsSeconds = try c.decodeIfPresent(Double.self, forKey: .factsSeconds)
+        factsCut = try c.decodeIfPresent(Bool.self, forKey: .factsCut) ?? false
     }
 
     /// At most `freshAge` old (less than `osmRetryAge` when OpenStreetMap failed) and centred within
@@ -162,6 +171,9 @@ public struct NearbyList: Sendable, Equatable, Codable {
         copy.factsCount = enriched.factsCount
         copy.dropped = enriched.dropped
         copy.factsFailed = answer.failedBatches
+        // Measured for the fetch that made the list, not for this lookup.
+        copy.factsSeconds = nil
+        copy.factsCut = false
         return copy
     }
 

@@ -199,7 +199,7 @@ import Testing
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, tags: ["historic": "yes"])))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.place, sitelinks: 5)))
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(nil)))
-        // Spec 20.6, 20.2.6, 20.4.5: settlements, other areas and unknown items are dropped; streets below 20
+        // Spec 20 item 6, 20.2.6, 20.4.5: settlements, other areas and unknown items are dropped; streets below 20
         // sitelinks too; a 20-sitelink street is not.
         #expect(PlaceTiers.isDroppedByClass(Self.wiki(.settlement, sitelinks: 344)))
         #expect(PlaceTiers.isDroppedByClass(Self.wiki(.area, sitelinks: 68)))
@@ -214,7 +214,7 @@ import Testing
         #expect(!PlaceTiers.isDroppedByClass(Self.wiki(.nonPlace, sitelinks: 5, name: " ")))
     }
 
-    // MARK: - Spec 20.6: areas and settlements without tags
+    // MARK: - Spec 20, item 6: areas and settlements without tags
 
     @Test func wikipediaOnlyStreetNeedsTwentySitelinksAndAreasAreDropped() {
         // A street is Wiki-only from 20 sitelinks inclusive (Via del Corso, 30), dropped below (19); a settlement

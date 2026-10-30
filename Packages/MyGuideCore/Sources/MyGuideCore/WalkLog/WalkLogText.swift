@@ -14,10 +14,13 @@ public enum WalkLogText {
             return "Fix ±\(whole(f.accuracy)) m\(suffix)"
         case .gps(let found): return found ? "GPS found" : "GPS lost"
         case .fetchStarted: return "Fetching places"
-        case .fetched(let count, let top, let good, _, _, let osmFailed, let osmErrors, _, let dropped, _, let stale):
+        case .fetched(let count, let top, let good, _, _, let osmFailed, let osmErrors, _, let dropped, _, let stale,
+                      let factsSeconds, let factsCut):
             return "Fetched \(count) places (\(top) top, \(good) good)" + (osmFailed ? " · OpenStreetMap failed" : "")
                 + endpoints(osmErrors) + (dropped.isEmpty ? "" : " · dropped \(dropped.joined(separator: ", "))")
                 + (stale ? " · stored list" : "")
+                + (factsSeconds.map { " · facts \(String(format: "%.1f", $0)) s" + (factsCut ? ", cut" : "") }
+                   ?? (factsCut ? " · facts cut" : ""))
         case .fetchFailed(let error, let osmErrors): return "Fetch failed: \(error)" + endpoints(osmErrors)
         case .quiet(let reason, let due, let heldBy):
             let holder = heldBy.map { " · held by \($0.name)" } ?? ""
