@@ -146,6 +146,11 @@ final class WalkingController {
     @ObservationIgnored private var loggedForeground = true
     /// Failures during a start, before the run's log is open; written right after its `started` line.
     @ObservationIgnored private var startFailures: [WalkLogEvent] = []
+    /// The map's selection as «Rundt deg» last reported it while visible, walking mode on or off; nil while the map
+    /// is hidden. A run's first `shown` line is this selection when it holds a place (spec 19.7).
+    @ObservationIgnored private var mapSelection: (placeID: String?, name: String?, reason: ShownReason)?
+    /// The last `shown` line written in this run, so only a changed place or reason is written.
+    @ObservationIgnored private var loggedShown: (placeID: String?, reason: ShownReason)?
 
     init(memory: MemoryStore, stories: WalkingStories, walkLog: WalkLog, nearby: NearbyPlaces,
          tourStore: ActiveTourStore = WalkingController.tourStore, hasAPIKey: @escaping () -> Bool) {
@@ -306,6 +311,7 @@ final class WalkingController {
         runToken = run
         walkLog.begin(runID: run, at: now)
         feed = PlaceFeed()
+        loggedShown = nil
         postedCandidates = [:]
         track = []
         lastTrackSample = nil
@@ -325,6 +331,10 @@ final class WalkingController {
         walkLog.log(.started(startFields(state, source: source)), at: now)
         for failure in startFailures { walkLog.log(failure.kind, at: failure.at) }
         startFailures = []
+        // What the map shows as the walk starts, when it is visible with a place selected.
+        if let shown = mapSelection, shown.placeID != nil {
+            logShown(placeID: shown.placeID, name: shown.name, reason: shown.reason)
+        }
         // A story from before this run may hold the engine busy: the log says so from the start.
         stories.logBusyState()
         location.setPaused(false)
@@ -672,6 +682,29 @@ final class WalkingController {
         engine?.clearExclusions()
         excludeTourStops()
         if lastQuietReason == .allExcluded { lastQuietReason = nil }
+    }
+
+    // MARK: - The map's selection (spec 19.7)
+
+    /// «Rundt deg» changed its selection (or re-selected a place by a tap or a buzz): written to the walk log as
+    /// `shown` while walking mode is on, when the place or the reason differs from the run's last `shown` line. A
+    /// nil `placeID` means the selection was cleared (reason `cleared`).
+    func noteMapSelection(placeID: String?, name: String?, reason: ShownReason) {
+        mapSelection = (placeID, name, reason)
+        logShown(placeID: placeID, name: name, reason: reason)
+    }
+
+    /// The map screen is gone: its selection is no longer shown. Not a `shown` line; the next appearance reports
+    /// its selection again.
+    func noteMapHidden() {
+        mapSelection = nil
+    }
+
+    private func logShown(placeID: String?, name: String?, reason: ShownReason) {
+        guard isOn else { return }
+        if let loggedShown, loggedShown.placeID == placeID, loggedShown.reason == reason { return }
+        loggedShown = (placeID, reason)
+        walkLog.log(.shown(placeID: placeID, name: name, reason: reason))
     }
 
     /// Called by `WalkingStories` when a level of a `.chosen` story starts playing: the place does not buzz this run.
@@ -1166,45 +1199,60 @@ final class WalkingController {
     }
 
     /// Brings the feed up to date through the shared nearby list (trigger `.walking`). `PlaceFeed` still gates when
-    /// this runs (250 m, 60 s after a failure, and 60 s after a list whose OpenStreetMap part failed); the list then
-    /// decides between:
+    /// this runs (250 m, 60 s after a failure or 15 s while the walk has no places, and 60 s after a list whose
+    /// OpenStreetMap part failed); the list then decides between:
     /// - a network refresh: walk log `fetchStarted`, then `fetched` or `fetchFailed`, as before;
     /// - its current list, when that is near and recent enough that it would not refresh (for example one the camera
     ///   just fetched here): the feed takes it, logged as `fetched` around the list's centre with no `fetchStarted`,
     ///   since nothing was fetched;
     /// - neither (it would not refresh, within a minute of another fetch, and has no usable list): nothing now, and the
     ///   next fix asks again.
+    ///
+    /// At the run's first fetch, while the feed has no places, a stored list that does not serve but is at most 7 days
+    /// old and centred within 250 m stands in at once (`takeStaleList`, spec 19.6); the refresh still runs.
     private func fetch(around position: Coordinate, now: Date) {
         guard engine != nil else { return }
         feed.fetchStarted(now: now)
         let language = Self.storyLanguage()
         let run = runToken
         let nearby = nearby
+        // While the walk has no places (or stale ones) the nearby list may retry a failed fetch after 15 s, as the
+        // feed does, instead of holding off for 60 s (spec 19.6).
+        let failureRetry = feed.failureRetryInterval
         fetchTask = Task { [weak self] in
-            let refreshes = await nearby.shouldRefresh(at: position, trigger: .walking, language: language)
+            let refreshes = await nearby.shouldRefresh(at: position, trigger: .walking, language: language,
+                                                       failureRetry: failureRetry)
             guard let self, self.runToken == run else { return }
             guard !Task.isCancelled else {
                 self.feed.fetchCancelled()
                 return
             }
             guard refreshes else {
-                if let list = await nearby.current(language: language), list.serves(walkerAt: position, now: .now),
-                   self.runToken == run, !Task.isCancelled {
+                let current = await nearby.current(language: language)
+                guard self.runToken == run else { return }
+                if let list = current, list.serves(walkerAt: position, now: .now), !Task.isCancelled {
                     let places = list.walkingPlaces
                     self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
                                              fetchedAt: list.fetchedAt)
                     self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
                                                           osmErrors: list.osmErrors, facts: list.factsCount,
                                                           dropped: list.dropped, factsFailed: list.factsFailed))
-                } else if self.runToken == run {
+                } else {
+                    // Within a minute of another fetch and no list that serves: a stale one may still stand in.
+                    if !Task.isCancelled { self.takeStaleList(current, around: position, language: language) }
                     self.feed.fetchCancelled()
                 }
                 return
             }
+            if self.feed.wantsStaleList {
+                let stored = await nearby.current(language: language)
+                guard self.runToken == run else { return }
+                if !Task.isCancelled { self.takeStaleList(stored, around: position, language: language) }
+            }
             self.walkLog.log(.fetchStarted(position), at: .now)
             let result: Result<NearbyList, Error>
             do {
-                result = .success(try await nearby.refresh(at: position, language: language))
+                result = .success(try await nearby.refresh(at: position, language: language, failureRetry: failureRetry))
             } catch {
                 result = .failure(error)
             }
@@ -1221,7 +1269,7 @@ final class WalkingController {
                                                       osmErrors: list.osmErrors, facts: list.factsCount,
                                                       dropped: list.dropped, factsFailed: list.factsFailed))
             case .failure(let error) where !(error is CancellationError) && !Task.isCancelled:
-                // A real failure waits 60 s before the next try.
+                // A real failure waits 60 s before the next try, 15 s while the walk has no places (or stale ones).
                 self.feed.fetchFailed(now: .now)
                 self.walkLog.log(WalkLogEvent.fetchFailed(error))
             default:
@@ -1229,6 +1277,21 @@ final class WalkingController {
                 self.feed.fetchCancelled()
             }
         }
+    }
+
+    /// Spec 19.6: once per run, while the feed has no places, `stored` (the nearby list's current list) goes to the
+    /// feed when it is in `language`, at most 7 days old and centred within 250 m of `position`
+    /// (`NearbyList.staleCandidate`), logged as `fetched` with `stale: true`. It sets no centre in the feed, so the
+    /// fresh list is still fetched and replaces it; it is not a refresh, so `onListRefreshed` is not told. A list with
+    /// no walking places is not taken.
+    private func takeStaleList(_ stored: NearbyList?, around position: Coordinate, language: StoryLanguage) {
+        guard feed.wantsStaleList else { return }
+        let stale = NearbyList.staleCandidate(stored: stored, position: position, language: language, now: .now)
+        let places = stale?.walkingPlaces ?? []
+        guard feed.offerStaleList(places), let stale else { return }
+        walkLog.log(WalkLogEvent.fetched(places, around: stale.centre, osmFailed: stale.osmFailed,
+                                         osmErrors: stale.osmErrors, facts: stale.factsCount, dropped: stale.dropped,
+                                         factsFailed: stale.factsFailed, stale: true))
     }
 
     private func flushTrack() {

@@ -57,7 +57,8 @@ final class AppServices {
     /// being planned keeps going while the owner looks at the map.
     private(set) lazy var tourBuilder = TourBuilderModel(
         location: location, memory: memory, placeImages: placeImages,
-        source: TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http)))
+        source: TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http),
+                                facts: AppServices.sharedPlaceFacts))
 
     /// Why memory is held in RAM only this run; nil when the persistent store opened.
     let memoryFallback: MemoryFallback?
@@ -191,6 +192,16 @@ final class AppServices {
     nonisolated static var nearbyDirectory: URL {
         URL.applicationSupportDirectory.appending(path: "NearbyPlaces", directoryHint: .isDirectory)
     }
+
+    /// Caches/PlaceFacts: Wikidata facts can be fetched again, so the system may purge them.
+    nonisolated static var placeFactsDirectory: URL {
+        URL.cachesDirectory.appending(path: "PlaceFacts", directoryHint: .isDirectory)
+    }
+
+    /// The one Wikidata facts lookup (spec 19.1): the nearby list (walking, map, camera, background wakes) and tours
+    /// share its 30-day cache. Thread-safe like `sharedNearby`; over the shared HTTP client.
+    nonisolated static let sharedPlaceFacts = PlaceFactsLookup(cache: PlaceFactsCache(directory: placeFactsDirectory),
+                                                               client: WikidataClient(http: sharedHTTP))
 
     /// Created on first use, by whichever of `AppServices` and `BackgroundPlaces` comes first; thread-safe (a static
     /// `let` is initialised once).
@@ -375,9 +386,11 @@ final class AppServices {
         Bundle.main.object(forInfoDictionaryKey: "MGBundledOpenAIKey") as? String
     }
 
-    /// The place source of the nearby list: the same shared OSM and Wikipedia clients as phase 1.
+    /// The place source of the nearby list: the same shared OSM and Wikipedia clients as phase 1, with the shared
+    /// Wikidata facts.
     nonisolated private static func walkingSource(http: HTTPClient) -> WalkingPlaceSource {
-        WalkingPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http))
+        WalkingPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http),
+                           facts: sharedPlaceFacts)
     }
 
     /// Generated speech lives in Caches: it can be regenerated, so the system may purge it.

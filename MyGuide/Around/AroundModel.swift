@@ -10,7 +10,8 @@ import UIKit
 /// fix, lets a pending selection change finish its dwell without new samples, and selects a place just buzzed
 /// (spec 12.2). HomeScreen owns the shared `LocationProvider` (start, stop, `onFix` → foreground refreshes); this
 /// model only reads `location.fix(at:)`.
-/// Automatic selection never starts audio; only `listen()` does.
+/// Automatic selection never starts audio; only `listen()` does. Every change of the selected place, and every tap or
+/// buzz that selects one, is reported to walking mode, which logs it as `shown` while it is on (spec 19.7).
 @MainActor
 @Observable
 final class AroundModel {
@@ -52,6 +53,9 @@ final class AroundModel {
     /// The last buzz already selected (or present when the screen appeared), so each buzz selects once. A buzz that
     /// could not select yet (no fix, place not in the list) is retried on the next tick.
     @ObservationIgnored private var seenBuzzAt: Date?
+    /// True from `appear()` until a selected place has been reported, so walking mode learns what the map shows on
+    /// each appearance even when it is the place it showed before.
+    @ObservationIgnored private var reportOnAppear = false
 
     init(services: AppServices, location: LocationProvider) {
         self.services = services
@@ -65,6 +69,7 @@ final class AroundModel {
     func appear() {
         guard !active else { return }
         active = true
+        reportOnAppear = true
         seenBuzzAt = services.walking.lastBuzz?.at
         phoneHeading.onChange = { [weak self] in self?.scheduleUpdate() }
         phoneHeading.start()
@@ -92,12 +97,13 @@ final class AroundModel {
         phoneHeading.stop()
         phoneHeading.onChange = nil
         heading = nil
+        services.walking.noteMapHidden()
     }
 
     /// The owner tapped a marker or a row of the nearby list: selects it at once and holds it against automatic
     /// changes until `resumeAutomatic()` (spec 16.1). Ignored without a usable position or for a place not in the list.
     func choose(_ placeID: String) {
-        _ = select(placeID, now: .now)
+        _ = select(placeID, reason: .tap, now: .now)
     }
 
     /// The owner tapped locate (spec 16.1): automatic selection resumes; a new winner still needs its dwell.
@@ -216,7 +222,7 @@ final class AroundModel {
             return
         }
         guard UIApplication.shared.applicationState == .active else { return }
-        if select(buzz.placeID, hold: false, now: now) { seenBuzzAt = buzz.at }
+        if select(buzz.placeID, hold: false, reason: .buzz, now: now) { seenBuzzAt = buzz.at }
     }
 
     /// Seconds after a buzz during which it may still become the selection.
@@ -224,19 +230,44 @@ final class AroundModel {
 
     /// Explicit selection through the selector, held for a tap (`hold`) and not for a buzz; true when `placeID` is
     /// now the selected place (a usable fix and the place in the list). Without a fix the selection is left as it is.
-    private func select(_ placeID: String, hold: Bool = true, now: Date) -> Bool {
+    /// `reason` (`tap` or `buzz`) goes to walking mode only when `placeID` was selected; any other outcome is the
+    /// selector's own (`heading`).
+    private func select(_ placeID: String, hold: Bool = true, reason: ShownReason, now: Date) -> Bool {
         guard let input = input(now: now) else { return false }
         let state = selector.choose(placeID: placeID, hold: hold, input)
-        assign(selection: state)
+        let chosen = Self.selectedPlace(in: state)?.id == placeID
+        assign(selection: state, reason: chosen ? reason : .heading)
         lastUpdateAt = now
-        if case .selected(let selected) = state { return selected.vector.place.candidate.id == placeID }
-        return false
+        return chosen
+    }
+
+    private static func selectedPlace(in state: SelectionState) -> Candidate? {
+        guard case .selected(let selected) = state else { return nil }
+        return selected.vector.place.candidate
     }
 
     // MARK: - Assignments that notify only on change
 
-    private func assign(selection new: SelectionState) {
+    /// `reason` is why `new` came about: `heading` for the selector's automatic rules, `tap` or `buzz` for an explicit
+    /// selection. Walking mode is told when the selected place changes (a lost place is `cleared`), on every explicit
+    /// selection, and for the first selected place after `appear()`; it drops what it already logged.
+    private func assign(selection new: SelectionState, reason: ShownReason = .heading) {
+        let old = Self.selectedPlace(in: selection)
         if selection != new { selection = new }
+        let place = Self.selectedPlace(in: new)
+        let appeared = reportOnAppear && place != nil
+        guard place?.id != old?.id || reason != .heading || appeared else { return }
+        if place != nil { reportOnAppear = false }
+        let why: ShownReason
+        if place == nil {
+            why = .cleared
+        } else if reason == .heading, place?.id == old?.id, selector.isHolding {
+            // Reported again on appearing: the place is still the one the owner tapped, held by the selector.
+            why = .tap
+        } else {
+            why = reason
+        }
+        services.walking.noteMapSelection(placeID: place?.id, name: place?.name, reason: why)
     }
 
     private func assign(position new: Coordinate?) {

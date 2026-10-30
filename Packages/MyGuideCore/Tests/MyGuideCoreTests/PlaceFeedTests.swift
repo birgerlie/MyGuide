@@ -78,6 +78,16 @@ import Testing
     @Test func retryIntervals() {
         #expect(PlaceFeed.retryInterval == 60)
         #expect(PlaceFeed.emptyRetryInterval == 15)
+        // As things stand: no places 15, stale places 15, fetched places 60, an empty fetched list 15.
+        var f = PlaceFeed()
+        #expect(f.failureRetryInterval == 15)
+        f.fetchStarted(now: Self.t0)
+        f.offerStaleList([Self.castle])
+        #expect(f.failureRetryInterval == 15)
+        f.fetchSucceeded([Self.castle], at: .at(), now: Self.t0)
+        #expect(f.failureRetryInterval == 60)
+        f.fetchStarted(now: Self.t0); f.fetchSucceeded([], at: .at(), now: Self.t0)
+        #expect(f.failureRetryInterval == 15)
     }
 
     // MARK: - Stale list at start (spec 19.6)

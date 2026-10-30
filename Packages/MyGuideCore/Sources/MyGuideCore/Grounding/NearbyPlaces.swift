@@ -86,18 +86,22 @@ public actor NearbyPlaces {
     ///   never within `foregroundInterval` of the last fetch attempt;
     /// - walking: no list, or the list is ≥ `walkingDistance` away or older than `NearbyList.freshAge` (a list
     ///   loaded from disk days ago must not drive a walk); never within `foregroundInterval` of the last fetch
-    ///   attempt, so a failing source is not retried on every fix;
+    ///   attempt, so a failing source is not retried on every fix. After a failed fetch, `failureRetry` (at most
+    ///   `foregroundInterval`) replaces that interval: walking mode passes 15 s while its walk has no places
+    ///   (spec 19.6);
     /// - background: never above `backgroundMaxSpeed`, within `backgroundInterval` of the last refresh, or within
     ///   `foregroundInterval` of the last fetch attempt; then no list, or the list is ≥ `foregroundDistance` away.
     ///   Age alone never refreshes in the background: a phone lying at home must not fetch every 10 minutes.
-    public func shouldRefresh(at position: Coordinate, trigger: RefreshTrigger, language: StoryLanguage) -> Bool {
+    public func shouldRefresh(at position: Coordinate, trigger: RefreshTrigger, language: StoryLanguage,
+                              failureRetry: TimeInterval? = nil) -> Bool {
         let now = now()
         let list = list(for: language)
         switch trigger {
         case .foreground:
             return foregroundRule(list, position: position, language: language, now: now)
         case .walking:
-            if Self.isWithin(Self.foregroundInterval, of: lastFetchAttempt[language], now: now) { return false }
+            let interval = attemptInterval(language: language, failureRetry: failureRetry)
+            if Self.isWithin(interval, of: lastFetchAttempt[language], now: now) { return false }
             guard let list else { return true }
             return !list.serves(walkerAt: position, now: now)
         case .background(let speed):
@@ -122,8 +126,10 @@ public actor NearbyPlaces {
     /// already ended gets that fetch's result (the current list, or its error) instead of a new fetch, so two
     /// callers that both decided to refresh never fetch twice in a row. A failure keeps the old list and is thrown.
     /// A cancelled caller stops waiting with CancellationError; the fetch carries on for the others and is still kept.
+    /// `failureRetry` shortens that interval after a failed fetch, as in `shouldRefresh`.
     @discardableResult
-    public func refresh(at position: Coordinate, language: StoryLanguage) async throws -> NearbyList {
+    public func refresh(at position: Coordinate, language: StoryLanguage,
+                        failureRetry: TimeInterval? = nil) async throws -> NearbyList {
         let task: Task<NearbyList, Error>
         if let running = inFlight[language] {
             task = running
@@ -131,7 +137,8 @@ public actor NearbyPlaces {
             try Task.checkCancellation()
             let now = now()
             // Checked and recorded with no suspension in between, so the spacing holds for every caller.
-            if Self.isWithin(Self.foregroundInterval, of: lastFetchAttempt[language], now: now),
+            if Self.isWithin(attemptInterval(language: language, failureRetry: failureRetry),
+                             of: lastFetchAttempt[language], now: now),
                let last = lastOutcome[language] {
                 switch last {
                 case .success(let fetched): return lists[language] ?? fetched
@@ -188,6 +195,13 @@ public actor NearbyPlaces {
     }
 
     // MARK: - Private
+
+    /// How soon after the last fetch attempt a new one may start: `foregroundInterval`, or `failureRetry` (capped at
+    /// `foregroundInterval`) when given and the last fetch that ended failed.
+    private func attemptInterval(language: StoryLanguage, failureRetry: TimeInterval?) -> TimeInterval {
+        guard let failureRetry, case .failure? = lastOutcome[language] else { return Self.foregroundInterval }
+        return min(failureRetry, Self.foregroundInterval)
+    }
 
     private func backgroundGates(speed: Double?, language: StoryLanguage, now: Date) -> Bool {
         // Read through `list(for:)` first, so a stored list seeds `lastRefresh` before the interval is judged.

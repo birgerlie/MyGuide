@@ -31,10 +31,15 @@ public struct PlaceFeed: Sendable {
         !staleOffered && lastCentre == nil && places.isEmpty
     }
 
+    /// The wait after a failed fetch as things stand: `emptyRetryInterval` while there are no places or only stale
+    /// ones, `retryInterval` otherwise. The nearby list is asked to hold off no longer than this either.
+    public var failureRetryInterval: TimeInterval {
+        places.isEmpty || placesAreStale ? Self.emptyRetryInterval : Self.retryInterval
+    }
+
     public func shouldFetch(at position: Coordinate, now: Date) -> Bool {
         if isFetching { return false }
-        let retry = places.isEmpty || placesAreStale ? Self.emptyRetryInterval : Self.retryInterval
-        if let lastFailure, now.timeIntervalSince(lastFailure) < retry { return false }
+        if let lastFailure, now.timeIntervalSince(lastFailure) < failureRetryInterval { return false }
         guard let lastCentre else { return true }
         if let osmFailedAt, now.timeIntervalSince(osmFailedAt) >= NearbyList.osmFailedRetryAge { return true }
         return GeoMath.distance(lastCentre, position) >= Self.refetchDistance

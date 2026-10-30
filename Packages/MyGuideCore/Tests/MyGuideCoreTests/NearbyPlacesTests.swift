@@ -722,6 +722,57 @@ private struct Boom: Error {}
         #expect(list.candidates.map(\.name) == ["Burg"])
     }
 
+    @Test func failureRetryShortensTheWaitAfterAFailedFetch() async throws {
+        let clock = LockedBox(Self.t0)
+        let fetcher = StubFetcher(.failure(Boom()))
+        let places = Self.places(fetcher, clock: clock)
+        await #expect(throws: Boom.self) { try await places.refresh(at: .at(), language: .english) }
+        #expect(fetcher.count == 1)
+        fetcher.set(.success([Self.castle("Burg", north: 30)]))
+        // Walking with no places (spec 19.6) passes 15 s: failed attempt at t0; 14.9 < 15 held off, 15 ≥ 15 allowed.
+        clock.set(Self.t0.addingTimeInterval(14.9))
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .walking, language: .english, failureRetry: 15))
+        await #expect(throws: Boom.self) {
+            try await places.refresh(at: .at(), language: .english, failureRetry: 15)
+        }
+        #expect(fetcher.count == 1)
+        clock.set(Self.t0.addingTimeInterval(15))
+        #expect(await places.shouldRefresh(at: .at(), trigger: .walking, language: .english, failureRetry: 15))
+        // Without it the 60 s still hold (15 < 60): no refresh, and refresh() rethrows without a fetch.
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .walking, language: .english))
+        await #expect(throws: Boom.self) { try await places.refresh(at: .at(), language: .english) }
+        #expect(fetcher.count == 1)
+        let list = try await places.refresh(at: .at(), language: .english, failureRetry: 15)
+        #expect(fetcher.count == 2)
+        #expect(list.candidates.map(\.name) == ["Burg"])
+    }
+
+    @Test func failureRetryDoesNotShortenTheWaitAfterASuccess() async throws {
+        let clock = LockedBox(Self.t0)
+        let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30)]))
+        let places = Self.places(fetcher, clock: clock)
+        let first = try await places.refresh(at: .at(), language: .english)
+        // t0+15, 400 m away (the list does not serve): the last fetch succeeded, so the 60 s hold (15 < 60).
+        clock.set(Self.t0.addingTimeInterval(15))
+        #expect(await !places.shouldRefresh(at: .at(north: 400), trigger: .walking, language: .english,
+                                            failureRetry: 15))
+        #expect(try await places.refresh(at: .at(north: 400), language: .english, failureRetry: 15) == first)
+        #expect(fetcher.count == 1)
+    }
+
+    @Test func failureRetryIsOnlyForWalkingAndNeverLongerThanSixtySeconds() async throws {
+        let clock = LockedBox(Self.t0)
+        let fetcher = StubFetcher(.failure(Boom()))
+        let places = Self.places(fetcher, clock: clock)
+        await #expect(throws: Boom.self) { try await places.refresh(at: .at(), language: .english) }
+        // t0+15: the foreground rule keeps its 60 s (15 < 60) whatever is passed.
+        clock.set(Self.t0.addingTimeInterval(15))
+        #expect(await !places.shouldRefresh(at: .at(), trigger: .foreground, language: .english, failureRetry: 15))
+        // A failureRetry above 60 s is capped at 60: at t0+60, 60 ≥ min(90, 60) → walking refreshes.
+        clock.set(Self.t0.addingTimeInterval(60))
+        #expect(await places.shouldRefresh(at: .at(), trigger: .walking, language: .english, failureRetry: 90))
+    }
+
     @Test func failedFetchKeepsOldList() async throws {
         let clock = LockedBox(Self.t0)
         let fetcher = StubFetcher(.success([Self.castle("Burg", north: 30)]))
