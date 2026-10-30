@@ -590,75 +590,75 @@ import Testing
     /// A (good, 100 m north) and B (top, 150 m north: 50 m beyond A, radius 80 m). The walker walks north.
     static let holdA = place("A", .good, north: 100), holdB = place("B", .top, north: 150)
 
-    @Test func duePlaceWaitsForABetterOneApproaching() {
-        // t0 at 30 N: A 70 m (not due), B 120 m. t0+10 at 45 N: A 55 m due; B 105 m (> 80, not due) and closer than
-        // 120 → A is held. t0+20 at 65 N: B 85 m, still held. t0+30 at 92 N: B 58 m ≤ 60 → B (top) buzzes (20 s
-        // into the hold).
+    @Test func duePlaceWaitsForABetterOneInsideItsRadius() {
+        // Spec 20.5.1: the better place must be inside its own radius from the walker. t0 at 30 N: A 70 m (not due),
+        // B 120 m. t0+10 at 72 N: A 28 m due; B 78 m (inside 80, not passed) → A held. t0+20 at 80 N: B 70 m, still
+        // held. t0+30 at 92 N: B 58 m ≤ 60 → B (top) buzzes (20 s into the hold).
         var e = Self.engine()
         let places = [Self.holdA, Self.holdB]
         #expect(e.decide(places: places, position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
                 == .quiet(.noneDue, due: []))
-        let held = e.decide(places: places, position: .at(north: 45), accuracy: 5, course: 0, now: Self.t0 + 10)
+        let held = e.decide(places: places, position: .at(north: 72), accuracy: 5, course: 0, now: Self.t0 + 10)
         guard case .quiet(.held, let due) = held else { Issue.record("expected held, got \(held)"); return }
-        #expect(due.map(\.id) == ["A"])
-        #expect(e.decide(places: places, position: .at(north: 65), accuracy: 5, course: 0, now: Self.t0 + 20).buzz == nil)
+        #expect(due.map(\.id) == ["B", "A"])
+        #expect(e.decide(places: places, position: .at(north: 80), accuracy: 5, course: 0, now: Self.t0 + 20).buzz == nil)
         #expect(e.evaluate(places: places, position: .at(north: 92), accuracy: 5, course: 0, now: Self.t0 + 30)?.place
                 == Self.holdB)
     }
     @Test func holdLastsAtMostThirtySeconds() {
-        // The walker creeps north, so B stays beyond its 80 m while approaching.
-        // t0 at 39 N: A 61 m (not due), B 111 m.
+        // The walker creeps north, so B stays inside its 80 m but beyond 60 m and not passed.
+        // t0 at 30 N: A 70 m (not due), B 120 m.
         var e = Self.engine()
         let places = [Self.holdA, Self.holdB]
-        #expect(e.evaluate(places: places, position: .at(north: 39), accuracy: 5, course: 0, now: Self.t0) == nil)
-        // Walker at 46 N: A 54 m due, B 104 m approaching (111 → 104) → held, the hold starts at t0+10.
-        guard case .quiet(.held, _) = e.decide(places: places, position: .at(north: 46), accuracy: 5, course: 0,
+        #expect(e.evaluate(places: places, position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0) == nil)
+        // Walker at 71 N: A 29 m due, B 79 m inside its radius → held, the hold starts at t0+10.
+        guard case .quiet(.held, _) = e.decide(places: places, position: .at(north: 71), accuracy: 5, course: 0,
                                                now: Self.t0 + 10) else { Issue.record("expected held"); return }
-        // t0+39 at 47 N: B 103 m, approaching; 39 − 10 = 29 s < 30 s → still held.
-        guard case .quiet(.held, _) = e.decide(places: places, position: .at(north: 47), accuracy: 5, course: 0,
+        // t0+39 at 72 N: B 78 m; 39 − 10 = 29 s < 30 s → still held.
+        guard case .quiet(.held, _) = e.decide(places: places, position: .at(north: 72), accuracy: 5, course: 0,
                                                now: Self.t0 + 39) else { Issue.record("expected held"); return }
-        // t0+40 at 48 N: B 102 m, still approaching, but 40 − 10 = 30 s since the hold began → A buzzes.
-        #expect(e.evaluate(places: places, position: .at(north: 48), accuracy: 5, course: 0, now: Self.t0 + 40)?.place
+        // t0+40 at 73 N: B 77 m, still waiting, but 40 − 10 = 30 s since the hold began → A buzzes.
+        #expect(e.evaluate(places: places, position: .at(north: 73), accuracy: 5, course: 0, now: Self.t0 + 40)?.place
                 == Self.holdA)
     }
-    @Test func noHoldWhenTheBetterPlaceRecedesOrHasNoPreviousFix() {
-        // First fix at 45 N: B has no previous distance → not approaching → A (55 m) buzzes at once.
+    @Test func noHoldWhileTheBetterPlaceIsOutsideItsRadius() {
+        // Spec 20.5.1 replaced "approaching within 60 m of the lesser place". First fix at 45 N: B 105 m, outside its
+        // 80 m → A (55 m) buzzes at once.
         var e = Self.engine()
         #expect(e.evaluate(places: [Self.holdA, Self.holdB], position: .at(north: 45), accuracy: 5, course: 0,
                            now: Self.t0)?.place == Self.holdA)
-        // t0 at 30 N: A 70 m, B 120 m. t0+5 at 50 N: A 50 m due, B 100 m approaching → held. t0+10 the walker
-        // turned back to 45 N: B 105 m, receding (100 → 105) → A buzzes.
+        // Approaching from outside does not hold either: t0 at 30 N (B 120 m), t0+5 at 50 N: A 50 m due, B 100 m,
+        // closer but outside → A buzzes.
         var f = Self.engine()
         let places = [Self.holdA, Self.holdB]
         _ = f.decide(places: places, position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
-        guard case .quiet(.held, _) = f.decide(places: places, position: .at(north: 50), accuracy: 5, course: 0,
-                                               now: Self.t0 + 5) else { Issue.record("expected held"); return }
-        #expect(f.evaluate(places: places, position: .at(north: 45), accuracy: 5, course: 180, now: Self.t0 + 10)?.place
+        #expect(f.evaluate(places: places, position: .at(north: 50), accuracy: 5, course: 0, now: Self.t0 + 5)?.place
                 == Self.holdA)
     }
-    @Test func noHoldForALowerRankedOrFarOrExcludedPlace() {
+    @Test func noHoldForALowerRankedOrOutsideOrExcludedPlace() {
         // Lower ranked: A good with 10 sitelinks, B good with 5 (50 m beyond) → A buzzes at once.
         var e = Self.engine()
         let a = Self.place("A", .good, north: 100, sitelinks: 10), lower = Self.place("B", .good, north: 150, sitelinks: 5)
         _ = e.decide(places: [a, lower], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
         #expect(e.evaluate(places: [a, lower], position: .at(north: 45), accuracy: 5, course: 0, now: Self.t0 + 10)?.place == a)
-        // Better within the tier by sitelinks (B good with 50 sitelinks, A 10): held.
+        // Better within the tier by sitelinks: A top 32 (radius 80) at 100 N, B top 50 (radius 100) at 150 N. t0 at
+        // 30 N: A 70 m (tracked, waiting), B 120 m. t0+10 at 55 N: A 45 m may buzz; B 95 m inside 100 → held.
         var f = Self.engine()
-        let better = Self.place("B", .good, north: 150, sitelinks: 50)
-        _ = f.decide(places: [a, better], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
-        guard case .quiet(.held, _) = f.decide(places: [a, better], position: .at(north: 45), accuracy: 5, course: 0,
+        let topA = Self.place("A", .top, north: 100, sitelinks: 32), better = Self.place("B", .top, north: 150, sitelinks: 50)
+        _ = f.decide(places: [topA, better], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.held, _) = f.decide(places: [topA, better], position: .at(north: 55), accuracy: 5, course: 0,
                                                now: Self.t0 + 10) else { Issue.record("expected held"); return }
-        // Too far: B top 61 m beyond A (161 N) → A buzzes.
+        // Outside its radius: B top at 161 N, 116 m from the walker at 45 N (> 80) → A buzzes.
         var g = Self.engine()
         let far = Self.place("B", .top, north: 161)
         _ = g.decide(places: [Self.holdA, far], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
         #expect(g.evaluate(places: [Self.holdA, far], position: .at(north: 45), accuracy: 5, course: 0, now: Self.t0 + 10)?.place
                 == Self.holdA)
-        // Excluded: B already heard → A buzzes.
+        // Excluded: B already heard, inside its radius at 72 N (78 m) → A (28 m) buzzes.
         var h = Self.engine()
         h.exclude("B")
         _ = h.decide(places: [Self.holdA, Self.holdB], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
-        #expect(h.evaluate(places: [Self.holdA, Self.holdB], position: .at(north: 45), accuracy: 5, course: 0,
+        #expect(h.evaluate(places: [Self.holdA, Self.holdB], position: .at(north: 72), accuracy: 5, course: 0,
                            now: Self.t0 + 10)?.place == Self.holdA)
     }
 
@@ -907,17 +907,15 @@ import Testing
         #expect(e.evaluate(places: [near], position: .at(north: 170), accuracy: 5, course: 0, now: Self.t0 + 30)?.place
                 == near)
     }
-    @Test func anApproachingWidePlaceIsNotDueAndHoldsALowerOne() {
+    @Test func aWidePlaceInsideItsRadiusIsNotDueAndHoldsALowerOne() {
         // A (good, 12 sitelinks) at 100 N; B (top, 32 sitelinks, radius 80) at 150 N. t0 at 30 N: A 70, B 120.
-        // t0+10 at 45 N: A 55 m may buzz; B 105 m approaching → A held. t0+20 at 75 N: B 75 m, inside 80 m but
-        // still approaching (not passed) → still held. t0+28 at 92 N: B 58 m ≤ 60 → B buzzes.
+        // t0+20 at 75 N: A 25 m may buzz; B 75 m inside 80 m, not passed → A held (since 20.5.1 only inside its
+        // radius). t0+28 at 92 N: B 58 m ≤ 60 → B buzzes.
         var e = Self.engine()
         let a = Self.place("A", .good, north: 100, sitelinks: 12), b = Self.place("B", .top, north: 150, sitelinks: 32)
         _ = e.decide(places: [a, b], position: .at(north: 30), accuracy: 5, course: 0, now: Self.t0)
-        for (y, dt) in [(45.0, 10.0), (75, 20)] {
-            let d = e.decide(places: [a, b], position: .at(north: y), accuracy: 5, course: 0, now: Self.t0 + dt)
-            guard case .quiet(.held, _) = d else { Issue.record("expected held at \(y), got \(d)"); return }
-        }
+        let d = e.decide(places: [a, b], position: .at(north: 75), accuracy: 5, course: 0, now: Self.t0 + 20)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
         #expect(e.evaluate(places: [a, b], position: .at(north: 92), accuracy: 5, course: 0, now: Self.t0 + 28)?.place == b)
     }
 }
@@ -1004,16 +1002,16 @@ import Testing
         #expect(e.evaluate(places: places, position: .at(east: 86), accuracy: 5, course: 0, now: Self.t0 + 20)?.place
                 == Self.waitingB)
     }
-    @Test func aWaitingPlaceFartherThanSixtyMetresHoldsNothing() {
-        // A moved to 45 N 42 E: sqrt(45² + 42²) = 61.6 m from B (> 60). t0 at (−69.28 N, 40 E): B 80.0 m, A 114.3 m.
-        // t0+10 at (5 N, 82 E): B sqrt(5² + 82²) = 82.2 m, due and waiting (< 85); A sqrt(40² + 40²) = 56.6 m → no
-        // hold, A buzzes.
+    @Test func aWaitingPlaceHoldsHoweverFarFromTheLesserOne() {
+        // Spec 20.5.1: distance between the two no longer matters. A at 45 N 42 E: sqrt(45² + 42²) = 61.6 m from B.
+        // t0 at (−69.28 N, 40 E): B 80.0 m, A 114.3 m. t0+10 at (5 N, 82 E): B sqrt(5² + 82²) = 82.2 m, inside its
+        // 100 m radius and waiting (< 85); A sqrt(40² + 40²) = 56.6 m → held.
         var e = Self.engine()
         let farA = Self.place("A", .good, north: 45, east: 42, sitelinks: 12)
         let places = [farA, Self.waitingB]
         _ = e.decide(places: places, position: .at(north: -69.28, east: 40), accuracy: 5, course: 0, now: Self.t0)
-        #expect(e.evaluate(places: places, position: .at(north: 5, east: 82), accuracy: 5, course: 0,
-                           now: Self.t0 + 10)?.place == farA)
+        let d = e.decide(places: places, position: .at(north: 5, east: 82), accuracy: 5, course: 0, now: Self.t0 + 10)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
     }
 
     // MARK: «Behind you» (20.3.3)
@@ -1259,5 +1257,120 @@ import Testing
         #expect(BuzzEngine.minimumGap(for: Self.place("a", .top, north: 0, sitelinks: 3)) == 30)
         #expect(BuzzEngine.minimumGap(for: Self.place("a", .wikiOnly, north: 0, sitelinks: 24)) == 240)
         #expect(BuzzEngine.highGap == 90 && BuzzEngine.highGapSitelinks == 20)
+    }
+}
+
+// MARK: - Spec 20.5: the hold looks from the walker; places passed during a story are remembered
+
+@Suite struct BuzzEngineIteration5Tests {
+    static let t0 = Date(timeIntervalSince1970: 1_000_000)
+    static func place(_ id: String, _ tier: PlaceTier, north: Double, east: Double = 0, sitelinks: Int?) -> WalkingPlace {
+        WalkingPlace(candidate: Candidate(id: id, name: id, coordinate: .at(north: north, east: east), kind: "x",
+                                          sitelinks: sitelinks),
+                     tier: tier)
+    }
+    /// 60/h, started at t0 − 180 so the budget is full (3) at t0.
+    static func engine() -> BuzzEngine {
+        BuzzEngine(perHour: 60, now: t0 - 180, excluded: [])
+    }
+
+    // MARK: Hold from the walker (20.5.1)
+
+    /// The 18:25:07 first decision, walker at the origin:
+    /// - Palazzo Bonaparte (Wiki-only, 9) at 23 m N;
+    /// - Piazza Venezia (top, 38, radius 80) at (−65.02 N, 43.09 E): sqrt(65.02² + 43.09²) = 78.0 m from the walker,
+    ///   sqrt(88.02² + 43.09²) = 98.0 m from Bonaparte;
+    /// - Basilica di San Marco (top, 25, radius 80) at 74 m S;
+    /// - Museo Nazionale del Palazzo di Venezia (Wiki-only, 8) at 43 m E.
+    static let bonaparte = place("bonaparte", .wikiOnly, north: 23, sitelinks: 9)
+    static let venezia = place("venezia", .top, north: -65.02, east: 43.09, sitelinks: 38)
+    static let sanMarco = place("sanMarco", .top, north: -74, sitelinks: 25)
+    static let museo = place("museo", .wikiOnly, north: 0, east: 43, sitelinks: 8)
+    static let walk = [bonaparte, venezia, sanMarco, museo]
+
+    @Test func theRecordedGeometry() {
+        #expect(abs(GeoMath.distance(.at(), Self.venezia.candidate.coordinate) - 78) < 0.05)
+        #expect(abs(GeoMath.distance(Self.bonaparte.candidate.coordinate, Self.venezia.candidate.coordinate) - 98) < 0.05)
+    }
+    @Test func aLesserPlaceIsHeldForABetterOneInsideItsOwnRadiusHoweverFarFromIt() {
+        // Piazza Venezia is 98 m from Bonaparte (beyond the old 60 m), but 78 m from the walker, inside its 80 m
+        // radius, with no previous distance → Bonaparte (the first that may buzz) is held.
+        var e = Self.engine()
+        let d = e.decide(places: Self.walk, position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        guard case .quiet(.held, _) = d else { Issue.record("expected held, got \(d)"); return }
+    }
+    @Test func theHoldStillEndsAfterThirtySeconds() {
+        // Standing still: held at t0 and t0+29 (Piazza Venezia 78 m, never passed); at t0+30 (30 s since the hold
+        // began) Bonaparte, first in the order among the Wiki-only places ((wikiOnly, −9, 23) before (wikiOnly, −8,
+        // 43)), buzzes.
+        var e = Self.engine()
+        for dt in [0.0, 29] {
+            let d = e.decide(places: Self.walk, position: .at(), accuracy: 5, course: 0, now: Self.t0 + dt)
+            guard case .quiet(.held, _) = d else { Issue.record("expected held at +\(dt), got \(d)"); return }
+        }
+        #expect(e.evaluate(places: Self.walk, position: .at(), accuracy: 5, course: 0, now: Self.t0 + 30)?.place
+                == Self.bonaparte)
+    }
+    @Test func aBetterPlaceOutsideItsOwnRadiusHoldsNothing() {
+        // Piazza Venezia 81 m from the walker (outside its 80 m radius): Bonaparte buzzes on the first decision.
+        // Approaching from outside does not hold either: t0 at 5 m N (Piazza Venezia 86 m, Bonaparte 18 m — due, so
+        // use a list without Bonaparte first), t0+5 at the origin: Piazza Venezia 81 m, closer, still outside.
+        let far = Self.place("venezia", .top, north: -81, sitelinks: 38)
+        var e = Self.engine()
+        #expect(e.evaluate(places: [Self.bonaparte, far], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place
+                == Self.bonaparte)
+        var f = Self.engine()
+        _ = f.decide(places: [far], position: .at(north: 5), accuracy: 5, course: 0, now: Self.t0)
+        #expect(f.evaluate(places: [Self.bonaparte, far], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 5)?.place
+                == Self.bonaparte)
+    }
+
+    // MARK: Places passed during a story (20.5.2)
+
+    /// z (top, 40) at 30 N buzzes at t0 (the decision that starts the story), with Piazza Venezia (top, 38, radius
+    /// 80) at 78 N tracked, 48 m from z (its 38 sitelinks keep it out of the complex rule).
+    static let z = place("z", .top, north: 30, sitelinks: 40)
+    static let piazza = place("piazza", .top, north: 78, sitelinks: 38)
+
+    @Test func aPlaceJustOutsideItsRadiusOnTheFirstBusyFixIsRemembered() {
+        // t0 at the origin: piazza 78 m (tracked). Busy from t0+1. First busy fix t0+2 at 2.02 m S: piazza 80.02 m,
+        // 2 cm outside its 80 m radius, still tracked (≤ 120). Busy ends t0+10. t0+15 at 40 m S: piazza 118 m
+        // (≤ 150) → «behind you».
+        var e = Self.engine()
+        #expect(e.evaluate(places: [Self.z, Self.piazza], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place
+                == Self.z)
+        e.setBusy(true, at: Self.t0 + 1)
+        let busy = e.decide(places: [Self.z, Self.piazza], position: .at(north: -2.02), accuracy: 5, course: 180,
+                            now: Self.t0 + 2)
+        guard case .quiet(.busy, let due) = busy else { Issue.record("expected busy, got \(busy)"); return }
+        #expect(abs((due.first { $0.id == "piazza" }?.distance ?? 0) - 80.02) < 0.01)
+        e.setBusy(false, at: Self.t0 + 10)
+        let b = e.evaluate(places: [Self.z, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 15)
+        #expect(b?.place == Self.piazza)
+        // 118 m, shown rounded as BuzzText does.
+        #expect(b?.detail == "120 m behind you")
+    }
+    @Test func theDecisionThatStartsTheStoryCountsWithoutAnyBusyFix() {
+        // No fix at all while busy (t0+1 … t0+10): the places tracked at the decision that started it (piazza at
+        // 78 m) are remembered. t0+15 at 40 m S: 118 m → «behind you».
+        var e = Self.engine()
+        _ = e.evaluate(places: [Self.z, Self.piazza], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        e.setBusy(true, at: Self.t0 + 1)
+        e.setBusy(false, at: Self.t0 + 10)
+        #expect(e.evaluate(places: [Self.z, Self.piazza], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 15)?.place == Self.piazza)
+    }
+    @Test func aPlaceNeverInsideItsRadiusIsNotRemembered() {
+        // q (top, 38, radius 80) stays at 85 m during the whole story (never tracked); after it, 125 m (≤ 150) → no
+        // «behind you».
+        var e = Self.engine()
+        let q = Self.place("q", .top, north: 85, sitelinks: 38)
+        _ = e.evaluate(places: [Self.z, q], position: .at(), accuracy: 5, course: 0, now: Self.t0)
+        e.setBusy(true, at: Self.t0 + 1)
+        _ = e.decide(places: [Self.z, q], position: .at(), accuracy: 5, course: 180, now: Self.t0 + 2)
+        e.setBusy(false, at: Self.t0 + 10)
+        #expect(e.evaluate(places: [Self.z, q], position: .at(north: -40), accuracy: 5, course: 180,
+                           now: Self.t0 + 15) == nil)
     }
 }
