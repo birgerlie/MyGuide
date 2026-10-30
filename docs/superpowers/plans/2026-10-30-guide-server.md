@@ -14,7 +14,7 @@
 
 - Never deploy, ssh to or install on `204.168.153.170`. Deploy happens only after the owner says go. Nothing of Suverra (`kunngjoring-*`, `/opt/kunngjoring`, `/srv/kunngjoringer`) is ever touched by any script.
 - No secret in the repo: the OpenAI key exists only in `/etc/myguide/env` on the server. The env template in the repo has `OPENAI_API_KEY=` empty. `Config/Local.xcconfig` stays git-ignored and is never read, printed or committed.
-- The server stores no request or response body, prompt, position, photo, story or IP address: not in SQLite, not in logs. uvicorn runs with `--no-access-log`. The Caddyfile has no `log` directive. Python `logging` lines never include bodies.
+- The server stores no request or response body, prompt, position, photo, story or IP address: not in SQLite, not in logs. uvicorn runs with `--no-access-log`. The Caddy site file has no `log` directive. Python `logging` lines never include bodies.
 - `store` is forced to `false` on every `/v1/responses` body.
 - Every limit is a setting (spec 6.1 table), with the defaults shown there. None is a constant in code. A missing or invalid setting raises `ConfigError` naming the setting.
 - Money is integer micro-USD (`µUSD`, 1e-6 USD) everywhere in code and DB; `PRICE_*` values are USD per million, so `cost_µUSD = tokens × price_per_million` (Decimal, rounded half-up to int once per call).
@@ -263,20 +263,22 @@
 ### Task 8: Deploy files (written, not run)
 
 **Files:**
-- Create: `server/deploy/Caddyfile`, `server/deploy/myguide.service`, `server/deploy/limits.conf`, `server/deploy/install.sh`, `server/deploy.sh`, `server/README.md`
+- Create: `server/deploy/myguide.caddy`, `server/deploy/Caddyfile.main`, `server/www/index.html` (placeholder), `server/deploy/myguide.service`, `server/deploy/limits.conf`, `server/deploy/install.sh`, `server/deploy.sh`, `server/README.md`
 - Test: `server/tests/test_deploy_files.py`
 
 **Interfaces:**
 - Consumes: `env.template` (Task 1), `bin/myguide-admin` (Task 7), `python -m myguide` (Task 5).
 - Produces (contents pinned):
-  - `Caddyfile`: `myguide.itsalie.xyz { reverse_proxy 127.0.0.1:8710 { flush_interval -1 } }`, no `log` directive. Installed as `/etc/caddy/Caddyfile` only if Caddy has no config yet; otherwise `install.sh` stops and prints what to add (never overwrites another site).
+  - `myguide.caddy` (site file, installed as `/etc/caddy/sites/myguide.caddy`): `myguide.itsalie.xyz { handle /v1/* { reverse_proxy 127.0.0.1:8710 { flush_interval -1 } } handle /health { reverse_proxy 127.0.0.1:8710 } handle { root * /srv/www/myguide; file_server } }`, no `log` directive. The website explaining the app (owner, 2026-10-31: «jeg skal legge en nettside der også … som forklarer appen») is static files in `/srv/www/myguide`, served on the same domain; everything outside `/v1/*` and `/health` is the website.
+  - `Caddyfile.main`: `import sites/*.caddy` only. `install.sh` installs it as `/etc/caddy/Caddyfile` when Caddy has no config yet or the existing file is the Debian default; if `/etc/caddy/Caddyfile` has other content and no `import sites/*.caddy` line, it stops and prints the line to add (never overwrites another site). It creates `/etc/caddy/sites/` and `/srv/www/myguide` (copies `server/www/` there only if the directory is empty, so the owner's own site is never overwritten).
+  - `server/www/index.html`: a one-page placeholder (`MyGuide — a walking guide`, one paragraph, no scripts, no external requests).
   - `myguide.service`: `User=myguide`, `Group=myguide`, `WorkingDirectory=/opt/myguide`, `ExecStart=/opt/myguide/venv/bin/python -m myguide --env /etc/myguide/env --db /srv/myguide/guide.db`, `ExecReload=/bin/kill -HUP $MAINPID`, `Restart=on-failure`, `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ReadWritePaths=/srv/myguide`, `ProtectHome=yes`, `PrivateTmp=yes`.
   - `limits.conf` (drop-in `/etc/systemd/system/myguide.service.d/limits.conf`): `[Service]` `MemoryMax=200M` `CPUWeight=50`.
   - `install.sh` (run as root on the server, idempotent, `set -euo pipefail`): installs `caddy` and `python3.14-venv` via apt if missing; creates system user `myguide`; dirs `/opt/myguide` (root-owned), `/srv/myguide` (`myguide:myguide`, 0750), `/etc/myguide`; writes `/etc/myguide/env` from `env.template` only if missing (`root:myguide`, 0640) and prints that `OPENAI_API_KEY` must be filled in; creates the venv and installs `requirements.txt`; installs unit, drop-in, `/usr/local/bin/myguide-admin`; `ufw allow 22/tcp`, `80/tcp`, `443/tcp` before `ufw --force enable`; `systemctl daemon-reload`, enables (not starts) `myguide` when the key is empty, else restarts it. It never references `kunngjoring`.
   - `deploy.sh` (run locally): refuses to run unless `MYGUIDE_DEPLOY_GO=1` is set, `rsync -a --delete --exclude .venv --exclude tests --exclude __pycache__ server/ root@204.168.153.170:/opt/myguide/src/`, then `ssh … 'bash /opt/myguide/src/deploy/install.sh'`.
   - `README.md`: what runs where, first install steps, `myguide-admin` usage, how to check Suverra's timers afterwards (`systemctl list-timers 'kunngjoring-*'`).
 
-- [ ] **Step 1: Write failing `test_deploy_files.py`:** Caddyfile contains `flush_interval -1` and no `log`; unit has `ProtectSystem=strict`, `User=myguide`, no `MemoryMax` (it lives in the drop-in); drop-in has `MemoryMax=200M` and `CPUWeight=50`; no deploy file contains `kunngjoring`; `install.sh` and `deploy.sh` start with `set -euo pipefail`; `deploy.sh` checks `MYGUIDE_DEPLOY_GO`; `env.template` contains no `sk-`; `bash -n` passes on both scripts (subprocess); `shellcheck` passes if it is installed (skip otherwise).
+- [ ] **Step 1: Write failing `test_deploy_files.py`:** `myguide.caddy` contains `flush_interval -1`, `handle /v1/*`, `file_server`, and no `log`; `Caddyfile.main` contains `import sites/*.caddy`; `www/index.html` contains no `<script` and no `http`; unit has `ProtectSystem=strict`, `User=myguide`, no `MemoryMax` (it lives in the drop-in); drop-in has `MemoryMax=200M` and `CPUWeight=50`; no deploy file contains `kunngjoring`; `install.sh` and `deploy.sh` start with `set -euo pipefail`; `deploy.sh` checks `MYGUIDE_DEPLOY_GO`; `env.template` contains no `sk-`; `bash -n` passes on both scripts (subprocess); `shellcheck` passes if it is installed (skip otherwise).
 - [ ] **Step 2:** Run → fail.
 - [ ] **Step 3:** Write the files.
 - [ ] **Step 4:** Run → pass. Do not run `deploy.sh` or `install.sh`.
