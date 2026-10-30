@@ -204,3 +204,27 @@ def test_duplicate_key_id_rejected(conn):
         create_device(conn, "k", "t2", NOW)
     assert conn.execute("SELECT count(*) FROM wallets").fetchone()[0] == 1
     assert not conn.in_transaction
+
+
+def test_insert_or_replace_refused(conn):
+    w = wallet(conn)
+    ledger.add_entry(conn, w, 1, "purchase", "tx", NOW)
+    with pytest.raises(sqlite3.DatabaseError):
+        conn.execute(
+            "INSERT OR REPLACE INTO ledger (wallet_id, delta, reason, reference, created_at) "
+            "VALUES (?, 99, 'purchase', 'tx', 'x')", (w,))
+    assert ledger.balance(conn, w) == 1
+    assert ledger.entries(conn, w)[0]["delta"] == 1
+
+
+def test_refund_amount_must_equal_debit(conn):
+    w = wallet(conn)
+    ledger.grant(conn, w, 5, "n", NOW)
+    conn.execute("BEGIN IMMEDIATE")
+    ledger.try_debit(conn, w, 1, "c1", NOW)
+    conn.execute("COMMIT")
+    with pytest.raises(ValueError):
+        ledger.refund(conn, w, 100, "c1", NOW)
+    assert not conn.in_transaction
+    assert ledger.balance(conn, w) == 4
+    assert ledger.refund(conn, w, 1, "c1", NOW) is True

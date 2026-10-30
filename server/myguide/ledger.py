@@ -20,12 +20,21 @@ def add_entry(conn: sqlite3.Connection, wallet_id: int, delta: int, reason: str,
     """False when (reason, reference) already exists; never raises for that."""
     if reason not in REASONS:
         raise ValueError(f"unknown ledger reason {reason!r}")
-    cur = conn.execute(
-        "INSERT INTO ledger (wallet_id, delta, reason, reference, created_at) VALUES (?,?,?,?,?) "
-        "ON CONFLICT(reason, reference) DO NOTHING",
-        (wallet_id, delta, reason, reference, iso(now)),
-    )
-    return cur.rowcount == 1
+    # The BEFORE INSERT trigger (db.py) aborts a duplicate (reason, reference), so a
+    # duplicate surfaces as IntegrityError; any other IntegrityError is re-raised.
+    try:
+        conn.execute(
+            "INSERT INTO ledger (wallet_id, delta, reason, reference, created_at) "
+            "VALUES (?,?,?,?,?)",
+            (wallet_id, delta, reason, reference, iso(now)),
+        )
+    except sqlite3.IntegrityError:
+        if conn.execute(
+            "SELECT 1 FROM ledger WHERE reason=? AND reference=?", (reason, reference)
+        ).fetchone():
+            return False
+        raise
+    return True
 
 
 def grant(conn: sqlite3.Connection, wallet_id: int, credits: int, note: str, now: datetime) -> bool:
@@ -48,7 +57,10 @@ def try_debit(conn: sqlite3.Connection, wallet_id: int, credits: int, reference:
 
 def refund(conn: sqlite3.Connection, wallet_id: int, credits: int, reference: str,
            now: datetime) -> bool:
-    """+credits, only if this wallet has a debit with that reference and no refund yet."""
+    """Refund a debit: only if this wallet has a debit with that reference and no refund yet.
+
+    The refunded amount is the debit's amount; `credits` must equal it, else ValueError.
+    """
     if credits <= 0:
         raise ValueError("credits must be > 0")
     own = not conn.in_transaction
@@ -56,10 +68,12 @@ def refund(conn: sqlite3.Connection, wallet_id: int, credits: int, reference: st
         conn.execute("BEGIN IMMEDIATE")
     try:
         debit = conn.execute(
-            "SELECT 1 FROM ledger WHERE reason='debit' AND reference=? AND wallet_id=?",
+            "SELECT delta FROM ledger WHERE reason='debit' AND reference=? AND wallet_id=?",
             (reference, wallet_id),
         ).fetchone()
-        done = bool(debit) and add_entry(conn, wallet_id, credits, "refund", reference, now)
+        if debit is not None and -debit["delta"] != credits:
+            raise ValueError(f"refund of {credits} differs from the debit of {-debit['delta']}")
+        done = debit is not None and add_entry(conn, wallet_id, credits, "refund", reference, now)
         if own:
             conn.execute("COMMIT")
         return done
