@@ -17,11 +17,6 @@ from .limits import RateWindow
 
 log = logging.getLogger(__name__)
 
-# Abuse bounds on the unauthenticated challenge endpoint (Task 5 ruling; not in the spec 6.1 table).
-MAX_OUTSTANDING_CHALLENGES = 10000
-CHALLENGES_PER_ATTEST = 2  # the per-IP challenge window allows this many times ATTESTS_PER_IP_PER_HOUR
-
-
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -48,10 +43,10 @@ class State:
         # No client-wide timeout: the proxy passes UPSTREAM_TIMEOUT_SECONDS per request, so a reload applies.
         self.upstream = upstream if upstream is not None else httpx.AsyncClient(timeout=None, follow_redirects=False)
         self.challenges = Challenges(lambda: self.settings.challenge_ttl_seconds,
-                                     max_outstanding=MAX_OUTSTANDING_CHALLENGES)
+                                     max_outstanding=lambda: self.settings.challenges_max_outstanding)
+        # The per-IP windows are keyed by app.rate_key(client_ip): IPv6 per /64. Keys live in memory only.
         self.attest_window = RateWindow(lambda: self.settings.attests_per_ip_per_hour, 3600)
-        self.challenge_window = RateWindow(lambda: self.settings.attests_per_ip_per_hour * CHALLENGES_PER_ATTEST,
-                                           3600)
+        self.challenge_window = RateWindow(lambda: self.settings.challenges_per_ip_per_hour, 3600)
         self.rate_window = RateWindow(lambda: self.settings.rate_per_minute, 60)
 
     def reload(self, path: str | Path) -> None:

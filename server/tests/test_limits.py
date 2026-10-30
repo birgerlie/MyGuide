@@ -401,3 +401,31 @@ def test_rate_window_keys_and_live_limit():
     assert rw.hit("a", 2) is True  # 3 hits in (-58, 2] <= 5
     # long after: (1000-60, 1000] holds only this hit
     assert rw.hit("a", 1000) is True
+
+
+def test_rate_window_memory_bounded_under_hammering():
+    rw = RateWindow(lambda: 3, 60)
+    # 10000 hits on one key at t = 0.000, 0.001, ..., 9.999 (all inside one 60 s window).
+    # Only the newest limit + 1 = 4 are kept: that is enough to know the key is over the limit.
+    for i in range(10000):
+        rw.hit("k", i / 1000)
+    assert len(rw._hits["k"]) <= 4
+    # t=10: window (-50, 10] holds the 4 kept hits + this one -> trimmed to 4 > 3 -> still refused.
+    assert rw.hit("k", 10) is False
+    # t=69.9995: window (9.9995, 69.9995] holds only t=10 and this hit -> 2 <= 3 -> allowed again. Same answer as
+    # an unbounded deque: of the 10001 earlier hits only t=10 is newer than 9.9995.
+    assert rw.hit("k", 69.9995) is True
+
+
+def test_rate_window_bounded_matches_unbounded_verdicts():
+    # Same hit sequence through the bounded window and a brute-force count of all hits kept forever.
+    import random
+    rng = random.Random(7)
+    limit, window = 3, 10
+    rw = RateWindow(lambda: limit, window)
+    times, t = [], 0.0
+    for _ in range(2000):
+        t += rng.choice([0.01, 0.5, 1, 3, 12])
+        times.append(t)
+        expected = sum(1 for x in times if x > t - window) <= limit
+        assert rw.hit("k", t) is expected, t

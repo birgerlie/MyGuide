@@ -27,6 +27,7 @@ INT_SETTINGS = [
     "SPEECH_CHARS_PER_DEVICE_PER_DAY", "MAX_BODY_BYTES", "UPSTREAM_TIMEOUT_SECONDS",
     "CHALLENGE_TTL_SECONDS", "ATTESTS_PER_IP_PER_HOUR", "LOG_RETENTION_DAYS",
     "CREDITS_PER_STORY", "CREDITS_PER_SPEECH", "CREDITS_PER_IMAGE", "LISTEN_PORT",
+    "CHALLENGES_MAX_OUTSTANDING", "CHALLENGES_PER_IP_PER_HOUR", "ATTEST_MAX_BODY_BYTES",
 ]
 
 
@@ -50,6 +51,9 @@ def test_template_defaults():
     assert s.quota("speech") == 80
     assert s.listen_port == 8710
     assert s.allow_development_attest is True
+    assert s.challenges_max_outstanding == 10000
+    assert s.challenges_per_ip_per_hour == 40
+    assert s.attest_max_body_bytes == 65536
 
 
 def test_template_has_empty_key_and_start_refuses():
@@ -67,6 +71,12 @@ def _cases():
         ("float int", {"QUOTA_STORY_PER_DAY": "1.5"}, "QUOTA_STORY_PER_DAY"),
         ("port 0", {"LISTEN_PORT": "0"}, "LISTEN_PORT"),
         ("port big", {"LISTEN_PORT": "65536"}, "LISTEN_PORT"),
+        ("challenges cap 0", {"CHALLENGES_MAX_OUTSTANDING": "0"}, "CHALLENGES_MAX_OUTSTANDING"),
+        ("challenges cap abc", {"CHALLENGES_MAX_OUTSTANDING": "abc"}, "CHALLENGES_MAX_OUTSTANDING"),
+        ("challenges per ip 0", {"CHALLENGES_PER_IP_PER_HOUR": "0"}, "CHALLENGES_PER_IP_PER_HOUR"),
+        ("challenges per ip neg", {"CHALLENGES_PER_IP_PER_HOUR": "-5"}, "CHALLENGES_PER_IP_PER_HOUR"),
+        ("attest body 0", {"ATTEST_MAX_BODY_BYTES": "0"}, "ATTEST_MAX_BODY_BYTES"),
+        ("attest body float", {"ATTEST_MAX_BODY_BYTES": "64.5"}, "ATTEST_MAX_BODY_BYTES"),
         ("usd word", {"DAILY_SPEND_CAP_USD": "five"}, "DAILY_SPEND_CAP_USD"),
         ("usd negative", {"DEVICE_SPEND_CAP_USD": "-1"}, "DEVICE_SPEND_CAP_USD"),
         ("usd nan", {"DEVICE_SPEND_CAP_USD": "NaN"}, "DEVICE_SPEND_CAP_USD"),
@@ -139,6 +149,9 @@ def test_redacted_hides_key():
     assert ("OPENAI_API_KEY", "<set>") in rows
     names = [n for n, _ in rows]
     assert "QUOTA_STORY_PER_DAY" in names and "PRICE_GPT_5_MINI" in names and "MODELS_STORY" in names
+    assert ("CHALLENGES_MAX_OUTSTANDING", "10000") in rows
+    assert ("CHALLENGES_PER_IP_PER_HOUR", "40") in rows
+    assert ("ATTEST_MAX_BODY_BYTES", "65536") in rows
 
 
 def test_load_settings_reads_file(tmp_path):
@@ -155,3 +168,9 @@ def test_load_settings_reads_file(tmp_path):
 def test_load_settings_missing_file(tmp_path):
     with pytest.raises(ConfigError):
         load_settings(tmp_path / "nope")
+
+
+def test_attest_guard_settings_accept_one():
+    s = parse_settings(template_env(CHALLENGES_MAX_OUTSTANDING="1", CHALLENGES_PER_IP_PER_HOUR="1",
+                                    ATTEST_MAX_BODY_BYTES="1"))
+    assert (s.challenges_max_outstanding, s.challenges_per_ip_per_hour, s.attest_max_body_bytes) == (1, 1, 1)

@@ -42,6 +42,9 @@ class Settings:
     credits_per_speech: int
     credits_per_image: int
     listen_port: int
+    challenges_max_outstanding: int
+    challenges_per_ip_per_hour: int
+    attest_max_body_bytes: int
     allow_development_attest: bool
     models_story: frozenset[str]
     models_speech: frozenset[str]
@@ -111,6 +114,9 @@ _INT_SPECS: list[tuple[str, str, int]] = [
     ("CREDITS_PER_SPEECH", "credits_per_speech", 0),
     ("CREDITS_PER_IMAGE", "credits_per_image", 0),
     ("LISTEN_PORT", "listen_port", 1),
+    ("CHALLENGES_MAX_OUTSTANDING", "challenges_max_outstanding", 1),
+    ("CHALLENGES_PER_IP_PER_HOUR", "challenges_per_ip_per_hour", 1),
+    ("ATTEST_MAX_BODY_BYTES", "attest_max_body_bytes", 1),
 ]
 _INTS = [(n, a) for n, a, _ in _INT_SPECS]
 _USD = [("DAILY_SPEND_CAP_USD", "daily_spend_cap_micro"), ("DEVICE_SPEND_CAP_USD", "device_spend_cap_micro")]

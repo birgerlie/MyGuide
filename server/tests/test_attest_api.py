@@ -22,9 +22,9 @@ from starlette.testclient import TestClient
 
 from myguide import app as app_module
 from myguide import db
-from myguide.app import authenticate, client_ip, create_app, json_error
+from myguide.app import authenticate, client_ip, create_app, json_error, rate_key
 from myguide.attest import Challenges
-from myguide.state import MAX_OUTSTANDING_CHALLENGES, State
+from myguide.state import State
 from tests.attest_fixtures import PROD_AAGUID, make_attestation
 from tests.conftest import write_env
 
@@ -272,6 +272,15 @@ def test_attest_bad_shape_400_keeps_challenge(client, root_key, mutate):
     token_of(client.post("/v1/attest", json=good))
 
 
+def test_attest_body_limit_is_a_setting(make_state):
+    state = make_state(ATTEST_MAX_BODY_BYTES="100")
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as client:
+        assert client.post("/v1/attest", content=b" " * 100).status_code == 400  # at the limit: read
+        r = client.post("/v1/attest", content=b" " * 101)
+        assert r.status_code == 413
+        assert error_of(r) == "body_too_large"
+
+
 def test_attest_body_over_64k_413(client, root_key):
     body = attest_body(root_key, new_challenge(client))
     body["padding"] = "x" * (64 * 1024)
@@ -392,16 +401,15 @@ def test_21st_attest_from_one_ip_429_other_ip_allowed(make_state, mono, root_key
 def test_attest_limit_zero_refuses_all(make_state, root_key):
     state = make_state(ATTESTS_PER_IP_PER_HOUR="0")
     with TestClient(create_app(state), client=("127.0.0.1", 50000)) as client:
-        r = client.post("/v1/attest/challenge")
-        assert r.status_code == 429
+        new_challenge(client)  # challenges have their own window (CHALLENGES_PER_IP_PER_HOUR >= 1)
         r = client.post("/v1/attest", json={})
         assert r.status_code == 429
         assert error_of(r) == "rate_limited"
 
 
-def test_challenges_per_ip_limit_is_twice_attests(make_state):
-    # ATTESTS_PER_IP_PER_HOUR=3 -> challenge window 2 * 3 = 6: six pass, the seventh is refused.
-    state = make_state(ATTESTS_PER_IP_PER_HOUR="3")
+def test_challenges_per_ip_limit_is_its_own_setting(make_state):
+    # CHALLENGES_PER_IP_PER_HOUR=6 (ATTESTS_PER_IP_PER_HOUR=1 does not apply): six pass, the seventh is refused.
+    state = make_state(CHALLENGES_PER_IP_PER_HOUR="6", ATTESTS_PER_IP_PER_HOUR="1")
     with TestClient(create_app(state), client=("127.0.0.1", 50000)) as client:
         ip = {"X-Forwarded-For": "203.0.113.1"}
         for _ in range(6):
@@ -412,10 +420,8 @@ def test_challenges_per_ip_limit_is_twice_attests(make_state):
         new_challenge(client, {"X-Forwarded-For": "203.0.113.2"})
 
 
-def test_outstanding_challenge_cap(state, mono):
-    assert MAX_OUTSTANDING_CHALLENGES == 10000
-    assert state.challenges.max_outstanding == MAX_OUTSTANDING_CHALLENGES
-    state.challenges = Challenges(lambda: state.settings.challenge_ttl_seconds, max_outstanding=2)
+def test_outstanding_challenge_cap(make_state, mono, tmp_path):
+    state = make_state(CHALLENGES_MAX_OUTSTANDING="2")
     with TestClient(create_app(state), client=("127.0.0.1", 50000)) as client:
         new_challenge(client, {"X-Forwarded-For": "203.0.113.1"})
         new_challenge(client, {"X-Forwarded-For": "203.0.113.2"})
@@ -425,10 +431,15 @@ def test_outstanding_challenge_cap(state, mono):
         # Once the outstanding ones expire they no longer count.
         mono.advance(state.settings.challenge_ttl_seconds + 1)
         new_challenge(client, {"X-Forwarded-For": "203.0.113.3"})
+        # A reload that raises the cap applies at once.
+        new_challenge(client, {"X-Forwarded-For": "203.0.113.4"})
+        assert client.post("/v1/attest/challenge", headers={"X-Forwarded-For": "203.0.113.5"}).status_code == 429
+        state.reload(write_env(tmp_path / "env", CHALLENGES_MAX_OUTSTANDING="3"))
+        new_challenge(client, {"X-Forwarded-For": "203.0.113.5"})
 
 
 def test_challenges_cap_unit():
-    c = Challenges(lambda: 10, max_outstanding=2)
+    c = Challenges(lambda: 10, max_outstanding=lambda: 2)
     a = c.issue(0.0)
     assert c.issue(0.0) is not None
     assert c.issue(1.0) is None
@@ -461,6 +472,51 @@ def test_client_ip(peer, xff, expected):
     assert client_ip(_request(peer, xff)) == expected
 
 
+@pytest.mark.parametrize("ip,expected", [
+    ("198.51.100.7", "198.51.100.7"),
+    ("2001:db8:1:2:aaaa::1", "2001:db8:1:2::/64"),
+    ("2001:db8:1:2:ffff:ffff:ffff:ffff", "2001:db8:1:2::/64"),
+    ("2001:db8:1:3::1", "2001:db8:1:3::/64"),
+    ("2001:DB8:1:2::9", "2001:db8:1:2::/64"),
+    ("::ffff:198.51.100.7", "198.51.100.7"),
+    ("::ffff:c633:6407", "198.51.100.7"),
+    ("fe80::1%eth0", "fe80::/64"),
+    ("::1", "::/64"),
+    ("unknown", "unknown"),
+    ("not an ip", "not an ip"),
+    ("", ""),
+])
+def test_rate_key(ip, expected):
+    assert rate_key(ip) == expected
+
+
+def test_ipv6_same_64_shares_attest_limit(make_state, root_key):
+    state = make_state(ATTESTS_PER_IP_PER_HOUR="1")
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as client:
+        token_of(attest(client, root_key, headers={"X-Forwarded-For": "2001:db8:1:2::1"}))
+        r = attest(client, root_key, headers={"X-Forwarded-For": "2001:db8:1:2:dead:beef:0:7"})
+        assert r.status_code == 429
+        assert error_of(r) == "rate_limited"
+        token_of(attest(client, root_key, headers={"X-Forwarded-For": "2001:db8:1:3::1"}))  # another /64
+
+
+def test_mapped_ipv4_shares_limit_with_plain_ipv4(make_state, root_key):
+    state = make_state(ATTESTS_PER_IP_PER_HOUR="1")
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as client:
+        token_of(attest(client, root_key, headers={"X-Forwarded-For": "198.51.100.7"}))
+        r = attest(client, root_key, headers={"X-Forwarded-For": "::ffff:198.51.100.7"})
+        assert r.status_code == 429
+
+
+def test_ipv6_same_64_shares_challenge_limit(make_state):
+    state = make_state(CHALLENGES_PER_IP_PER_HOUR="1")
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as client:
+        new_challenge(client, {"X-Forwarded-For": "2001:db8:9:9::1"})
+        r = client.post("/v1/attest/challenge", headers={"X-Forwarded-For": "2001:db8:9:9::2"})
+        assert r.status_code == 429
+        new_challenge(client, {"X-Forwarded-For": "2001:db8:9:a::1"})
+
+
 def test_xff_ignored_from_non_loopback_peer(make_state, root_key):
     state = make_state(ATTESTS_PER_IP_PER_HOUR="1")
     with TestClient(create_app(state), client=("203.0.113.5", 50000)) as client:
@@ -481,7 +537,9 @@ def test_logs_hold_no_token_ip_or_challenge(state, root_key, caplog):
         token2 = token_of(attest(client, root_key, previous=token, headers=ip))
         client.post("/v1/attest", json=body, headers=ip)  # reused challenge, refused
         client.get("/probe", headers=bearer(token))  # old token, refused
-    secrets_ = [token, token2, sha(token), challenge, body["keyId"], body["attestation"][:40], "198.51.100.77"]
+        attest(client, root_key, headers={"X-Forwarded-For": "2001:db8:77:77::5"})
+    secrets_ = [token, token2, sha(token), challenge, body["keyId"], body["attestation"][:40], "198.51.100.77",
+                "2001:db8:77:77", "2001:db8:77:77::/64"]
     messages = [rec.getMessage() for rec in caplog.records]
     assert messages, "expected some log lines"
     for m in messages:

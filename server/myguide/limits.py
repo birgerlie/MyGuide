@@ -245,6 +245,11 @@ class RateWindow:
 
     A hit counts while `hit_time > now - window_seconds`. Refused hits are recorded too, so a client that
     keeps hammering stays refused. The limit is read on every hit, so a settings reload applies at once.
+
+    Memory: each key keeps only its newest `limit + 1` hits. That is exactly enough to decide "more than
+    `limit` hits in the window" (the newest limit + 1 are all in the window iff the full count exceeds the
+    limit), so verdicts equal an unbounded count, while a flood costs O(limit) per key. Only after a reload
+    raises the limit can a key that was trimmed be judged by fewer hits than it made (lenient, never stricter).
     """
 
     def __init__(self, limit_getter: Callable[[], int], window_seconds: float) -> None:
@@ -265,7 +270,10 @@ class RateWindow:
             while hits and hits[0] <= start:
                 hits.popleft()
             hits.append(now)
-            return len(hits) <= self._limit()
+            limit = self._limit()
+            while len(hits) > limit + 1:
+                hits.popleft()
+            return len(hits) <= limit
 
     def _sweep(self, now: float, start: float) -> None:
         """Drop keys with no hit in the window, at most once per window, so idle keys do not pile up."""

@@ -9,6 +9,7 @@ import base64
 import binascii
 import contextlib
 import hashlib
+import ipaddress
 import json
 import logging
 import secrets
@@ -27,7 +28,6 @@ from .state import State
 
 log = logging.getLogger(__name__)
 
-ATTEST_MAX_BODY_BYTES = 64 * 1024  # an attestation object is a few KiB (Task 5 ruling)
 _LOOPBACK = ("127.0.0.1", "::1")
 _NO_STORE = {"Cache-Control": "no-store"}
 
@@ -79,6 +79,21 @@ def client_ip(request: Request) -> str:
             if last:
                 return last
     return peer
+
+
+def rate_key(ip: str) -> str:
+    """The per-IP window key for `ip`: IPv4 as is, IPv4-mapped IPv6 as its IPv4 address, other IPv6 as its /64
+    (one subscriber usually holds a whole /64), anything unparsable as given. Held in memory only."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped is not None:
+            return str(addr.ipv4_mapped)
+        # From the integer, so a zone id (fe80::1%eth0) does not reach the network parser.
+        return str(ipaddress.IPv6Network((int(addr) >> 64 << 64, 64)))
+    return str(addr)
 
 
 def authenticate(request: Request, conn: sqlite3.Connection) -> sqlite3.Row:
@@ -140,7 +155,7 @@ def create_app(state: State) -> Starlette:
 
     async def challenge(request: Request) -> Response:
         now = state.monotonic()
-        if not state.challenge_window.hit(client_ip(request), now):
+        if not state.challenge_window.hit(rate_key(client_ip(request)), now):
             raise HTTPError(429, "rate_limited")
         issued = state.challenges.issue(now)
         if issued is None:
@@ -149,11 +164,11 @@ def create_app(state: State) -> Starlette:
         return JSONResponse({"challenge": issued}, headers=_NO_STORE)
 
     async def attest(request: Request) -> Response:
-        if not state.attest_window.hit(client_ip(request), state.monotonic()):
+        settings = state.settings  # one snapshot for the whole attest
+        if not state.attest_window.hit(rate_key(client_ip(request)), state.monotonic()):
             raise HTTPError(429, "rate_limited")
         key_id, attestation, challenge_b64, previous = _parse_attest(
-            await read_body(request, ATTEST_MAX_BODY_BYTES))
-        settings = state.settings  # one snapshot for the whole attest
+            await read_body(request, settings.attest_max_body_bytes))
         challenge_raw = state.challenges.consume(challenge_b64, state.monotonic())
         if challenge_raw is None:
             log.info("attest refused: unknown, expired or used challenge")
