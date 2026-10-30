@@ -315,6 +315,48 @@ import Testing
         #expect(plain.map(\.candidate.name) == ["Burg", "Dom", "Domkapitel"])
         #expect(plain.map(\.tier) == [.top, .wikiOnly, .wikiOnly])
     }
+    @Test func toursLookUpWikipediaOnlyIdsFirstWithTheTourCap() async throws {
+        // Burg (OSM, tagged, wikidata Q1) comes first in the merged list; Dom (Wikipedia-only, Q10) after it. Dom's
+        // tier depends on its facts, so its id is asked for first, and the tour cap (8 batches) goes with the ids.
+        let osm = #"{"elements":[{"type":"node","id":1,"lat":0.0009,"lon":0.0,"tags":{"name":"Burg","historic":"castle","wikidata":"Q1"}}]}"#
+        let http = Self.stub(osm: { (200, Data(osm.utf8)) })
+        let asked = LockedBox<[(ids: [String], maxBatches: Int)]>([])
+        let facts = PlaceFactsLookup(capped: { ids, maxBatches in
+            asked.withValue { $0.append((ids, maxBatches)) }
+            return WikidataClient.Answer(answered: Set(ids))
+        })
+        let source = TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http),
+                                     facts: facts)
+        let places = try await source.places(in: area, language: .english)
+        #expect(places.map(\.candidate.name) == ["Burg", "Dom"])
+        #expect(asked.value.map(\.ids) == [["Q10", "Q1"]])
+        #expect(asked.value.map(\.maxBatches) == [WikidataClient.tourMaxBatches])
+    }
+
+    @Test func fourHundredFiftyWikipediaOnlyTourPlacesGetFactsUpToTheTourCap() async throws {
+        // OpenStreetMap fails; Wikipedia gives 450 articles, Q1001...Q1450, in that order. Through the real cache and
+        // client, 8 batches × 50 = 400 ids are asked (walking's cap would be 4 × 50 = 200). Each answered item is a
+        // place with 40 sitelinks (≥ 30 → top); the 50 left out stay wikiOnly.
+        let pages = (1...450).map { i in
+            #"{"pageid":\#(i),"title":"P\#(i)","coordinates":[{"lat":0.001,"lon":0.001}],"extract":"A building.","pageprops":{"wikibase_item":"Q\#(1000 + i)"}}"#
+        }
+        let wiki = #"{"query":{"pages":["# + pages.joined(separator: ",") + "]}}"
+        let http = Self.stub(osm: { (500, Data()) }, wiki: { request in
+            guard request.url?.host == "query.wikidata.org" else { return (200, Data(wiki.utf8)) }
+            let ids = WikidataClientTests.askedIds(request)
+            return (200, WikidataClientTests.body(ids.map { WikidataClientTests.row($0, n: 40, place: true) }))
+        })
+        let source = TourPlaceSource(overpass: OverpassClient(http: http), wikipedia: WikipediaClient(http: http),
+                                     facts: PlaceFactsLookup(cache: PlaceFactsCache(directory: nil),
+                                                             client: WikidataClient(http: http)))
+        let places = try await source.places(in: area, language: .english)
+        let wikidataRequests = http.requests.filter { $0.url?.host == "query.wikidata.org" }
+        #expect(wikidataRequests.count == 8)
+        #expect(places.count == 450)
+        #expect(places.filter { $0.tier == .top }.count == 400)
+        #expect(places.filter { $0.tier == .wikiOnly }.count == 50)
+    }
+
     @Test func failingFactsLeaveTourTiersAsToday() async throws {
         let http = Self.stub(wiki: { _ in (200, Data(Self.wikiWithOrderBody.utf8)) })
         let failing = PlaceFactsLookup { _ in throw URLError(.timedOut) }

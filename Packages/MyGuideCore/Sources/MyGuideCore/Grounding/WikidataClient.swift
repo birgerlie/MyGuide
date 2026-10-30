@@ -4,14 +4,21 @@ import Foundation
 public struct WikidataClient: Sendable {
     static let endpoint = "https://query.wikidata.org/sparql"
     static let timeout: TimeInterval = 8
-    /// Ids per request, and requests per call: ids beyond `batchSize * maxBatches` are left out.
+    /// Ids per request, and requests per call by default (walking): ids beyond `batchSize * maxBatches` are left out.
     static let batchSize = 50
-    static let maxBatches = 4
+    public static let maxBatches = 4
+    /// Requests per call for a tour, whose area holds far more articles than a walk's list (400 ids).
+    public static let tourMaxBatches = 8
+    /// Requests in flight at once, whatever the cap.
+    static let maxConcurrentBatches = 4
 
     /// Instance-of classes (through subclass-of) that make an item a place (spec 19.1).
     static let placeClasses = ["Q811979", "Q174782", "Q22698", "Q839954", "Q4989906", "Q838948", "Q483453"]
-    /// Streets, squares and districts.
-    static let areaClasses = ["Q79007", "Q123705", "Q56061"]
+    /// Streets: `area` even when also a place, since streets are structures in Wikidata (spec 19.1).
+    static let streetClasses = ["Q79007"]
+    /// Neighbourhoods and administrative territorial entities: `area` only when not also a place, since castles,
+    /// city gates and walls reach Q56061 through odd subclass chains (spec 19.1).
+    static let areaClasses = ["Q123705", "Q56061"]
     /// Organisations, people, events.
     static let nonPlaceClasses = ["Q43229", "Q5", "Q1656682", "Q16334295"]
 
@@ -35,22 +42,25 @@ public struct WikidataClient: Sendable {
         }
     }
 
-    /// Facts for up to any number of ids (batched by 50, batches run concurrently, at most 4 batches = 200 ids;
-    /// ids beyond are left out). A failed batch is left out of the result; never throws except CancellationError.
+    /// Facts for up to any number of ids (batched by 50, at most 4 batches = 200 ids; ids beyond are left out). A
+    /// failed batch is left out of the result; never throws except CancellationError.
     public func facts(for ids: [String]) async throws -> [String: PlaceFacts] {
         try await lookup(ids: ids).facts
     }
 
-    /// Like `facts(for:)`, and also reports which ids were answered and how many batches failed.
-    public func lookup(ids: [String]) async throws -> Answer {
+    /// Like `facts(for:)`, and also reports which ids were answered and how many batches failed. At most
+    /// `maxBatches` batches of 50 are asked for, in `ids` order (later ids are left out), at most
+    /// `maxConcurrentBatches` at a time.
+    public func lookup(ids: [String], maxBatches: Int = WikidataClient.maxBatches) async throws -> Answer {
         var seen = Set<String>()
-        let valid = ids.filter { Self.isValid($0) && seen.insert($0).inserted }.prefix(Self.batchSize * Self.maxBatches)
+        let valid = ids.filter { Self.isValid($0) && seen.insert($0).inserted }
+            .prefix(Self.batchSize * max(0, maxBatches))
         let batches = stride(from: 0, to: valid.count, by: Self.batchSize).map {
             Array(valid.dropFirst($0).prefix(Self.batchSize))
         }
         let http = http
         return try await withThrowingTaskGroup(of: (batch: [String], facts: [String: PlaceFacts]?).self) { group in
-            for batch in batches {
+            func add(_ batch: [String]) {
                 group.addTask {
                     do {
                         return (batch, try await Self.fetch(batch, http: http))
@@ -61,8 +71,13 @@ public struct WikidataClient: Sendable {
                     }
                 }
             }
+            var pending = batches[...]
+            for batch in pending.prefix(Self.maxConcurrentBatches) { add(batch) }
+            pending = pending.dropFirst(Self.maxConcurrentBatches)
             var answer = Answer()
-            for try await part in group {
+            while let part = try await group.next() {
+                // A finished batch makes room for the next one; none starts once the caller is cancelled.
+                if !Task.isCancelled, let next = pending.popFirst() { add(next) }
                 guard let facts = part.facts else {
                     answer.failedBatches += 1
                     continue
@@ -91,9 +106,10 @@ public struct WikidataClient: Sendable {
         }
         let items = ids.filter(isValid).map { "wd:" + $0 }.joined(separator: " ")
         return """
-        SELECT ?item ?n ?area ?place ?nonplace WHERE {
+        SELECT ?item ?n ?street ?area ?place ?nonplace WHERE {
           VALUES ?item { \(items) }
           ?item wikibase:sitelinks ?n .
+          \(flag("street", streetClasses))
           \(flag("area", areaClasses))
           \(flag("place", placeClasses))
           \(flag("nonplace", nonPlaceClasses))
@@ -124,6 +140,7 @@ public struct WikidataClient: Sendable {
         struct Row: Decodable {
             var item: Value
             var n: Value
+            var street: Value?
             var area: Value?
             var place: Value?
             var nonplace: Value?
@@ -132,7 +149,9 @@ public struct WikidataClient: Sendable {
         var results: Results
     }
 
-    /// Rows without a readable id or count are skipped; the first row of an item wins.
+    /// Rows without a readable id or count are skipped; the first row of an item wins. Class precedence (spec 19.1):
+    /// street → `area`; else place → `place`; else neighbourhood or administrative area → `area`; else `nonPlace`;
+    /// else `unknown`.
     static func parse(_ data: Data) throws -> [String: PlaceFacts] {
         guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else { throw GroundingFetchError.malformed }
         var facts: [String: PlaceFacts] = [:]
@@ -140,8 +159,9 @@ public struct WikidataClient: Sendable {
             guard let id = row.item.value.split(separator: "/").last.map(String.init), isValid(id),
                   let n = Int(row.n.value), facts[id] == nil else { continue }
             let kind: PlaceClass
-            if row.area?.value == "true" { kind = .area }
+            if row.street?.value == "true" { kind = .area }
             else if row.place?.value == "true" { kind = .place }
+            else if row.area?.value == "true" { kind = .area }
             else if row.nonplace?.value == "true" { kind = .nonPlace }
             else { kind = .unknown }
             facts[id] = PlaceFacts(sitelinks: n, placeClass: kind)

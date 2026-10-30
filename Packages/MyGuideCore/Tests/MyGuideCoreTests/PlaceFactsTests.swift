@@ -84,6 +84,36 @@ import Foundation
         #expect(again == f && http.requests.count == 1)
     }
 
+    @Test func answersStoredUnderTheOldClassRuleAreDiscarded() async throws {
+        // A file of the first format (area beat place) holds a fresh Q1 answer as `area`. The new cache ignores it,
+        // asks again, removes the old file and writes the new one.
+        let dir = Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let legacy = dir.appendingPathComponent("place-facts.json")
+        let stamp = t0.timeIntervalSince1970
+        try Data(#"{"Q1":{"facts":{"sitelinks":58,"placeClass":"area"},"fetchedAt":\#(stamp)}}"#.utf8).write(to: legacy)
+        #expect(PlaceFactsCache.fileName != "place-facts.json")
+        #expect(PlaceFactsCache.legacyFileNames == ["place-facts.json"])
+        let (client, http) = Self.client()
+        let f = try await PlaceFactsCache(directory: dir) { t0 }.facts(for: ["Q1"], client: client)
+        #expect(f == ["Q1": Self.place10] && http.requests.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(PlaceFactsCache.fileName).path))
+    }
+
+    @Test func cappedLookupPassesTheCapToTheClient() async throws {
+        // 450 missing ids with cap 8 → 8 requests of 50 (400 ids); the 50 left out are not answered and not stored.
+        let (client, http) = Self.client()
+        let cache = PlaceFactsCache(directory: nil) { t0 }
+        let ids = WikidataClientTests.ids(450)
+        let answer = try await cache.lookup(ids: ids, client: client, maxBatches: 8)
+        #expect(http.requests.count == 8 && answer.answered == Set(ids.prefix(400)) && answer.facts.count == 400)
+        // A second call asks only for the 50 left out (one request).
+        _ = try await cache.lookup(ids: ids, client: client, maxBatches: 8)
+        #expect(http.requests.count == 9 && WikidataClientTests.idCount(http.requests[8]) == 50)
+    }
+
     @Test func failedLookupIsNotStored() async throws {
         let failing = StubHTTPClient { _ in (500, Data()) }
         let cache = PlaceFactsCache(directory: nil) { t0 }

@@ -1,10 +1,11 @@
 import Foundation
 
-/// What a Wikidata item is, for ranking: the class precedence is area > place > nonPlace > unknown (spec 19.1).
+/// What a Wikidata item is, for ranking (spec 19.1). Precedence: a street is `area` (even when also a place); else a
+/// place is `place`; else a neighbourhood or administrative area is `area`; else `nonPlace`; else `unknown`.
 public enum PlaceClass: String, Sendable, Codable {
     /// A building, monument, church, castle … (`WikidataClient.placeClasses`).
     case place
-    /// A street, square or district: a place, but not a spot to stand at.
+    /// A street, neighbourhood or administrative area: a place, but not a spot to stand at. (A square is a `place`.)
     case area
     /// An organisation, person or event; never worth a buzz on its own.
     case nonPlace
@@ -26,13 +27,17 @@ public struct PlaceFacts: Sendable, Equatable, Codable {
 /// Disk cache of `PlaceFacts` by Wikidata id, valid for 30 days. An id Wikidata answered without a row (deleted or
 /// merged items) is remembered for 7 days as "no facts"; an id in a failed batch is not stored, so a failure is
 /// retried on the next call. Concurrent lookups of one id share a single request. A missing, unreadable or corrupt
-/// file is an empty cache.
+/// file is an empty cache. The file name carries the format: when the class rule changes, a new name discards the
+/// answers stored under the old rule (`legacyFileNames` are removed on load).
 public actor PlaceFactsCache {
     /// How long a stored answer is used (spec 19).
     public static let lifetime: TimeInterval = 30 * 24 * 3600
     /// How long "Wikidata has no such item" is remembered.
     public static let negativeLifetime: TimeInterval = 7 * 24 * 3600
-    static let fileName = "place-facts.json"
+    /// Version 2: a place that is also an administrative area is `place` (final review 30 Oct).
+    static let fileName = "place-facts-v2.json"
+    /// Files of earlier formats, deleted when the cache first loads.
+    static let legacyFileNames = ["place-facts.json"]
 
     private struct Entry: Codable {
         /// Nil: Wikidata answered but has no row for the id.
@@ -71,7 +76,10 @@ public actor PlaceFactsCache {
     }
 
     /// Like `facts(for:client:)`; `failedBatches` counts the failed batches of the requests this call waited for.
-    public func lookup(ids: [String], client: WikidataClient) async throws -> WikidataClient.Answer {
+    /// `maxBatches` caps the ids this call sends to the client (`WikidataClient.lookup(ids:maxBatches:)`); ids it
+    /// leaves out, or ids in flight for another caller's capped request that left them out, are not answered.
+    public func lookup(ids: [String], client: WikidataClient,
+                       maxBatches: Int = WikidataClient.maxBatches) async throws -> WikidataClient.Answer {
         loadIfNeeded()
         var answer = WikidataClient.Answer()
         var missing: [String] = []
@@ -94,7 +102,7 @@ public actor PlaceFactsCache {
             // Unstructured on purpose: one caller's cancellation must not fail the others waiting on the same ids.
             let task = Task<WikidataClient.Answer, Error> {
                 do {
-                    let fetched = try await client.lookup(ids: fresh)
+                    let fetched = try await client.lookup(ids: fresh, maxBatches: maxBatches)
                     complete(fresh, with: fetched)
                     return fetched
                 } catch {
@@ -143,6 +151,11 @@ public actor PlaceFactsCache {
     private func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
+        if let directory = file?.deletingLastPathComponent() {
+            for name in Self.legacyFileNames {
+                try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+            }
+        }
         guard let file, let data = try? Data(contentsOf: file),
               let stored = try? JSONDecoder().decode([String: Entry].self, from: data) else { return }
         entries = stored
@@ -175,23 +188,31 @@ extension Array where Element == Candidate {
 /// How a place source gets Wikidata facts: through a `PlaceFactsCache` and a `WikidataClient` in the app, or any
 /// closure in tests. Without one, a source tiers by tags and articles alone, as before facts existed.
 public struct PlaceFactsLookup: Sendable {
-    private let lookup: @Sendable ([String]) async throws -> WikidataClient.Answer
+    /// The ids, and the most batches of 50 the client may send for them (`WikidataClient.lookup(ids:maxBatches:)`).
+    private let lookup: @Sendable ([String], Int) async throws -> WikidataClient.Answer
 
+    /// A lookup that ignores the batch cap.
     public init(_ lookup: @escaping @Sendable ([String]) async throws -> WikidataClient.Answer) {
+        self.lookup = { ids, _ in try await lookup(ids) }
+    }
+
+    /// A lookup that is told the batch cap with the ids.
+    public init(capped lookup: @escaping @Sendable (_ ids: [String], _ maxBatches: Int) async throws -> WikidataClient.Answer) {
         self.lookup = lookup
     }
 
     public init(cache: PlaceFactsCache, client: WikidataClient) {
-        self.init { ids in try await cache.lookup(ids: ids, client: client) }
+        self.init(capped: { ids, maxBatches in try await cache.lookup(ids: ids, client: client, maxBatches: maxBatches) })
     }
 
-    /// The facts for `ids`; an empty answer for no ids, without a call. Never throws except CancellationError (also
-    /// for `URLError.cancelled`): any other error is an answer without facts that counts as one failed batch, so a
-    /// failing lookup leaves every tier as it was.
-    func answer(for ids: [String]) async throws -> WikidataClient.Answer {
+    /// The facts for `ids`, at most `maxBatches` batches of 50 of them (walking keeps the default 4; tours ask for
+    /// `WikidataClient.tourMaxBatches`); an empty answer for no ids, without a call. Never throws except
+    /// CancellationError (also for `URLError.cancelled`): any other error is an answer without facts that counts as one
+    /// failed batch, so a failing lookup leaves every tier as it was.
+    func answer(for ids: [String], maxBatches: Int = WikidataClient.maxBatches) async throws -> WikidataClient.Answer {
         guard !ids.isEmpty else { return WikidataClient.Answer() }
         do {
-            return try await lookup(ids)
+            return try await lookup(ids, maxBatches)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as URLError where error.code == .cancelled {
@@ -203,7 +224,7 @@ public struct PlaceFactsLookup: Sendable {
 
     /// The Wikidata ids of `candidates`, each once, those without OSM tags first: their tier depends on the facts,
     /// while an OSM candidate only gains sitelinks for the buzz order, so they go first when the client has to leave
-    /// ids out (more than `WikidataClient.batchSize * maxBatches`).
+    /// ids out (more than `WikidataClient.batchSize` times the call's batch cap).
     static func ids(of candidates: [Candidate]) -> [String] {
         var seen = Set<String>()
         let untagged = candidates.filter { !PlaceTiers.hasOSMTags($0) }

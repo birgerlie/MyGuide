@@ -105,8 +105,8 @@ public struct TourPlaceSource: Sendable {
     /// Both sources concurrently, failing like `WalkingPlaceSource`: one failing → the other's places, with the failure
     /// reported in the result; both failing → the OpenStreetMap error is thrown (an `OverpassFailure` when every
     /// endpoint answered with an error). Wikipedia counts as failed only when every tile failed; single failed tiles
-    /// are counted in `failedTiles`. The merged candidates then get their Wikidata facts (Wikipedia-only ones first
-    /// when there are more ids than one lookup takes); a failed lookup leaves the tiers as they were. Unlike walking,
+    /// are counted in `failedTiles`. The merged candidates then get their Wikidata facts (Wikipedia-only ones first,
+    /// since their tier depends on them; at most `WikidataClient.tourMaxBatches` batches of 50, the rest are left out); a failed lookup leaves the tiers as they were. Unlike walking,
     /// OpenStreetMap is awaited fully: a tour is planned once, and its 30 s query is worth the wait. Cancellation
     /// always propagates.
     public func search(in area: TourArea, language: StoryLanguage) async throws -> TourPlaceSearch {
@@ -139,7 +139,9 @@ public struct TourPlaceSource: Sendable {
             candidates = CandidateRanker.merge(osm: osm.candidates, wiki: found.articles)
         }
         if let facts {
-            let answer = try await facts.answer(for: PlaceFactsLookup.ids(of: candidates))
+            // A tour area holds far more articles than a walk's list: up to 8 batches (400 ids), 4 at a time.
+            let answer = try await facts.answer(for: PlaceFactsLookup.ids(of: candidates),
+                                                maxBatches: WikidataClient.tourMaxBatches)
             candidates = candidates.applying(answer.facts)
         }
         result.places = candidates.compactMap { candidate in
