@@ -20,7 +20,7 @@ from starlette.testclient import TestClient
 from myguide import db, ledger
 from myguide.app import create_app
 from myguide.config import parse_settings
-from myguide.state import State
+from myguide.state import State, upstream_client
 from tests.attest_fixtures import NOW
 from tests.conftest import env_dict
 
@@ -102,7 +102,7 @@ def make_proxy(tmp_path, test_root, mono, upstream):
     def factory(**overrides: str) -> State:
         st = State(
             parse_settings(env_dict(**overrides)), tmp_path / "guide.db", root=test_root,
-            upstream=httpx.AsyncClient(transport=httpx.MockTransport(upstream.handler)),
+            upstream=upstream_client(httpx.MockTransport(upstream.handler)),
             clock=lambda: NOW, monotonic=mono,
         )
         conn = db.connect(st.db_path)
@@ -302,11 +302,14 @@ def test_story_store_forced_false_rest_unchanged_and_only_server_headers(client,
     assert req.headers["content-type"] == "application/json"
     for name in ("x-forwarded-for", "cookie", "openai-organization", "x-custom"):
         assert name not in req.headers
-    assert req.headers.get("user-agent") != "MyGuide/1.0"
-    assert "text/event-stream" not in req.headers.get("accept", "")
-    allowed = {"host", "accept", "accept-encoding", "connection", "user-agent", "content-length",
-               "content-type", "authorization"}
-    assert set(req.headers.keys()) <= allowed
+    assert dict(req.headers) == {
+        "host": "api.openai.com",
+        "content-length": str(len(upstream.bodies[0])),
+        "authorization": "Bearer sk-test",
+        "content-type": "application/json",
+        "user-agent": "MyGuide-guide-server",
+        "accept-encoding": "identity",
+    }
     # The request has a timeout of UPSTREAM_TIMEOUT_SECONDS (template: 120).
     assert req.extensions["timeout"] == {"connect": 120, "read": 120, "write": 120, "pool": 120}
 
@@ -318,11 +321,78 @@ def test_story_without_store_gets_store_false(client, upstream):
 
 def test_speech_body_passes_untouched_no_store_added(client, upstream):
     upstream.respond = lambda req: httpx.Response(200, headers={"content-type": "audio/mpeg"}, content=b"ID3")
-    sent = {"model": SPEECH, "input": "Hei", "voice": "alloy", "stream": True}
+    sent = {"model": SPEECH, "input": "Hei", "voice": "alloy", "stream": False}
     client.post("/v1/audio/speech", json=sent, headers=auth())
     assert upstream.json_body() == sent
-    assert "text/event-stream" not in upstream.requests[0].headers.get("accept", "")
+    assert "accept" not in upstream.requests[0].headers
     assert str(upstream.requests[0].url) == "https://api.openai.com/v1/audio/speech"
+
+
+@pytest.mark.parametrize("path,body", [
+    ("audio/speech", {"model": SPEECH, "input": "Hei", "stream": True}),
+    ("audio/speech", {"model": SPEECH, "input": "Hei", "stream": "true"}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "stream": True}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "stream": 1}),
+    ("responses", story_body(tools=[{"type": "web_search"}])),
+    ("responses", story_body(tools={"type": "web_search"})),
+    ("responses", story_body(background=True)),
+    ("responses", story_body(background="yes")),
+])
+def test_unmetered_features_refused_400(client, state, upstream, path, body):
+    r = client.post(f"/v1/{path}", json=body, headers=auth())
+    assert r.status_code == 400
+    assert error_of(r) == "bad_request"
+    assert_allowance(r, FREE_80)
+    assert upstream.requests == []
+    assert today(state)["refused"] == 1
+    assert calls(state) == []
+
+
+@pytest.mark.parametrize("path,body", [
+    ("images/generations", {"model": IMAGE, "prompt": "x", "stream": False}),
+    ("audio/speech", {"model": SPEECH, "input": "Hei", "stream": None}),
+    ("responses", story_body(tools=[])),
+    ("responses", story_body(tools=None, background=False)),
+])
+def test_harmless_values_of_those_fields_pass(client, upstream, path, body):
+    upstream.respond = lambda req: httpx.Response(200, json={})
+    r = client.post(f"/v1/{path}", json=body, headers=auth())
+    assert r.status_code == 200
+    assert len(upstream.requests) == 1
+
+
+def test_upstream_cookie_never_stored_or_sent_back(client, state, upstream):
+    upstream.respond = lambda req: httpx.Response(
+        200, json=story_ok(),
+        headers={"set-cookie": "__cf_bm=abc; Path=/; Domain=api.openai.com; Secure; HttpOnly"})
+    client.post("/v1/responses", json=story_body(), headers=auth())
+    client.post("/v1/responses", json=story_body(stream=False), headers=auth())
+    upstream.respond = lambda req: sse_response(STREAM_PARTS)
+    client.post("/v1/responses", json=story_body(stream=True), headers=auth())
+    assert len(upstream.requests) == 3
+    for req in upstream.requests:
+        assert "cookie" not in req.headers
+    assert len(state.upstream.cookies.jar) == 0
+
+
+def test_default_upstream_client_keeps_no_cookies():
+    import asyncio
+
+    seen: list[httpx.Request] = []
+
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(200, headers={"set-cookie": "__cf_bm=abc; Path=/"})
+
+    async def run():
+        client = upstream_client(httpx.MockTransport(handler))
+        await client.get("https://api.openai.com/v1/x")
+        await client.get("https://api.openai.com/v1/x")  # even through build_request, nothing to send
+        await client.aclose()
+        return client
+    client = asyncio.run(run())
+    assert "cookie" not in seen[1].headers
+    assert len(client.cookies.jar) == 0
 
 
 # --- non-streaming answers ---------------------------------------------------------------------------------
@@ -474,6 +544,8 @@ def test_stream_with_final_event_bytes_identical_and_kept(client, state, upstrea
     assert r.headers["content-type"].startswith("text/event-stream")
     assert_allowance(r, FREE_79)  # admit's values: the headers leave before the body
     assert upstream.requests[0].headers["accept"] == "text/event-stream"
+    assert set(upstream.requests[0].headers.keys()) == {
+        "host", "content-length", "authorization", "content-type", "user-agent", "accept-encoding", "accept"}
     assert upstream.json_body()["stream"] is True and upstream.json_body()["store"] is False
     [row] = calls(state)
     assert row["kept"] == 1 and row["status"] == 200
@@ -575,10 +647,12 @@ def test_stream_false_is_not_streamed(client, upstream):
 
 # --- client disconnect mid-stream (Review Focus 1) ---------------------------------------------------------
 
-async def _drive_disconnect(state: State, spec_version: str) -> tuple[list[dict], list[sqlite3.Row]]:
-    """Run one streamed story through the ASGI app; the client takes the first body chunk and goes away.
-
-    ASGI 2.4: the next `send` raises OSError (uvicorn's behaviour). Older: `receive` answers http.disconnect.
+async def _drive_disconnect(state: State, mode: str) -> tuple[list[dict], list[sqlite3.Row]]:
+    """Run one streamed story through the ASGI app; the client goes away early. Modes:
+    "2.4": the client takes the first body chunk, the next `send` raises OSError;
+    "2.3": the client takes the first body chunk, then `receive` answers http.disconnect (uvicorn);
+    "start": the client is gone before the head: `send` of http.response.start raises OSError.
+    Returns what was sent and the calls rows once one exists (the pump settles in the background).
     """
     app = create_app(state)
     body = json.dumps(story_body(stream=True)).encode()
@@ -593,16 +667,17 @@ async def _drive_disconnect(state: State, spec_version: str) -> tuple[list[dict]
         return {"type": "http.disconnect"}
 
     async def send(message):
-        if message["type"] == "http.response.body" and got_chunk.is_set() and spec_version == "2.4":
+        if mode == "start" or (mode == "2.4" and message["type"] == "http.response.body" and got_chunk.is_set()):
             raise OSError("client went away")
         sent.append(message)
         if message["type"] == "http.response.body" and message.get("body"):
             got_chunk.set()
 
     scope = {
-        "type": "http", "asgi": {"version": "3.0", "spec_version": spec_version}, "http_version": "1.1",
-        "method": "POST", "scheme": "http", "path": "/v1/responses", "raw_path": b"/v1/responses",
-        "query_string": b"", "root_path": "", "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+        "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4" if mode == "2.4" else "2.3"},
+        "http_version": "1.1", "method": "POST", "scheme": "http", "path": "/v1/responses",
+        "raw_path": b"/v1/responses", "query_string": b"", "root_path": "", "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
         "headers": [(b"host", b"testserver"), (b"authorization", f"Bearer {TOKEN}".encode()),
                     (b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())],
         "state": {},
@@ -610,13 +685,25 @@ async def _drive_disconnect(state: State, spec_version: str) -> tuple[list[dict]
     with anyio.fail_after(5):
         try:
             await app(scope, receive, send)
-        except ClientDisconnect:
+        except (ClientDisconnect, OSError):
             pass
-    # Read the outcome before anything else awaits: settlement must be done when the app returns, not
-    # left to the event loop's async-generator finalizer (which would run at the next await or at shutdown).
-    settled = calls(state)
+        while not (settled := calls(state)):
+            await anyio.sleep(0.01)
+    await anyio.sleep(0.1)  # a second settlement, if there were one, would land now
+    assert len(calls(state)) == 1
     await state.aclose()
     return sent, settled
+
+
+def _rest_after_disconnect(req):
+    """Two deltas, then (after the client left) the final event with USAGE."""
+    async def parts():
+        yield sse_delta("Det ")
+        await anyio.sleep(0.05)
+        yield sse_delta("var ")
+        await anyio.sleep(0.05)
+        yield sse_completed()
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=parts())
 
 
 def _stalling_stream(req):
@@ -628,29 +715,46 @@ def _stalling_stream(req):
     return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=parts())
 
 
-@pytest.mark.parametrize("spec_version", ["2.4", "2.3"])
-def test_stream_client_disconnect_settles_once(make_proxy, upstream, spec_version):
+@pytest.mark.parametrize("mode", ["2.4", "2.3", "start"])
+def test_stream_client_disconnect_settles_once(make_proxy, upstream, mode):
     state = make_proxy()
-    upstream.respond = _stalling_stream
-    sent, settled = anyio.run(_drive_disconnect, state, spec_version)
-    assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 200
-    assert sent[1]["body"] == sse_delta("Det ")
-    assert len(settled) == 1 and settled[0]["kept"] == 0
-    [row] = calls(state)
+    upstream.respond = _rest_after_disconnect
+    sent, settled = anyio.run(_drive_disconnect, state, mode)
+    if mode != "start":
+        assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 200
+        assert sent[1]["body"] == sse_delta("Det ")
+    [row] = settled
+    # The client left before response.completed: not kept, the unit goes back exactly once (never below 0).
     assert row["kept"] == 0
-    assert today(state)["used_story"] == 0  # returned exactly once (never below 0 either)
+    assert today(state)["used_story"] == 0
+    # The pump read on to the final event, so the tokens are counted:
+    # (1000-200)*0.25 + 200*0.025 + 500*2.00 = 200 + 5 + 1000 = 1205 µUSD
+    assert (row["tokens_in"], row["tokens_cached"], row["tokens_out"]) == (1000, 200, 500)
+    assert row["cost_micro"] == STORY_COST
+    day = today(state)
+    assert (day["tokens_in"], day["tokens_out"], day["cost_micro"]) == (1000, 500, STORY_COST)
+    assert query(state, "SELECT cost_micro FROM server_days WHERE day=?", (DAY,))[0][0] == STORY_COST
 
 
-@pytest.mark.parametrize("spec_version", ["2.4", "2.3"])
-def test_stream_client_disconnect_refunds_credits_once(make_proxy, upstream, spec_version):
+@pytest.mark.parametrize("mode", ["2.4", "2.3"])
+def test_stream_client_disconnect_drain_bounded_by_the_deadline(make_proxy, upstream, mode):
+    state = make_proxy(UPSTREAM_TIMEOUT_SECONDS="1")
+    upstream.respond = _stalling_stream
+    _, settled = anyio.run(_drive_disconnect, state, mode)
+    [row] = settled
+    assert row["kept"] == 0 and row["cost_micro"] == 0
+    assert today(state)["used_story"] == 0
+
+
+@pytest.mark.parametrize("mode", ["2.4", "2.3"])
+def test_stream_client_disconnect_refunds_credits_once(make_proxy, upstream, mode):
     state = make_proxy(QUOTA_STORY_PER_DAY="0")
     conn = db.connect(state.db_path)
     ledger.grant(conn, 1, 2, "test", NOW)
     conn.close()
-    upstream.respond = _stalling_stream
-    _, settled = anyio.run(_drive_disconnect, state, spec_version)
-    assert len(settled) == 1
-    [row] = calls(state)
+    upstream.respond = _rest_after_disconnect
+    _, settled = anyio.run(_drive_disconnect, state, mode)
+    [row] = settled
     assert row["kept"] == 0 and row["paid_with"] == "credits"
     reasons = [e["reason"] for e in query(state, "SELECT reason FROM ledger ORDER BY id")]
     assert reasons == ["grant", "debit", "refund"]
@@ -711,11 +815,17 @@ def test_404s_count_toward_the_rate(client, upstream):
 
 # --- logging and privacy (acceptance 7) --------------------------------------------------------------------
 
-def test_one_log_line_per_call(client, state, upstream, caplog):
-    caplog.set_level(logging.DEBUG, logger="myguide")
-    client.post("/v1/responses", json=story_body(), headers=auth())
-    lines = [r for r in caplog.records if r.name == "myguide.proxy"]
-    assert len(lines) == 1
+@pytest.mark.parametrize("stream", [False, True])
+def test_one_log_line_per_call(client, state, upstream, caplog, stream):
+    caplog.set_level(logging.INFO)  # root: every logger that would print at the service's INFO level
+    if stream:
+        upstream.respond = lambda req: sse_response(STREAM_PARTS)
+    caplog.clear()
+    r = client.post("/v1/responses", json=story_body(stream=stream), headers=auth())
+    assert r.status_code == 200
+    lines = [rec for rec in caplog.records if rec.levelno >= logging.INFO]
+    assert len(lines) == 1, [(rec.name, rec.getMessage()) for rec in lines]
+    assert lines[0].name == "myguide.proxy"
     msg = lines[0].getMessage()
     [row] = calls(state)
     for part in (row["call_id"], "kind=story", f"model={STORY}", "status=200", "kept=1", "latency_ms="):

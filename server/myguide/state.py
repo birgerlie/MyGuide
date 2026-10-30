@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,14 @@ log = logging.getLogger(__name__)
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def upstream_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
+    """The client for OpenAI: no client-wide timeout (the proxy passes UPSTREAM_TIMEOUT_SECONDS per
+    request, so a reload applies), no redirects, and a cookie jar that accepts nothing, so a `Set-Cookie`
+    from upstream (e.g. Cloudflare's __cf_bm) is never stored or sent back on a later call."""
+    jar = CookieJar(policy=DefaultCookiePolicy(allowed_domains=[]))
+    return httpx.AsyncClient(timeout=None, follow_redirects=False, cookies=jar, transport=transport)
 
 
 class State:
@@ -40,8 +49,7 @@ class State:
         self.clock = clock
         self.monotonic = monotonic
         self.root = root if root is not None else apple_root()
-        # No client-wide timeout: the proxy passes UPSTREAM_TIMEOUT_SECONDS per request, so a reload applies.
-        self.upstream = upstream if upstream is not None else httpx.AsyncClient(timeout=None, follow_redirects=False)
+        self.upstream = upstream if upstream is not None else upstream_client()
         self.challenges = Challenges(lambda: self.settings.challenge_ttl_seconds,
                                      max_outstanding=lambda: self.settings.challenges_max_outstanding)
         # The per-IP windows are keyed by app.rate_key(client_ip): IPv6 per /64. Keys live in memory only.

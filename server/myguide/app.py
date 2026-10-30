@@ -62,6 +62,12 @@ def json_error(status: int, code: str, message: str, headers: dict[str, str] | N
     return JSONResponse({"error": {"code": code, "message": message}}, status_code=status, headers=headers)
 
 
+def quiet_http_client_logs() -> None:
+    """httpx/httpcore log every request at INFO; the proxy writes its own single line per call."""
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -150,6 +156,8 @@ def _parse_attest(raw: bytes) -> tuple[str, bytes, str, str | None]:
 
 
 def create_app(state: State) -> Starlette:
+    quiet_http_client_logs()
+
     async def health(request: Request) -> Response:
         return JSONResponse({"ok": True})
 

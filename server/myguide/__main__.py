@@ -12,7 +12,7 @@ from pathlib import Path
 import uvicorn
 
 from . import db
-from .app import create_app
+from .app import create_app, quiet_http_client_logs
 from .config import ConfigError, load_settings
 from .state import State
 
@@ -30,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr)
+    quiet_http_client_logs()
     db.connect(args.db).close()  # create the schema now, so a bad --db fails at start, not on the first call
     state = State(settings, args.db)
     server = uvicorn.Server(uvicorn.Config(

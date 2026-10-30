@@ -10,9 +10,10 @@ admitted call: call id, kind, model (an allowlisted name), status, latency, kept
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import sqlite3
+import math
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -34,6 +35,7 @@ from .state import State
 log = logging.getLogger(__name__)
 
 UPSTREAM_BASE = "https://api.openai.com/v1/"
+USER_AGENT = "MyGuide-guide-server"
 ROUTES = {"responses": "story", "audio/speech": "speech", "images/generations": "image"}
 
 # Upstream failures that answer 502 `upstream_unreachable`. RequestError covers every TransportError
@@ -77,6 +79,10 @@ def _parse(raw: bytes, kind: str, settings: Settings) -> tuple[dict, str, bytes]
         return "bad_request"
     if model not in settings.models(kind):
         return "model_not_allowed"
+    if kind in ("speech", "image") and body.get("stream") not in (None, False):
+        return "bad_request"  # a streamed image or speech answer is not metered by this server
+    if kind == "story" and (body.get("tools") not in (None, []) or body.get("background") not in (None, False)):
+        return "bad_request"  # tools bill outside `usage`; a background call outlives its settlement
     if kind == "story":
         body["store"] = False
     try:
@@ -147,7 +153,7 @@ class _Call:
                                                utc_day(self.state.clock()))
             finally:
                 conn.close()
-        except (sqlite3.Error, OSError) as e:
+        except Exception as e:  # never turn a billed answer into a 500; only the type is logged
             log.error("call %s: allowance failed: %s", a.call_id, type(e).__name__)
             free_left, credits = a.free_left, a.credits
         return allowance_headers(free_left, credits)
@@ -161,8 +167,8 @@ class _SettlingStreamingResponse(StreamingResponse):
     """A StreamingResponse whose `on_close` always runs once the response is over, however it ends.
 
     Starlette leaves the body generator suspended when the client goes away (ASGI 2.4: `send` raises
-    OSError) and never starts it when the head cannot be sent, so its own `finally` alone cannot be trusted
-    to settle. `on_close` closes the generator (running its `finally`) and settles if that did not.
+    OSError), cancels it (ASGI 2.3: `http.disconnect`), or never starts it when the head cannot be sent.
+    `on_close` tells the upstream pump whether the client got the whole stream.
     """
 
     def __init__(self, content: AsyncIterator[bytes], *, on_close: Callable[[], Awaitable[None]],
@@ -186,12 +192,32 @@ async def _close_quietly(closer: Callable[[], Awaitable[None]]) -> None:
             log.debug("close failed: %s", type(e).__name__)
 
 
-async def _forward_plain(state: State, call: _Call, kind: str, url: str, body: dict, payload: bytes,
-                         headers: dict[str, str]) -> Response:
+# Upstream pumps outlive their request when the client goes away; strong references keep them alive.
+_pumps: set[asyncio.Task[None]] = set()
+
+
+def _upstream_request(settings: Settings, url: str, payload: bytes, *, stream: bool) -> httpx.Request:
+    """Exactly these headers go upstream (plus Host and Content-Length, which httpx derives from the
+    request): built directly, not via `client.build_request`, so no client default and no cookie is added."""
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        # identity: the bytes passed on are the bytes OpenAI sent (aiter_bytes still decodes if it compresses)
+        "Accept-Encoding": "identity",
+    }
+    if stream:
+        headers["Accept"] = "text/event-stream"
+    timeout = httpx.Timeout(settings.upstream_timeout_seconds)
+    return httpx.Request("POST", url, content=payload, headers=headers, extensions={"timeout": timeout.as_dict()})
+
+
+async def _forward_plain(state: State, call: _Call, kind: str, url: str, body: dict, payload: bytes) -> Response:
     timeout = call.settings.upstream_timeout_seconds
+    request = _upstream_request(call.settings, url, payload, stream=False)
     try:
         with anyio.fail_after(timeout):
-            upstream = await state.upstream.post(url, content=payload, headers=headers, timeout=timeout)
+            upstream = await state.upstream.send(request)
     except _UNREACHABLE as e:
         raise call.unreachable(e) from None
     except BaseException as e:  # cancelled or unexpected: the unit must not stay reserved
@@ -204,12 +230,10 @@ async def _forward_plain(state: State, call: _Call, kind: str, url: str, body: d
                     headers=_response_headers(upstream, call.headers_after_settle()))
 
 
-async def _forward_stream(state: State, call: _Call, url: str, payload: bytes,
-                          headers: dict[str, str]) -> Response:
+async def _forward_stream(state: State, call: _Call, url: str, payload: bytes) -> Response:
     timeout = call.settings.upstream_timeout_seconds
     deadline = anyio.current_time() + timeout  # UPSTREAM_TIMEOUT_SECONDS bounds the whole call
-    request = state.upstream.build_request("POST", url, content=payload,
-                                           headers={**headers, "Accept": "text/event-stream"}, timeout=timeout)
+    request = _upstream_request(call.settings, url, payload, stream=True)
     try:
         with anyio.fail_after(timeout):
             upstream = await state.upstream.send(request, stream=True)
@@ -236,42 +260,63 @@ async def _forward_stream(state: State, call: _Call, url: str, payload: bytes,
         return Response(content, status_code=upstream.status_code,
                         headers=_response_headers(upstream, call.headers_after_settle()))
 
+    # The upstream stream is read by its own task (the pump), not by the response: a client that goes away
+    # cancels only the response, while the pump reads on to the end (or the deadline), so the usage of a
+    # call the client abandoned is still counted. The pump alone settles, exactly once.
     watcher = CompletedWatcher()
-    # aiter_bytes: identical to the raw bytes unless upstream compressed them; then the client gets them
-    # decoded (Content-Encoding is not passed on), and the watcher can read them.
-    chunks = upstream.aiter_bytes()
+    to_client, from_pump = anyio.create_memory_object_stream[bytes](max_buffer_size=math.inf)
+    client_gone = False
+    delivered_all = False
 
-    def finish(error: str | None) -> None:
-        call.settle(kept=watcher.completed, status=upstream.status_code, usage=watcher.usage, error=error)
-
-    async def body() -> AsyncIterator[bytes]:
+    async def pump() -> None:
+        nonlocal client_gone
         error: str | None = None
         try:
-            while True:
-                with anyio.CancelScope(deadline=deadline) as scope:
-                    try:
-                        chunk = await chunks.__anext__()
-                    except StopAsyncIteration:
-                        watcher.close()
-                        break
-                if scope.cancelled_caught:
-                    error = "deadline"
-                    break
-                watcher.feed(chunk)
-                yield chunk
-        except httpx.RequestError as e:  # upstream broke mid-stream: end the stream, the unit goes back
+            with anyio.CancelScope(deadline=deadline) as scope:
+                # aiter_bytes: the raw bytes, decoded only if upstream compressed them anyway (then the
+                # client gets them decoded, as Content-Encoding is not passed on, and the watcher can read them).
+                async for chunk in upstream.aiter_bytes():
+                    watcher.feed(chunk)
+                    if not client_gone:
+                        try:
+                            to_client.send_nowait(chunk)
+                        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                            client_gone = True
+                watcher.close()
+            if scope.cancelled_caught:
+                error = "deadline"
+        except Exception as e:  # upstream broke mid-stream (or worse): the stream ends, the unit goes back.
+            error = type(e).__name__  # handled here, so no task traceback (which could quote data) is logged
+        except BaseException as e:  # cancelled at shutdown: settle below, then let the cancellation go on
             error = type(e).__name__
+            raise
         finally:
-            finish(error)
-            await _close_quietly(chunks.aclose)
+            # Settle before the client's stream is closed, so the call is recorded when the client has it all.
+            kept = watcher.completed and not client_gone
+            call.settle(kept=kept, status=upstream.status_code, usage=watcher.usage,
+                        error=error or ("client_gone" if client_gone else None))
+            to_client.close()
             await _close_quietly(upstream.aclose)
+
+    task = asyncio.get_running_loop().create_task(pump())
+    _pumps.add(task)
+    task.add_done_callback(_pumps.discard)
+
+    async def body() -> AsyncIterator[bytes]:
+        nonlocal delivered_all
+        async with from_pump:
+            async for chunk in from_pump:
+                yield chunk
+        delivered_all = True
 
     stream = body()
 
     async def on_close() -> None:
-        await _close_quietly(stream.aclose)  # runs body()'s finally if it is suspended at a yield
-        finish("client_gone" if not call.settled else None)  # never started: settle here; else a no-op
-        await _close_quietly(upstream.aclose)
+        nonlocal client_gone
+        await _close_quietly(stream.aclose)
+        if not delivered_all:
+            client_gone = True  # the pump drains on, without sending, and settles kept=False
+        from_pump.close()
 
     a = call.admission
     return _SettlingStreamingResponse(
@@ -316,9 +361,8 @@ def routes(state: State) -> list[Route]:
 
         call = _Call(state, settings, admission, model)
         url = UPSTREAM_BASE + path
-        headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
         if kind == "story" and body.get("stream") is True:
-            return await _forward_stream(state, call, url, payload, headers)
-        return await _forward_plain(state, call, kind, url, body, payload, headers)
+            return await _forward_stream(state, call, url, payload)
+        return await _forward_plain(state, call, kind, url, body, payload)
 
     return [Route("/v1/{path:path}", proxy, methods=["POST"])]
