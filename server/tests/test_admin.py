@@ -1,6 +1,7 @@
 """myguide-admin and log retention (spec 6.2, 7)."""
 from __future__ import annotations
 
+import hashlib
 import io
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,8 +15,6 @@ from myguide.config import parse_settings
 from myguide.state import State
 from tests.attest_fixtures import NOW
 from tests.conftest import env_dict, write_env
-
-import hashlib
 
 TOKEN = "tok-admin-1"
 DAY = "2026-10-30"  # UTC date of NOW
@@ -200,7 +199,7 @@ def test_devices_orders_by_cost_and_shows_balance(adm):
     assert [l.split()[0] for l in lines[1:]] == ["2", "1", "3"]
     assert lines[1].split()[-2:] == ["0.0300", "7"]
     assert lines[2].split()[-2:] == ["0.0012", "0"]
-    # last 2 days: device 3 (0.0.. 99999 µUSD = 0.1000) comes first
+    # last 2 days: device 3 (99999 µUSD = 0.099999 -> 0.1000) comes first
     code, out = adm.run("devices", "2")
     assert [l.split()[0] for l in out.splitlines()[1:]] == ["3", "2", "1"]
     assert out.splitlines()[1].split()[-2:] == ["0.1000", "0"]
