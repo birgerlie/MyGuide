@@ -14,9 +14,10 @@ public enum WalkLogText {
             return "Fix ±\(whole(f.accuracy)) m\(suffix)"
         case .gps(let found): return found ? "GPS found" : "GPS lost"
         case .fetchStarted: return "Fetching places"
-        case .fetched(let count, let top, let good, _, _, let osmFailed, let osmErrors, _, let dropped, _):
+        case .fetched(let count, let top, let good, _, _, let osmFailed, let osmErrors, _, let dropped, _, let stale):
             return "Fetched \(count) places (\(top) top, \(good) good)" + (osmFailed ? " · OpenStreetMap failed" : "")
                 + endpoints(osmErrors) + (dropped.isEmpty ? "" : " · dropped \(dropped.joined(separator: ", "))")
+                + (stale ? " · stored list" : "")
         case .fetchFailed(let error, let osmErrors): return "Fetch failed: \(error)" + endpoints(osmErrors)
         case .quiet(let reason, let due):
             guard !due.isEmpty else { return "Quiet: \(reason.rawValue)" }
@@ -41,6 +42,8 @@ public enum WalkLogText {
         case .paused(let reason, _, let source): return "Paused (\(label(reason, source)))"
         case .resumed(let reason, let seconds, let source): return "Resumed (\(label(reason, source))) after \(whole((seconds / 60).rounded(.down))) min"
         case .failure(let context, let error): return "Failure in \(context): \(error)"
+        case .shown(let placeID, let name, let reason):
+            return "Map shows \(name ?? placeID ?? "nothing") (\(reason.rawValue))"
         }
     }
 

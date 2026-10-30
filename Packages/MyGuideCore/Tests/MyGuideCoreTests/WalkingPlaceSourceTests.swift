@@ -421,10 +421,19 @@ import Testing
         let src = source(http, facts: facts, grace: .seconds(30))
         let here = self.here
         let task = Task { try await src.candidates(around: here, language: .english) }
-        while !factsIn.value { await Task.yield() }
+        let clock = ContinuousClock()
+        // Bounded: should the facts never be asked for, the test fails within 5 s instead of hanging.
+        let deadline = clock.now + .seconds(5)
+        while !factsIn.value {
+            guard clock.now < deadline else {
+                Issue.record("the facts lookup was not called within 5 s")
+                task.cancel()
+                return
+            }
+            await Task.yield()
+        }
         // A moment for the group to take the Wikipedia part and start the timer.
         try? await Task.sleep(for: .milliseconds(50))
-        let clock = ContinuousClock()
         let start = clock.now
         task.cancel()
         await #expect(throws: CancellationError.self) { _ = try await task.value }

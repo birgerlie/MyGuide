@@ -10,6 +10,10 @@ public struct NearbyList: Sendable, Equatable, Codable {
     /// A list whose OpenStreetMap part failed is stale once it is this old (seconds), wherever the owner is, so the
     /// next fix retries OpenStreetMap instead of walking on with Wikipedia only for 250 m.
     public static let osmFailedRetryAge: TimeInterval = 60
+    /// At the start of a walk, a stored list at most this old (seconds, 7 days) and centred at most
+    /// `staleStartDistance` (metres) from the first fix stands in until the fresh one arrives (spec 19.6).
+    public static let staleStartAge: TimeInterval = 7 * 86_400
+    public static let staleStartDistance = 250.0
 
     /// Where the list was fetched.
     public var centre: Coordinate
@@ -81,6 +85,19 @@ public struct NearbyList: Sendable, Equatable, Codable {
         let age = now.timeIntervalSince(fetchedAt)
         return age >= 0 && age <= Self.freshAge && !isStaleAfterOSMFailure(age: age)
             && GeoMath.distance(centre, position) < NearbyPlaces.walkingDistance
+    }
+
+    /// `stored` when it can stand in at the start of a walk at `position` (spec 19.6): in `language`, at most
+    /// `staleStartAge` old (both inclusive) and centred at most `staleStartDistance` away. Nil otherwise, and for a
+    /// list dated after `now` (the clock was set back), whose age is unknown. It says nothing about freshness: the
+    /// caller asks only when the walk needs a fetch, and `serves` alone decides whether one is needed.
+    public static func staleCandidate(stored: NearbyList?, position: Coordinate, language: StoryLanguage,
+                                      now: Date) -> NearbyList? {
+        guard let stored, stored.language == language else { return nil }
+        let age = now.timeIntervalSince(stored.fetchedAt)
+        guard age >= 0, age <= staleStartAge,
+              GeoMath.distance(stored.centre, position) <= staleStartDistance else { return nil }
+        return stored
     }
 
     /// The candidates that can buzz while walking, in list order, with their tiers; nil tiers are dropped.

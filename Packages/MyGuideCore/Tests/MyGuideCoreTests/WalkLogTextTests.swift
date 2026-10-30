@@ -18,6 +18,21 @@ import Testing
                 == "Fetched 5 places (3 top, 2 good) · OpenStreetMap failed (slow) · dropped Jesuittordenen, Liberatores")
     }
 
+    @Test func staleFetchedLine() {
+        let stale = WalkLogEvent.Kind.fetched(count: 12, top: 2, good: 4, wikiOnly: 6, places: [], osmFailed: false,
+                                              stale: true)
+        #expect(WalkLogText.line(stale) == "Fetched 12 places (2 top, 4 good) · stored list")
+    }
+
+    @Test func shownLines() {
+        #expect(WalkLogText.line(.shown(placeID: "a", name: "Il Gesù", reason: .heading)) == "Map shows Il Gesù (heading)")
+        #expect(WalkLogText.line(.shown(placeID: "a", name: "Il Gesù", reason: .tap)) == "Map shows Il Gesù (tap)")
+        #expect(WalkLogText.line(.shown(placeID: "a", name: "Il Gesù", reason: .buzz)) == "Map shows Il Gesù (buzz)")
+        #expect(WalkLogText.line(.shown(placeID: nil, name: nil, reason: .cleared)) == "Map shows nothing (cleared)")
+        // An id without a name (a hand-edited line): the id stands in.
+        #expect(WalkLogText.line(.shown(placeID: "osm:node/1", name: nil, reason: .tap)) == "Map shows osm:node/1 (tap)")
+    }
+
     @Test func fetchFailedLine() {
         #expect(WalkLogText.line(.fetchFailed(error: "http(500)")) == "Fetch failed: http(500)")
         #expect(WalkLogText.line(.fetchFailed(error: "http(500)", osmErrors: ["overpass-api.de: HTTP 500"]))

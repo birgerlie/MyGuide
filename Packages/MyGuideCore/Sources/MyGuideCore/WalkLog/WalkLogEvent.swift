@@ -21,6 +21,9 @@ public enum WalkPauseReason: String, Sendable, Codable {
 /// Who gave a command; nil in the log means automatic.
 public enum WalkSource: String, Sendable, Codable { case phone, watch }
 public enum StopShownVia: String, Sendable, Codable { case liveActivity, notification }
+/// Why the map's selection changed while walking (spec 19.7): the heading picked it, the owner tapped it, a buzz
+/// selected it, or it was cleared (by the owner, or by locating).
+public enum ShownReason: String, Sendable, Codable, CaseIterable { case heading, tap, buzz, cleared }
 
 public struct WalkLogStart: Sendable, Equatable {
     public var appVersion: String
@@ -150,9 +153,11 @@ public struct WalkLogEvent: Sendable, Equatable {
         /// endpoint tried when it failed ("overpass-api.de: timed out", or "slow" when it ran out of time); empty
         /// otherwise and in older lines. `facts`: how many candidates got Wikidata facts; `dropped`: the names of the
         /// Wikipedia-only candidates dropped as `nonPlace`; `factsFailed`: Wikidata batches that failed (spec 19.8).
-        /// All three are 0 or empty in lines written before they existed.
+        /// All three are 0 or empty in lines written before they existed. `stale`: a stored list standing in at the
+        /// start of a walk until the fresh one arrives (spec 19.6); false in lines written before it existed.
         case fetched(count: Int, top: Int, good: Int, wikiOnly: Int, places: [WalkLogPlace], osmFailed: Bool,
-                     osmErrors: [String] = [], facts: Int = 0, dropped: [String] = [], factsFailed: Int = 0)
+                     osmErrors: [String] = [], facts: Int = 0, dropped: [String] = [], factsFailed: Int = 0,
+                     stale: Bool = false)
         /// `osmErrors` as in `fetched`, when the failure was every Overpass endpoint's.
         case fetchFailed(error: String, osmErrors: [String] = [])
         case quiet(QuietReason, due: [DuePlace])
@@ -170,6 +175,9 @@ public struct WalkLogEvent: Sendable, Equatable {
         case paused(WalkPauseReason, at: Coordinate?, source: WalkSource?)
         case resumed(WalkPauseReason, pausedSeconds: Double, source: WalkSource?)
         case failure(context: String, error: String)
+        /// The place the map selected while walking, or nil id and name when it was cleared (spec 19.7). Logged only
+        /// when the id or the reason changes.
+        case shown(placeID: String?, name: String?, reason: ShownReason)
     }
 
     public static let maxErrorLength = 300
@@ -190,7 +198,7 @@ public struct WalkLogEvent: Sendable, Equatable {
     /// Counts over every place; the listed places are capped at 150 by tier, then distance from `around`.
     public static func fetched(_ places: [WalkingPlace], around: Coordinate, osmFailed: Bool,
                                osmErrors: [String] = [], facts: Int = 0, dropped: [String] = [],
-                               factsFailed: Int = 0) -> Kind {
+                               factsFailed: Int = 0, stale: Bool = false) -> Kind {
         let ranked = places
             .map { ($0, GeoMath.distance(around, $0.candidate.coordinate)) }
             .sorted { a, b in
@@ -210,6 +218,7 @@ public struct WalkLogEvent: Sendable, Equatable {
             osmErrors: osmErrors,
             facts: facts,
             dropped: dropped,
-            factsFailed: factsFailed)
+            factsFailed: factsFailed,
+            stale: stale)
     }
 }

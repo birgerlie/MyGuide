@@ -365,8 +365,8 @@ import Testing
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0 + 180)?.place == b)
     }
     @Test func clearExclusionsLetsSameSpotNeighboursBuzzAgain() {
-        // a (35 m) buzzes; b (60 m) is 25 m from it → excluded. After the reset, b buzzes once the budget allows
-        // (t0+180: 180/180 = 1); a buzzes again too at t0+360.
+        // a (35 m) buzzes at t0; b (60 m) is 60 − 35 = 25 m from it → excluded. After the reset a, the top place,
+        // buzzes again first once the budget allows (t0+180: 180/180 = 1); after a second reset b buzzes at t0+360.
         var e = Self.engine()
         let a = Self.place("a", .top, north: 35), b = Self.place("b", .good, north: 60)
         #expect(e.evaluate(places: [a, b], position: .at(), accuracy: 5, course: 0, now: Self.t0)?.place == a)

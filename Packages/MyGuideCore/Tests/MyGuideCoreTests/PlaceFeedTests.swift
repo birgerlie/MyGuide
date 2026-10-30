@@ -49,11 +49,119 @@ import Testing
         #expect(f.shouldFetch(at: .at(north: 400), now: Self.t0 + 160))
     }
 
-    @Test func failureBeforeAnySuccessRetriesAfterSixtySeconds() {
+    @Test func failureWithNoPlacesRetriesAfterFifteenSeconds() {
         var f = PlaceFeed()
         f.fetchStarted(now: Self.t0); f.fetchFailed(now: Self.t0)
-        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 59))
-        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 60))
+        // No places (spec 19.6): failure at t0 blocks until t0 + 15; 14.9 < 15 blocked, 15 ≥ 15 allowed.
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 14.9))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 15))
+    }
+
+    @Test func failureAfterAnEmptyListRetriesAfterFifteenSeconds() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0); f.fetchSucceeded([], at: .at(), now: Self.t0)
+        // An empty list is no places too: failure at t0 + 100, 400 m away, blocked until t0 + 115 (100 + 15).
+        f.fetchStarted(now: Self.t0 + 100); f.fetchFailed(now: Self.t0 + 100)
+        #expect(!f.shouldFetch(at: .at(north: 400), now: Self.t0 + 114.9))
+        #expect(f.shouldFetch(at: .at(north: 400), now: Self.t0 + 115))
+    }
+
+    @Test func failureWithPlacesRetriesAfterSixtySeconds() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0); f.fetchSucceeded([Self.castle], at: .at(), now: Self.t0)
+        // Places kept: failure at t0, 400 m away; 59.9 < 60 blocked, 60 ≥ 60 allowed (not the 15 s of an empty feed).
+        f.fetchStarted(now: Self.t0); f.fetchFailed(now: Self.t0)
+        #expect(!f.shouldFetch(at: .at(north: 400), now: Self.t0 + 59.9))
+        #expect(f.shouldFetch(at: .at(north: 400), now: Self.t0 + 60))
+    }
+
+    @Test func retryIntervals() {
+        #expect(PlaceFeed.retryInterval == 60)
+        #expect(PlaceFeed.emptyRetryInterval == 15)
+    }
+
+    // MARK: - Stale list at start (spec 19.6)
+
+    @Test func staleListFillsAnEmptyFeedWithoutCountingAsFetched() {
+        var f = PlaceFeed()
+        #expect(f.wantsStaleList)
+        f.fetchStarted(now: Self.t0)
+        let taken1 = f.offerStaleList([Self.castle])
+        #expect(taken1)
+        #expect(f.places == [Self.castle])
+        #expect(f.placesAreStale)
+        // The fetch it was taken during still runs; the offer is used up.
+        #expect(f.isFetching)
+        #expect(!f.wantsStaleList)
+        // Cancelled: no centre was set by the stale list, so the next fix fetches at once, even at the same spot.
+        f.fetchCancelled()
+        #expect(f.places == [Self.castle])
+        #expect(f.shouldFetch(at: .at(), now: Self.t0))
+    }
+
+    @Test func staleListIsReplacedByTheFetch() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        f.offerStaleList([Self.castle])
+        let fresh = WalkingPlace(candidate: Candidate(id: "p", name: "P", coordinate: .at(north: 40), kind: "x"), tier: .good)
+        f.fetchSucceeded([fresh], at: .at(), now: Self.t0 + 3)
+        #expect(f.places == [fresh])
+        #expect(!f.placesAreStale)
+        // Now a real centre: 249 m away no fetch, 250 m a fetch.
+        #expect(!f.shouldFetch(at: .at(north: 249), now: Self.t0 + 4))
+        #expect(f.shouldFetch(at: .at(north: 250), now: Self.t0 + 4))
+    }
+
+    @Test func staleListIsReplacedEvenByAnEmptyFetch() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        f.offerStaleList([Self.castle])
+        f.fetchSucceeded([], at: .at(), now: Self.t0 + 3)
+        #expect(f.places.isEmpty)
+        #expect(!f.placesAreStale)
+        #expect(!f.wantsStaleList)
+    }
+
+    @Test func failureWithOnlyStalePlacesRetriesAfterFifteenSeconds() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        f.offerStaleList([Self.castle])
+        f.fetchFailed(now: Self.t0 + 8)
+        // Stale places are kept but are not the walk's places yet: failure at t0 + 8 blocks until t0 + 23 (8 + 15).
+        #expect(f.places == [Self.castle])
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 22.9))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 23))
+    }
+
+    @Test func emptyStaleListIsNotTakenButUsesUpTheOffer() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        let taken2 = f.offerStaleList([])
+        #expect(!taken2)
+        #expect(f.places.isEmpty)
+        #expect(!f.placesAreStale)
+        #expect(!f.wantsStaleList)
+    }
+
+    @Test func staleListIsOfferedOnlyOnce() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        let taken3 = f.offerStaleList([Self.castle])
+        #expect(taken3)
+        let other = WalkingPlace(candidate: Candidate(id: "o", name: "O", coordinate: .at(), kind: "x"), tier: .good)
+        let taken4 = f.offerStaleList([other])
+        #expect(!taken4)
+        #expect(f.places == [Self.castle])
+    }
+
+    @Test func staleListIsNotWantedOnceAFetchHasSucceeded() {
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0); f.fetchSucceeded([], at: .at(), now: Self.t0)
+        // A fetch came back (empty): its result stands, a stored list must not replace it.
+        #expect(!f.wantsStaleList)
+        let taken5 = f.offerStaleList([Self.castle])
+        #expect(!taken5)
+        #expect(f.places.isEmpty)
     }
 
     @Test func successClearsTheBackoff() {
@@ -106,11 +214,12 @@ import Testing
     @Test func osmFailedRetryWaitsForTheFailureBackoffAndAnInFlightFetch() {
         var f = PlaceFeed()
         f.fetchStarted(now: Self.t0)
-        f.fetchSucceeded([], at: .at(), now: Self.t0, osmFailed: true, fetchedAt: Self.t0)
+        f.fetchSucceeded([Self.castle], at: .at(), now: Self.t0, osmFailed: true, fetchedAt: Self.t0)
         // The retry at t0 + 60 starts and is in flight: no second fetch.
         f.fetchStarted(now: Self.t0 + 60)
         #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 61))
-        // It fails at t0 + 70: the 60 s failure backoff holds until t0 + 130 (70 + 60), the OSM rule cannot skip it.
+        // It fails at t0 + 70 with places kept: the 60 s failure backoff holds until t0 + 130 (70 + 60), the OSM rule
+        // cannot skip it.
         f.fetchFailed(now: Self.t0 + 70)
         #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 129))
         #expect(f.shouldFetch(at: .at(), now: Self.t0 + 130))
@@ -144,9 +253,10 @@ import Testing
     @Test func cancelledFetchAfterFailureStillHonoursTheBackoff() {
         var f = PlaceFeed()
         f.fetchStarted(now: Self.t0); f.fetchFailed(now: Self.t0)
-        f.fetchStarted(now: Self.t0 + 60); f.fetchCancelled()
-        // Cancelling does not touch the earlier failure time (t0 + 60 > failure + 60 is already true).
-        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 60))
-        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 30))
+        f.fetchStarted(now: Self.t0 + 5); f.fetchCancelled()
+        // Cancelling does not touch the earlier failure time: with no places the failure at t0 blocks until t0 + 15,
+        // so t0 + 10 is still blocked and t0 + 15 is allowed.
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 10))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 15))
     }
 }

@@ -215,6 +215,72 @@ private struct Boom: Error {}
         #expect(!list.serves(walkerAt: .at(), now: t0.addingTimeInterval(-1)))
     }
 
+    // MARK: - Stale list at start (spec 19.6)
+
+    /// Due north of (0, 0) at 250 m to the last bit: `.at(north: 250)` comes out as 250.00000000000003 m, so the latitude
+    /// (250 / 111 194.9266 ≈ 0.0022483°) is stepped down until the haversine distance is no longer above 250.
+    static var exactly250North: Coordinate {
+        var latitude = 250 / Coordinate.metresPerDegree
+        while GeoMath.distance(.at(), Coordinate(latitude: latitude, longitude: 0)) > 250 { latitude = latitude.nextDown }
+        return Coordinate(latitude: latitude, longitude: 0)
+    }
+
+    @Test func staleListLimits() {
+        // 7 days = 7 · 86 400 = 604 800 s.
+        #expect(NearbyList.staleStartAge == 604_800)
+        #expect(NearbyList.staleStartDistance == 250)
+    }
+
+    @Test func staleCandidateAgeBoundary() {
+        let list = Self.list()   // centre (0, 0), fetched at t0, English
+        // Age t0 + 604 800 − t0 = 604 800 ≤ 604 800 → used; 604 801 > 604 800 → not.
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(), language: .english,
+                                          now: Self.t0.addingTimeInterval(604_800)) == list)
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(), language: .english,
+                                          now: Self.t0.addingTimeInterval(604_801)) == nil)
+        // Age 0 is fine too (a list that would also serve; the caller asks only when it does not).
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(), language: .english, now: Self.t0) == list)
+        // Dated after now (clock set back): age −1 is unknown → not used.
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(), language: .english,
+                                          now: Self.t0.addingTimeInterval(-1)) == nil)
+    }
+
+    @Test func staleCandidateDistanceBoundary() {
+        let list = Self.list()   // centre (0, 0)
+        let exact = Self.exactly250North
+        // The probe is 250 m to within a few ulps (≈ 6e-14 m).
+        #expect(abs(GeoMath.distance(.at(), exact) - 250) < 1e-9)
+        #expect(NearbyList.staleCandidate(stored: list, position: exact, language: .english, now: Self.t0) == list)
+        // 250.1 > 250 → not used.
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(north: 250.1), language: .english,
+                                          now: Self.t0) == nil)
+        // Both limits at once: 250 m and 604 800 s → used.
+        #expect(NearbyList.staleCandidate(stored: list, position: exact, language: .english,
+                                          now: Self.t0.addingTimeInterval(604_800)) == list)
+        // Any direction: 133.1 m north and 200 m east is √(133.1² + 200²) = √57 715.6 ≈ 240.2 m on the flat (the
+        // sphere differs by far less than a metre here) → used.
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(north: 133.1, east: 200), language: .english,
+                                          now: Self.t0) == list)
+    }
+
+    @Test func staleCandidateNeedsTheSameLanguageAndAList() {
+        let list = Self.list(language: .english)
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(), language: .norwegian, now: Self.t0) == nil)
+        #expect(NearbyList.staleCandidate(stored: nil, position: .at(), language: .english, now: Self.t0) == nil)
+        let norwegian = Self.list(language: .norwegian)
+        #expect(NearbyList.staleCandidate(stored: norwegian, position: .at(), language: .norwegian, now: Self.t0)
+                == norwegian)
+    }
+
+    @Test func staleCandidateNeverServes() {
+        // A list old enough to be stale never serves a walker, so the walk still fetches right after it: 601 s old,
+        // at the centre: 601 > 600 → does not serve; 601 ≤ 604 800 → used as stale.
+        let list = Self.list()
+        let now = Self.t0.addingTimeInterval(601)
+        #expect(NearbyList.staleCandidate(stored: list, position: .at(), language: .english, now: now) == list)
+        #expect(!list.serves(walkerAt: .at(), now: now))
+    }
+
     @Test func listStatusForTheTimingsScreen() {
         let list = Self.list()   // centre (0, 0), fetched at t0
         // t0 + 125.9 s: 125.9 rounded down → 125 s. Position 85.4 m north: `.at(north:)` is that many metres up to

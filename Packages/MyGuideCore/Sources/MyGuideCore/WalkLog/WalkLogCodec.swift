@@ -56,6 +56,7 @@ public enum WalkLogCodec {
         case .paused: "paused"
         case .resumed: "resumed"
         case .failure: "failure"
+        case .shown: "shown"
         }
     }
 
@@ -93,7 +94,7 @@ public enum WalkLogCodec {
         case .fetchStarted(let c):
             return ["lat": coordinate(c.latitude), "lon": coordinate(c.longitude)]
         case .fetched(let count, let top, let good, let wikiOnly, let places, let osmFailed, let osmErrors, let facts,
-                      let dropped, let factsFailed):
+                      let dropped, let factsFailed, let stale):
             let list: [[String: Any]] = places.map {
                 ["id": $0.id, "name": $0.name, "tier": $0.tier.rawValue,
                  "lat": coordinate($0.coordinate.latitude), "lon": coordinate($0.coordinate.longitude)]
@@ -105,6 +106,7 @@ public enum WalkLogCodec {
             if facts != 0 { o["facts"] = facts }
             if !dropped.isEmpty { o["dropped"] = dropped }
             if factsFailed != 0 { o["factsFailed"] = factsFailed }
+            if stale { o["stale"] = true }
             return o
         case .fetchFailed(let error, let osmErrors):
             var o: [String: Any] = ["error": error]
@@ -150,6 +152,8 @@ public enum WalkLogCodec {
             return withSource(["reason": reason.rawValue, "pausedSeconds": seconds(pausedSeconds)], source)
         case .failure(let context, let error):
             return ["context": context, "error": error]
+        case .shown(let placeID, let name, let reason):
+            return ["placeID": orNull(placeID), "name": orNull(name), "reason": reason.rawValue]
         }
     }
 
@@ -191,6 +195,12 @@ public enum WalkLogCodec {
     private static func optionalSource(_ o: [String: Any]) -> WalkSource?? {
         if o["source"] == nil || o["source"] is NSNull { return .some(nil) }
         guard let s = raw(o, "source", WalkSource.self) else { return nil }
+        return .some(s)
+    }
+    /// Optional text: JSON null or absent is nil; a present value that is not text makes the line unreadable.
+    private static func optionalString(_ o: [String: Any], _ k: String) -> String?? {
+        if o[k] == nil || o[k] is NSNull { return .some(nil) }
+        guard let s = string(o, k) else { return nil }
         return .some(s)
     }
     private static func objects(_ o: [String: Any], _ k: String) -> [[String: Any]]? { o[k] as? [[String: Any]] }
@@ -268,8 +278,14 @@ public enum WalkLogCodec {
                 guard let names = value as? [String] else { return nil }
                 dropped = names
             }
+            // Absent in lines written before the stale list at start (spec 19.6) and for every fresh list.
+            var stale = false
+            if o["stale"] != nil {
+                guard let flag = bool(o, "stale") else { return nil }
+                stale = flag
+            }
             return .fetched(count: count, top: top, good: good, wikiOnly: wikiOnly, places: places, osmFailed: osmFailed,
-                            osmErrors: osmErrors, facts: facts, dropped: dropped, factsFailed: factsFailed)
+                            osmErrors: osmErrors, facts: facts, dropped: dropped, factsFailed: factsFailed, stale: stale)
         case "fetchFailed":
             guard let error = string(o, "error"), let osmErrors = osmErrors(o) else { return nil }
             return .fetchFailed(error: error, osmErrors: osmErrors)
@@ -340,6 +356,10 @@ public enum WalkLogCodec {
         case "failure":
             guard let context = string(o, "context"), let error = string(o, "error") else { return nil }
             return .failure(context: context, error: error)
+        case "shown":
+            guard let reason = raw(o, "reason", ShownReason.self),
+                  let placeID = optionalString(o, "placeID"), let name = optionalString(o, "name") else { return nil }
+            return .shown(placeID: placeID, name: name, reason: reason)
         default:
             return nil
         }
