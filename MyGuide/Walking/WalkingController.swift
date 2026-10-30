@@ -114,7 +114,8 @@ final class WalkingController {
     /// The run's 15 s timer: pause and resume, GPS state, auto-off and the Live Activity, for the stretches without
     /// fixes or motion readings.
     @ObservationIgnored private var timerTask: Task<Void, Never>?
-    @ObservationIgnored private var startedAt: Date?
+    /// When this run started; nil while walking mode is off. Read by the walking line, which refreshes every second.
+    @ObservationIgnored private(set) var startedAt: Date?
     /// When the last pause ended; nil until one has. With `startedAt` the floor of the Live Activity's stale date, as
     /// `lastFixAt` stood still through the pause.
     @ObservationIgnored private var resumedAt: Date?

@@ -1,7 +1,7 @@
 import MyGuideCore
 import SwiftUI
 
-/// Walking mode in the «Rundt deg» sheet, in the place of «Gå en tur» while a walk runs (spec 14): the status
+/// Walking mode in the walking sheet while a walk runs (spec 14, amended 2026-10-30): the status
 /// ("Går · 2 varsler", refreshed every second so a stale fix turns into "venter på GPS"), the «hørt om alt» line while
 /// the engine is quiet because every due place is used (spec 13.7), the walking story that is playing or ready (its
 /// title opens it; Lytt/Stopp, Mer and, for a buzz story, Hopp over), and Pause and Avslutt turen. A paused walk

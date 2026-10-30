@@ -18,8 +18,9 @@ enum HomeRoute: Hashable {
     case dayStory(String)
 }
 
-/// The app's root (spec 14): the tab bar with «Utforsk», the «Rundt deg» map with its sheet and camera button, and
-/// «Dagbok», the diary with History and Settings in its top bar. Each tab has its own stack. This screen is the one
+/// The app's root (spec 14, amended 2026-10-30): the tab bar with «Utforsk», the «Rundt deg» map with its sheet,
+/// «Kamera», which opens the camera over the map, «Turer» (a free walk or a tour), and «Dagbok», the diary with History and Settings in its
+/// top bar, and while a walk or a tour runs the walking line over the tab bar, which opens the walking sheet. Each tab has its own stack. This screen is the one
 /// owner of the shared `LocationProvider` (start, stop and `onFix`), of the camera's running and of the map model's
 /// appear/disappear, all driven from what is on top. The camera is off until asked for, so opening the app costs no
 /// camera power.
@@ -38,6 +39,8 @@ struct HomeScreen: View {
     /// The Utforsk tab's height, so the expanded sheet leaves part of the map in view.
     @State private var exploreHeight: CGFloat = 0
     @State private var errorText: String?
+    /// The walking sheet, opened from the walking line.
+    @State private var walkingSheetShown = false
     @Query(HomeScreen.recentPhotos) private var photos: [CaptureRecord]
     @Query(HomeScreen.recentWalks) private var walks: [WalkStoryRecord]
     /// The screen texts follow the iPhone's language (spec 17).
@@ -48,9 +51,6 @@ struct HomeScreen: View {
     static let recentCount = 3
     /// The share of the Utforsk tab the expanded sheet's lists may take.
     static let listShare: CGFloat = 0.35
-    /// Room the camera button needs above it (MapKit's compass and locate controls, the MyGuide pill); with less,
-    /// it hides (spec 16.5).
-    static let cameraClearance: CGFloat = 150
 
     /// The shared provider for every screen that needs a position: the map, the camera HUD and a story's "Use where
     /// I am now". Stored in `AppServices` so it is made once; this screen alone starts and stops it and sets `onFix`.
@@ -71,18 +71,26 @@ struct HomeScreen: View {
     }
 
     var body: some View {
-        RootTabs(selection: $tab, language: screenLanguage) {
+        RootTabs(selection: $tab, language: screenLanguage, openCamera: openCamera,
+                 accessoryEnabled: walkingActive) {
             NavigationStack(path: $path) {
                 explore
                     .navigationDestination(for: HomeRoute.self, destination: destination)
             }
         } tours: {
-            ToursTab(model: services.tourBuilder, language: screenLanguage, onStart: startTour)
+            ToursTab(model: services.tourBuilder, walking: services.walking, language: screenLanguage,
+                     onStart: startTour)
         } diary: {
             NavigationStack(path: $diaryPath) {
                 diary
                     .navigationDestination(for: HomeRoute.self, destination: destination)
             }
+        } accessory: {
+            WalkingLine(walking: services.walking, position: around.position, language: screenLanguage,
+                        open: openWalkingSheet)
+        }
+        .sheet(isPresented: $walkingSheetShown) {
+            WalkingSheet(walking: services.walking, position: around.position, language: screenLanguage)
         }
         .alert(AroundTexts.openFailed(screenLanguage), isPresented: errorPresented) {
             Button(AroundTexts.ok(screenLanguage), role: .cancel) {}
@@ -94,6 +102,8 @@ struct HomeScreen: View {
         .onChange(of: services.walking.stories.openID, initial: true) { _, id in
             guard let id else { return }
             services.walking.stories.openID = nil
+            // The story opens on the stack under the walking sheet: close the sheet so it is seen.
+            walkingSheetShown = false
             openWalkStory(id)
         }
         .onChange(of: path) { old, path in
@@ -104,6 +114,13 @@ struct HomeScreen: View {
             keepDayStories()
         }
         .onChange(of: diaryPath) { keepDayStories() }
+        // A walk that starts while «Turer» is showing («Gå en tur» there, or the watch) shows the map, as a tour start
+        // does. A refused start stays on «Turer», where the reason shows under the button.
+        .onChange(of: services.walking.isOn) { _, isOn in
+            guard isOn, tab == .tours else { return }
+            path = []
+            tab = .explore
+        }
         // Location runs while the map or the camera is on top, while a story offers "Use where I am now", while
         // the tours tab is selected, or while a tour is being planned.
         .onChange(of: locationWanted, initial: true) { _, wanted in
@@ -139,18 +156,10 @@ struct HomeScreen: View {
         ZStack {
             AroundMap(model: around, position: $mapPosition, tour: services.walking.tour, language: screenLanguage)
             // The free part of the map (inside the safe area, above the sheet), whatever the map itself does with
-            // safe areas: the pill and the camera button are placed in it. Transparent to touches; the buttons are
-            // not.
+            // safe areas: the pill is placed in it. Transparent to touches.
             Color.clear
                 .allowsHitTesting(false)
                 .overlay(alignment: .topLeading) { appPill }
-                .overlay(alignment: .bottomTrailing) {
-                    // Hidden when the sheet leaves no room for it under the map's controls (spec 16.5).
-                    ViewThatFits(in: .vertical) {
-                        cameraButton.padding(.top, Self.cameraClearance)
-                        Color.clear.frame(width: 0, height: 0)
-                    }
-                }
         }
         // The map keeps its attribution and controls above the sheet, and draws under it.
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -158,7 +167,9 @@ struct HomeScreen: View {
                         memoryFallback: services.memoryFallback, authorization: location.authorization,
                         language: screenLanguage, recent: recentStories, isExpanded: $sheetExpanded,
                         maxListHeight: exploreHeight * Self.listShare, openSelected: openSelectedPlace,
-                        openCamera: openCamera, openRecent: openRecent)
+                        openCamera: openCamera, openRecent: openRecent,
+                        walkingLineInSheet: !RootTab.hasAccessory,
+                        openWalking: openWalkingSheet)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { exploreHeight = $0 }
         .toolbar(.hidden, for: .navigationBar)
@@ -176,36 +187,6 @@ struct HomeScreen: View {
             .padding(.leading, Theme.Spacing.margin)
             .padding(.top, Theme.Spacing.unit)
             .accessibilityAddTraits(.isHeader)
-    }
-
-    /// The large coral camera button with «Hva ser jeg på?» under it (spec 14, 16.5).
-    private var cameraButton: some View {
-        Button(action: openCamera) {
-            VStack(spacing: 6) {
-                Image(systemName: "camera.fill")
-                    .accessibilityHidden(true)
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(Theme.Colour.forest)
-                    .frame(width: 72, height: 72)
-                    .background(Theme.Colour.coral, in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.Colour.ivory, lineWidth: 2))
-                    .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
-                Text(AroundTexts.lookingAt(screenLanguage))
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Colour.forest)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Theme.Colour.ivory, in: Capsule())
-                    .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
-                    .fixedSize()
-                    .accessibilityHidden(true)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(AroundTexts.cameraLabel(screenLanguage))
-        .padding(.trailing, Theme.Spacing.margin)
-        .padding(.bottom, Theme.Spacing.margin)
     }
 
     private var recentStories: [RecentStory] {
@@ -260,8 +241,24 @@ struct HomeScreen: View {
 
     // MARK: - Navigation
 
+    /// The «Kamera» tab or a card's «Ta bilde»: the camera on the Utforsk stack, from any tab. A camera already on the
+    /// stack (under a walk story) comes back to the top rather than a second one being pushed.
     private func openCamera() {
-        path.append(.camera)
+        tab = .explore
+        if let index = path.firstIndex(of: .camera) {
+            path = Array(path[...index])
+        } else {
+            path.append(.camera)
+        }
+    }
+
+    private func openWalkingSheet() {
+        walkingSheetShown = true
+    }
+
+    /// While a walk or a tour runs, the walking line shows over the tab bar.
+    private var walkingActive: Bool {
+        services.walking.isOn || services.walking.tour != nil
     }
 
     /// A photo was taken or picked on the camera screen: its story takes the camera's place in the stack, so going
@@ -302,8 +299,8 @@ struct HomeScreen: View {
         switch tab {
         case .explore: Self.push(.walkStory(id), onto: &path)
         case .diary: Self.push(.walkStory(id), onto: &diaryPath)
-        case .tours:
-            // The tours tab has no story routes; the story opens over the map.
+        case .tours, .camera:
+            // The tours tab has no story routes (and «Kamera» is never selected); the story opens over the map.
             tab = .explore
             Self.push(.walkStory(id), onto: &path)
         }

@@ -342,6 +342,35 @@ and card rules stay as written.
   its name in a small ivory label.
 - **Camera button.** A large round coral button with a forest camera symbol at the bottom right of the map, with
   the label «Hva ser jeg på?» / «What am I looking at?» under it. It opens the camera.
+  *Amended 2026-10-30 (owner: «kan vi flytte what am i looking at og foto ikonet fra over kartet helt ned i bunnen
+  av appen?»):* the button over the map is gone. The camera is a tab, «Kamera» / «Camera» (camera symbol), the
+  second of «Utforsk · Kamera · Turer · Dagbok». Tapping it never selects it: it opens the camera on the Utforsk
+  stack (switching to Utforsk first), so the Kamera tab is never shown as selected. Its VoiceOver label
+  stays «Ta bilde for å identifisere et sted». The cards' own «Ta bilde» stays.
+- *Amended 2026-10-30, walking (owner: «vi bruker fremdeles veldig mye plass for status for gåing»; «slå dem sammen
+  til en fane, men ha 'go for a walk' nederst»):*
+  - **«Turer» / «Walks» tab** (owner: «endre navnet på tours til walks, kanskje også ha forskjellig ikon om walk er
+    aktivt eller ikke»; a walking figure, with motion lines while a walk or a tour runs): the heading «Hvordan vil du gå?», the tour cards and
+    «Lag tur» (forest) as in the tours spec, and pinned at the bottom, nearest the thumb, the wide coral «Gå en tur»
+    with its line and the first problem under it, while no walk or tour runs. A walk that starts while «Turer» shows
+    switches to the Utforsk map; a refused start stays, with the reason under the button. Tabs: «Utforsk · Kamera ·
+    Turer · Dagbok».
+  - **The «Rundt deg» sheet** has no walking controls: grabber, title, place card, and the expanded lists.
+  - **The walking line** over the tab bar (`tabViewBottomAccessory`, iOS 26.1+) while a walk or a tour runs, one
+    line, most pressing first: a problem, «Venter på GPS», the playing or ready story (with Lytt/Stopp), «Pauset»,
+    the tour's «Neste: Pantheon · 300 m · 2 av 6», otherwise «Gåmodus · 42 min». No buzz count. Before iOS 26.1 the
+    same line sits in the «Rundt deg» sheet.
+  - **The walking sheet**, opened by a tap on the line: what the walking panel, the tour panel and the paused state
+    showed in the «Rundt deg» sheet before (buzz count, story, Pause, Avslutt, Hopp over stopp, «Fortsett turen»).
+    It closes when the walk and the tour are over, and when a story opens.
+- *Amended 2026-10-30, direction (owner: «vi skal ha himmelretningen og bruke dette konstant»; «vi skal ha en fin
+  kompassrose»; «vi bare skal ha en pil mot nord, kan vi flytte den med ±10 grader»):* MapKit's compass is replaced
+  by a north arrow above the locate button: a coral needle with a small «N» that points to north as seen from the
+  phone. It moves only once the phone heading is at least 10° from what it shows (`NorthArrow`), by the short way
+  round, so it holds still while the phone wavers; without a compass heading it points up, dimmed. It uses the
+  smoothed phone heading however poor the fix is (the view cone also needs a good fix; the arrow does not). VoiceOver
+  reads «Du peker mot nordvest». The map stays north up; a tap on the arrow turns a map the owner rotated back to
+  north. It uses the heading the view cone already uses: no extra sensor.
 - **Bottom sheet**, draggable, with a grabber, in ivory:
   - «Rundt deg» / «Around you» in Playfair;
   - the place card: picture on the left (none without one), the name in Playfair, «50 m · foran til høyre», and a

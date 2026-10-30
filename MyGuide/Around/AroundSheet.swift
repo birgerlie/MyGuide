@@ -25,9 +25,9 @@ struct RecentStory: Identifiable, Equatable {
 }
 
 /// The ivory sheet over the bottom of the map (spec 14, 16.3): a grabber, «Rundt deg» in Playfair with the list's
-/// age when it is old, the place card (or the state in words), and «Gå en tur», or the walking panel while a walk
-/// runs. Dragged or tapped open it adds the places nearby, nearest first (a tap selects one; this list is also how
-/// VoiceOver reaches the markers), and «Sist oppdaget» when there are stories.
+/// age when it is old, and the place card (or the state in words); «Gå en tur» lives on the «Turer» tab. Dragged or
+/// tapped open it adds the places nearby, nearest first (a tap selects one; this list is also how VoiceOver reaches
+/// the markers), and «Sist oppdaget» when there are stories.
 struct AroundSheet: View {
     let model: AroundModel
     let walking: WalkingController
@@ -42,6 +42,10 @@ struct AroundSheet: View {
     let openSelected: () -> Void
     let openCamera: () -> Void
     let openRecent: (RecentStory) -> Void
+    /// True where the system has no line over the tab bar (before iOS 26.1): the walking line then sits in this sheet.
+    let walkingLineInSheet: Bool
+    /// Opens the walking sheet (`WalkingSheet`).
+    let openWalking: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -133,95 +137,16 @@ struct AroundSheet: View {
 
     // MARK: - Walking
 
-    /// Off: «Gå en tur» starts a walk. Running: the walking panel. Paused (spec 16.4): «Fortsett turen» resumes the
-    /// walk already there (never a second one), with its status under it and a quiet way to end it. With a tour (tours
-    /// spec 6) the tour panel comes first, and under it the walking panel or, while walking mode is paused or off (a
-    /// restored tour), «Fortsett turen»; the tour panel's «Avslutt turen» is then the one way to end.
+    /// Walking mode is started from the «Turer» tab and lives in the walking line over the tab bar and the sheet it opens
+    /// (spec 14, amended 2026-10-30). Where the system has no line over the tab bar (`walkingLineInSheet`), the same
+    /// line sits here while a walk or a tour runs.
     @ViewBuilder
     private var walkSection: some View {
-        if let tour = walking.tour {
-            TourPanel(walking: walking, tour: tour, position: model.position, language: language)
-            if walking.isOn, !walking.isPaused {
-                WalkingPanel(walking: walking, language: language, showsStop: false)
-            } else if !tour.isFinished {
-                VStack(spacing: Theme.Spacing.unit) {
-                    walkButton
-                    if walking.isOn { pausedStatus }
-                }
-            }
-        } else if walking.isOn, !walking.isPaused {
-            WalkingPanel(walking: walking, language: language)
-        } else {
-            VStack(spacing: Theme.Spacing.unit) {
-                walkButton
-                if walking.isOn {
-                    pausedStatus
-                    Button(AroundTexts.stopWalk(language)) { walking.stop() }
-                        .font(Theme.Font.bodyMedium)
-                        .underline()
-                        .buttonStyle(.plain)
-                        .frame(minHeight: Theme.minimumTouchHeight)
-                } else {
-                    Text(AroundTexts.walkLine(language))
-                        .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
-                        .multilineTextAlignment(.center)
-                        .opacity(0.75)
-                        .frame(maxWidth: .infinity)
-                }
-            }
+        if walkingLineInSheet, walking.isOn || walking.tour != nil {
+            WalkingLine(walking: walking, position: model.position, language: language, open: openWalking)
+                .background(Theme.Colour.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.Colour.stone))
         }
-        // The first thing that keeps walking mode from starting, or that it lacks while on (e.g. location Always).
-        if let problem = walking.problems.first {
-            Label(problem.text(language), systemImage: "exclamationmark.triangle")
-                .font(Theme.Font.caption)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    /// The paused walk's status, refreshed every second.
-    private var pausedStatus: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            if let status = WalkingStatus.text(isOn: true, lastFixAt: walking.lastFixAt,
-                                               buzzCount: walking.buzzCount, now: context.date,
-                                               pause: walking.pauseKind, language: language) {
-                Label(status, systemImage: "pause.circle")
-                    .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
-                    .opacity(0.75)
-            }
-        }
-    }
-
-    /// The wide coral button: «Gå en tur» starts walking mode; while a walk is paused, «Fortsett turen» resumes it.
-    /// With a tour and walking mode off (restored, or stopped by the app), «Fortsett turen» starts walking mode on it.
-    private var walkButton: some View {
-        let paused = walking.isOn
-        let continues = paused || walking.tour != nil
-        return Button {
-            if paused {
-                walking.resume(source: .phone)
-            } else {
-                Task { await walking.start() }
-            }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: continues ? "play.fill" : "figure.walk")
-                    .font(.system(size: 22, weight: .semibold))
-                    .accessibilityHidden(true)
-                Text(continues ? AroundTexts.continueWalk(language) : AroundTexts.goForAWalk(language))
-                    .font(.custom(Theme.FontName.medium, size: 20, relativeTo: .title3))
-                Spacer(minLength: 0)
-                if walking.isStarting {
-                    ProgressView().tint(Theme.Colour.forest)
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 17, weight: .semibold))
-                        .accessibilityHidden(true)
-                }
-            }
-            .frame(minHeight: 56)
-        }
-        .buttonStyle(.themePrimary(.coral))
-        .disabled(walking.isStarting)
     }
 
     // MARK: - Expanded

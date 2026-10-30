@@ -2,11 +2,13 @@ import MyGuideCore
 import SwiftUI
 import UIKit
 
-/// The «Turer» tab (tours spec 6): two cards, «Rundtur» with the duration chips and «Til et sted» with a destination
-/// field (Apple Maps style suggestions), «Lag tur» with its progress line and cancel, and the preview pushed when a
-/// tour is ready.
+/// The «Turer» tab (tours spec 6; spec 14, amended 2026-10-30): two cards, «Rundtur» with the duration chips and «Til et
+/// sted» with a destination field (Apple Maps style suggestions), «Lag tur» with its progress line and cancel, and the
+/// preview pushed when a tour is ready. Pinned at the bottom, nearest the thumb, the wide coral «Gå en tur» starts a
+/// free walk while none runs; while one runs, the walking line over the tab bar takes its place.
 struct ToursTab: View {
     let model: TourBuilderModel
+    let walking: WalkingController
     let language: StoryLanguage
     /// «Start turen»: the seam to whatever starts a tour. HomeScreen passes it in; this screen only hands the routed
     /// tour over and closes the preview.
@@ -16,7 +18,7 @@ struct ToursTab: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.margin) {
-                    Text(ToursTexts.tab(language))
+                    Text(ToursTexts.heading(language))
                         .font(Theme.Font.display)
                         .accessibilityAddTraits(.isHeader)
                     LoopCard(model: model, language: language)
@@ -29,6 +31,7 @@ struct ToursTab: View {
                 .padding(.vertical, Theme.Spacing.unit)
             }
             .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) { freeWalk }
             .background(Theme.Colour.background)
             .navigationTitle(ToursTexts.tab(language))
             .toolbar(.hidden, for: .navigationBar)
@@ -56,13 +59,43 @@ struct ToursTab: View {
         }
     }
 
+    /// «Gå en tur» with its line and the first thing that keeps walking mode from starting; nothing while a walk or a
+    /// tour runs.
+    @ViewBuilder
+    private var freeWalk: some View {
+        if !walking.isOn, walking.tour == nil {
+            VStack(spacing: Theme.Spacing.unit) {
+                WalkButton(walking: walking, language: language)
+                Text(AroundTexts.walkLine(language))
+                    .font(.custom(Theme.FontName.regular, size: 15, relativeTo: .subheadline))
+                    .multilineTextAlignment(.center)
+                    .opacity(0.75)
+                    .frame(maxWidth: .infinity)
+                if let problem = walking.problems.first {
+                    Label(problem.text(language), systemImage: "exclamationmark.triangle")
+                        .font(Theme.Font.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .foregroundStyle(Theme.Colour.text)
+            .padding(.horizontal, Theme.Spacing.margin)
+            .padding(.top, 12)
+            .padding(.bottom, Theme.Spacing.unit)
+            .background(Theme.Colour.background)
+            .overlay(alignment: .top) {
+                Rectangle().fill(Theme.Colour.stone).frame(height: 1).accessibilityHidden(true)
+            }
+        }
+    }
+
     private var makeButton: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.unit) {
             Button(ToursTexts.makeTour(language)) {
                 hideKeyboard()
                 model.makeTour()
             }
-            .buttonStyle(.themePrimary())
+            // Forest: the coral «Gå en tur» under it is the tab's main action.
+            .buttonStyle(.themePrimary(.forest))
             .disabled(!model.canMakeTour)
             if model.mode == .destination, model.destination == nil {
                 Text(ToursTexts.chooseDestinationFirst(language))

@@ -77,6 +77,7 @@
 		8B7E6D8608D5BF5E586060EA /* TourBuilderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A73709B779C58B549DA4E0E /* TourBuilderModel.swift */; };
 		8D2D4C576AFFAF1A8E839F8C /* DiaryWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */; };
 		905824F7EBF51627F65B0892 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */; };
+		9373606D745F1179CBBFDD37 /* WalkingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F84EFDF23EA7495FB2965D7 /* WalkingSheet.swift */; };
 		97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17369DDFB4641A31AB96A84 /* MapKitPointsOfInterest.swift */; };
 		9DA37619047F12C30CC86893 /* StoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0127669306FC88F71BBCDBF8 /* StoryView.swift */; };
 		9E23E4CBE38A81B7D26726C5 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
@@ -92,6 +93,7 @@
 		BAD5F8E212C6B6EF0EABA022 /* WalkingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */; };
 		BC7EFBCFC2635F7B838E46A8 /* PlayfairDisplay-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = EDB7703806A54E096F340BB7 /* PlayfairDisplay-Variable.ttf */; };
 		BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A0ACAF446AF02D2A0A9342 /* HomeScreen.swift */; };
+		BE41DE9982569C08E040E79F /* WalkingLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997E7F0F5888B2AFC5E9E289 /* WalkingLine.swift */; };
 		CAFCADF5204731FA803F3A6E /* WalkingCheckTexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4CC90AED36E7BE9B9CF85E /* WalkingCheckTexts.swift */; };
 		CB892EAF08D652A33BE6AA47 /* PlayfairDisplay-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */; };
 		CDFAD1A0883E09219D87E2AD /* BackgroundTaskHold.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB62877340E610053D66495A /* BackgroundTaskHold.swift */; };
@@ -207,6 +209,7 @@
 		3E1064ACFCDD9517CE23D9FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4BCFB8770C7FB31C9B5BF500 /* LibraryImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryImport.swift; sourceTree = "<group>"; };
 		4D718A718A1BAB633570C16E /* WalkingCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingCheckView.swift; sourceTree = "<group>"; };
+		4F84EFDF23EA7495FB2965D7 /* WalkingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingSheet.swift; sourceTree = "<group>"; };
 		4FB0C4B33491441C91061488 /* MyGuideWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGuideWatchApp.swift; sourceTree = "<group>"; };
 		517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLiveActivity.swift; sourceTree = "<group>"; };
 		5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryViewModel.swift; sourceTree = "<group>"; };
@@ -240,6 +243,7 @@
 		962FB606403221C1C07B5A34 /* WalkLogListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLogListView.swift; sourceTree = "<group>"; };
 		96B316F6601D1952CFEF86BE /* MyGuide.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyGuide.entitlements; sourceTree = "<group>"; };
 		96D41BC2F7B13FA2E2A7BE52 /* NotificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationViewController.swift; sourceTree = "<group>"; };
+		997E7F0F5888B2AFC5E9E289 /* WalkingLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLine.swift; sourceTree = "<group>"; };
 		99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPayload.swift; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryWork.swift; sourceTree = "<group>"; };
@@ -515,9 +519,11 @@
 				23B3E343968ADF021EB8AD08 /* BuzzNotifier.swift */,
 				E47FCEE28142E00F0C492A5A /* WalkingActivityController.swift */,
 				90746D6CA8E40DE76B97D622 /* WalkingController.swift */,
+				997E7F0F5888B2AFC5E9E289 /* WalkingLine.swift */,
 				728AEADA8D4211DF8987F3AA /* WalkingLocation.swift */,
 				8BB1989E11EB46A9F381B28D /* WalkingMotion.swift */,
 				9399C561071230F13BDD5526 /* WalkingPanel.swift */,
+				4F84EFDF23EA7495FB2965D7 /* WalkingSheet.swift */,
 				DC982992B37C30453C7F88D8 /* WalkingStories.swift */,
 				A1937BD8CD114DE987914DC8 /* WalkLog.swift */,
 				5E7A49C840514706DE718EF1 /* WalkStoryView.swift */,
@@ -884,9 +890,11 @@
 				CAFCADF5204731FA803F3A6E /* WalkingCheckTexts.swift in Sources */,
 				D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */,
 				0D2B5B8D505B303F92B8CF04 /* WalkingController.swift in Sources */,
+				BE41DE9982569C08E040E79F /* WalkingLine.swift in Sources */,
 				EC6DC3036B2DE3C3D1B8572F /* WalkingLocation.swift in Sources */,
 				5E68A6D38C8E497826AB6A2F /* WalkingMotion.swift in Sources */,
 				6CAFAF4562FB87C72F4F72F4 /* WalkingPanel.swift in Sources */,
+				9373606D745F1179CBBFDD37 /* WalkingSheet.swift in Sources */,
 				357BDDD00F40A1DF41E20DC6 /* WalkingStories.swift in Sources */,
 				F0B8DAD8B104CB1D547EA859 /* WatchLink.swift in Sources */,
 			);

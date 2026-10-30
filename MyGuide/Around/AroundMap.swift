@@ -6,8 +6,10 @@ import SwiftUI
 /// with a view cone while the heading is reliable, and an accuracy circle while the fix is too poor to select from;
 /// the notify-worthy places as forest markers and the selected one as a coral pin. A tap on a marker chooses it.
 /// On the first fix the map frames about `ownerSpan` metres around the owner, once, and follows them from there
-/// until they pan or zoom by hand (spec 16.2); then it never re-centres by itself. The round locate button re-centres, follows the owner
-/// again and resumes automatic selection (spec 16.1); MapKit's compass sits above it.
+/// until they pan or zoom by hand (spec 16.2); then it never re-centres by itself. The round locate button re-centres,
+/// follows the owner again and resumes automatic selection (spec 16.1). Above it, in place of MapKit's compass, the
+/// direction badge, a north arrow pointing to north as seen from the phone, moving only once the heading is 10° from
+/// what it shows (spec 14, amended 2026-10-30); a tap turns a rotated map back to north.
 ///
 /// During a tour (tours spec 6) the map also shows its route as forest lines (straight stand-ins dashed) and its stops
 /// as numbered pins, the next one coral, in place of their place markers (the selected place keeps its pin); a tap on
@@ -23,16 +25,22 @@ struct AroundMap: View {
 
     /// The map camera's heading, so the cone points the right way when the owner has rotated the map.
     @State private var cameraHeading: CLLocationDirection = 0
+    /// The map camera as last reported, so the direction badge can turn it back to north where it stands.
+    @State private var lastCamera: MapCamera?
+    /// The phone heading the north arrow shows, moved in steps of at least 10° (`NorthArrow`); nil without a compass
+    /// heading.
+    @State private var shownHeading: Double?
+    /// The arrow's turn in degrees, summed step by step so a step across north (355° → 5°) turns 10°, not back 350°.
+    @State private var arrowAngle: Double = 0
     /// Set once the first fix has been framed, so later fixes never move the map.
     @State private var framedOwner = false
     /// True from the first framing and after locate, until the owner pans or zooms by hand.
     @State private var following = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var mapScope
 
     var body: some View {
         ZStack {
-            Map(position: $position, scope: mapScope) {
+            Map(position: $position) {
                 if model.positionIsPoor, let centre = model.position, let accuracy = model.positionAccuracy {
                     MapCircle(center: centre.clCoordinate, radius: accuracy)
                         .foregroundStyle(Theme.Colour.forest.opacity(0.12))
@@ -54,20 +62,27 @@ struct AroundMap: View {
             .mapControls {}
             .onMapCameraChange(frequency: .continuous) { context in
                 if cameraHeading != context.camera.heading { cameraHeading = context.camera.heading }
+                lastCamera = context.camera
             }
             // The free part of the map, inside the safe area; transparent to touches, its buttons are not.
             Color.clear
                 .allowsHitTesting(false)
                 .overlay(alignment: .topTrailing) { controls }
         }
-        .mapScope(mapScope)
         .onChange(of: model.position, initial: true) { _, position in follow(position) }
+        // The heading changes many times a second; the arrow only once it is 10° from what the arrow shows.
+        .onChange(of: model.compassHeading, initial: true) { _, heading in
+            let next = heading.flatMap { NorthArrow.next(shown: shownHeading, heading: $0) }
+            guard next != shownHeading else { return }
+            // The arrow points to north as seen from the phone: minus the heading, by the short way.
+            arrowAngle -= GeoMath.signedOffset(from: shownHeading ?? 0, to: next ?? 0)
+            shownHeading = next
+        }
     }
 
     private var controls: some View {
         VStack(spacing: Theme.Spacing.unit) {
-            MapCompass(scope: mapScope)
-                .mapControlVisibility(.visible)
+            directionBadge
             Button(action: locate) {
                 Image(systemName: "location.fill")
                     .font(.system(size: 18, weight: .semibold))
@@ -81,6 +96,39 @@ struct AroundMap: View {
         }
         .padding(.trailing, Theme.Spacing.margin)
         .padding(.top, Theme.Spacing.unit)
+    }
+
+    /// A north arrow in an ivory circle: it points to north as seen from the phone, moving only once the heading is
+    /// 10° from what it shows, not with every sample. Without a compass heading it points up, dimmed. A tap turns a
+    /// map the owner rotated back to north.
+    private var directionBadge: some View {
+        Button(action: turnNorth) {
+            NorthArrowMark()
+                .rotationEffect(.degrees(arrowAngle))
+                .opacity(shownHeading == nil ? 0.4 : 1)
+                .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: arrowAngle)
+                .frame(width: Theme.minimumTouchHeight, height: Theme.minimumTouchHeight)
+                .background(Theme.Colour.ivory, in: Circle())
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AroundTexts.facingLabel(shownHeading.map(CompassPoint.init(degrees:)), language))
+        .accessibilityHint(mapIsRotated ? AroundTexts.turnNorthHint(language) : "")
+    }
+
+    private var mapIsRotated: Bool {
+        abs(GeoMath.signedOffset(from: 0, to: cameraHeading)) > 1
+    }
+
+    /// Turns a rotated map back to north around where it stands; nothing when it already points north.
+    private func turnNorth() {
+        guard mapIsRotated, var camera = lastCamera else { return }
+        camera.heading = 0
+        if reduceMotion {
+            position = .camera(camera)
+        } else {
+            withAnimation(.easeInOut(duration: 0.3)) { position = .camera(camera) }
+        }
     }
 
     /// Re-centres on the owner at the framing span and follows them again; automatic selection resumes.
@@ -266,5 +314,34 @@ private struct ViewCone: Shape {
 private extension Coordinate {
     var clCoordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+/// The badge's arrow: a coral needle with a small «N» at its tip.
+private struct NorthArrowMark: View {
+    var body: some View {
+        ZStack {
+            Needle()
+                .fill(Theme.Colour.coral)
+                .frame(width: 12, height: 20)
+                .offset(y: -2)
+            Text("N")
+                .font(.custom(Theme.FontName.medium, size: 9, relativeTo: .caption2))
+                .foregroundStyle(Theme.Colour.forest)
+                .offset(y: -18)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A slim triangle pointing up.
+private struct Needle: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.closeSubpath()
+        }
     }
 }

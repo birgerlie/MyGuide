@@ -15,6 +15,34 @@ enum AroundTexts {
         language == .norwegian ? "Utforsk" : "Explore"
     }
 
+    // MARK: Direction badge (spec 14, amended 2026-10-30)
+
+    /// «Du peker mot nordvest» / «Facing north-west»; without a reliable heading, that the direction is unknown.
+    static func facingLabel(_ point: CompassPoint?, _ language: StoryLanguage) -> String {
+        guard let point else {
+            return language == .norwegian ? "Retning ukjent" : "Direction unknown"
+        }
+        return language == .norwegian ? "Du peker mot \(point.words(language))" : "Facing \(point.words(language))"
+    }
+
+    static func turnNorthHint(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Snur kartet mot nord" : "Turns the map to north"
+    }
+
+    static func cameraTab(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Kamera" : "Camera"
+    }
+
+    // MARK: Walking line and sheet (spec 14, amended 2026-10-30)
+
+    static func walkingLineHint(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Viser gåmodus med pause og avslutt" : "Shows walking mode with pause and stop"
+    }
+
+    static func walkingSheetTitle(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Gåmodus" : "Walking mode"
+    }
+
     static func diaryTab(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Dagbok" : "Diary"
     }
@@ -80,11 +108,7 @@ enum AroundTexts {
         isSelected ? "\(name), \(selected(language))" : name
     }
 
-    // MARK: Camera button (spec 14, 16.5)
-
-    static func lookingAt(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Hva ser jeg på?" : "What am I looking at?"
-    }
+    // MARK: Camera tab (spec 14, amended 2026-10-30)
 
     static func cameraLabel(_ language: StoryLanguage) -> String {
         language == .norwegian ? "Ta bilde for å identifisere et sted" : "Take a photo to identify a place"

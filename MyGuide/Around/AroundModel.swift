@@ -31,6 +31,9 @@ final class AroundModel {
     /// The smoothed phone heading, only while it is reliable (heading accuracy and position accuracy within the
     /// limits of spec 6.4); nil means no view cone.
     private(set) var heading: Double?
+    /// The smoothed phone heading whenever there is one, however poor the fix: the map's direction badge only needs
+    /// the compass point, which the position's accuracy does not change (spec 14, amended 2026-10-30).
+    private(set) var compassHeading: Double?
     /// Whole seconds since the shown list was fetched; nil without a list, or when it is dated in the future. The map
     /// shows it when it is over 600 s (spec 5).
     private(set) var listAge: TimeInterval?
@@ -93,6 +96,7 @@ final class AroundModel {
         phoneHeading.stop()
         phoneHeading.onChange = nil
         heading = nil
+        compassHeading = nil
         services.walking.noteMapHidden()
     }
 
@@ -179,6 +183,8 @@ final class AroundModel {
         let reliable = config.headingIsReliable(heading: smoothed, headingAccuracy: headingAccuracy,
                                                 positionAccuracy: fix?.accuracy)
         assign(heading: reliable ? smoothed : nil)
+        let compass = smoothed.flatMap { $0.isFinite ? $0 : nil }
+        if compassHeading != compass { compassHeading = compass }
         guard let fix else { return nil }
         return SelectionInput(vectors: PlaceVector.from(position: fix.coordinate, places: places),
                               positionAccuracy: fix.accuracy, heading: smoothed, headingAccuracy: headingAccuracy,

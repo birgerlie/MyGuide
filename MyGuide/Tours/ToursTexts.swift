@@ -6,7 +6,11 @@ enum ToursTexts {
     // MARK: Tab and builder
 
     static func tab(_ language: StoryLanguage) -> String {
-        language == .norwegian ? "Turer" : "Tours"
+        language == .norwegian ? "Turer" : "Walks"
+    }
+
+    static func heading(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Hvordan vil du gå?" : "How do you want to walk?"
     }
 
     static func loopTitle(_ language: StoryLanguage) -> String {

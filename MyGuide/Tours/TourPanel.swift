@@ -1,11 +1,11 @@
 import MyGuideCore
 import SwiftUI
 
-/// The running tour in the «Rundt deg» sheet, in the place of «Gå en tur» (tours spec 6): «Neste: Pantheon · 300 m»
+/// The running tour in the walking sheet (tours spec 6; spec 14, amended 2026-10-30): «Neste: Pantheon · 300 m»
 /// with «2 av 6», then «Tilbake til start» (or «Fram til målet») once every stop is done, and «Turen er ferdig · 6
 /// stopp · 1 t 31 min» at the end; «Hopp over stopp» while a stop is next, and «Avslutt turen», which asks first while
-/// stops remain. Ending the tour also ends walking mode; «Lukk» on the finished tour clears it and walking goes on. The walking panel, or «Fortsett turen», sits under it
-/// (`AroundSheet`).
+/// stops remain. Ending the tour also ends walking mode; «Lukk» on the finished tour clears it and walking goes on.
+/// The walking panel, or «Fortsett turen», sits under it (`WalkingSheet`).
 struct TourPanel: View {
     let walking: WalkingController
     let tour: ActiveTour
@@ -56,6 +56,24 @@ struct TourPanel: View {
         } message: {
             Text(ToursTexts.stopsLeft(remaining, language))
         }
+    }
+
+    /// The tour in one line for the walking line (spec 14, amended 2026-10-30) and its symbol: «Neste: Pantheon ·
+    /// 300 m · 2 av 6», the final leg with its progress, or the finished tour.
+    static func line(_ tour: ActiveTour, position: Coordinate?, language: StoryLanguage) -> (text: String, symbol: String) {
+        if tour.isFinished {
+            return (TourFormat.finished(stops: tour.visitedCount, seconds: tour.walkingSeconds ?? 0, language: language),
+                    "flag.checkered")
+        }
+        let progress = TourFormat.progress(done: tour.progress.done, total: tour.progress.total, language: language)
+        if let next = tour.next {
+            let text = TourFormat.nextStop(next.name, metres: position.map { GeoMath.distance($0, next.coordinate) },
+                                           language: language)
+            return ("\(text) · \(progress)", "mappin.and.ellipse")
+        }
+        let isLoop = tour.routed.plan.kind == .loop
+        return ("\(ToursTexts.finalLeg(isLoop: isLoop, language)) · \(progress)",
+                isLoop ? "arrow.uturn.backward" : "flag.checkered")
     }
 
     @ViewBuilder

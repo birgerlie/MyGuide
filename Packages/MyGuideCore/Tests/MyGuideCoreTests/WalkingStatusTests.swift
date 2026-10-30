@@ -46,6 +46,56 @@ import Testing
         #expect(WalkingStatus.text(isOn: false, lastFixAt: nil, buzzCount: 2, now: Self.t0, pause: .auto) == nil)
     }
 
+    @Test func lineIsNilWhenOff() {
+        #expect(WalkingStatus.line(isOn: false, startedAt: Self.t0, lastFixAt: Self.t0, now: Self.t0, pause: nil,
+                                   language: .norwegian) == nil)
+        #expect(WalkingStatus.line(isOn: false, startedAt: nil, lastFixAt: nil, now: Self.t0, pause: .manual,
+                                   language: .english) == nil)
+    }
+
+    @Test func lineShowsTheTimeSinceTheStart() {
+        // Hand: 42 min = 2520 s → «42 min». 2549 s = 42.48 min → rounds to 42; 2550 s = 42.5 → 43 (nearest, half up).
+        // 3900 s = 65 min → «1 t 5 min» / «1 h 5 min». 0 s → «0 min».
+        let fix = Self.t0 + 3900
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: Self.t0 + 2520, now: Self.t0 + 2520,
+                                   pause: nil, language: .norwegian) == .walking("Gåmodus · 42 min"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: Self.t0 + 2549, now: Self.t0 + 2549,
+                                   pause: nil, language: .norwegian) == .walking("Gåmodus · 42 min"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: Self.t0 + 2550, now: Self.t0 + 2550,
+                                   pause: nil, language: .norwegian) == .walking("Gåmodus · 43 min"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: fix, now: fix, pause: nil,
+                                   language: .norwegian) == .walking("Gåmodus · 1 t 5 min"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: fix, now: fix, pause: nil,
+                                   language: .english) == .walking("Walking · 1 h 5 min"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: Self.t0, now: Self.t0, pause: nil,
+                                   language: .english) == .walking("Walking · 0 min"))
+    }
+
+    @Test func lineWithoutAStartIsJustWalking() {
+        #expect(WalkingStatus.line(isOn: true, startedAt: nil, lastFixAt: Self.t0, now: Self.t0, pause: nil,
+                                   language: .norwegian) == .walking("Gåmodus"))
+    }
+
+    @Test func lineWaitsForGPSAfter120Seconds() {
+        // Hand: fix age 120 s = staleAfter → still walking (2 min since start); 121 s → waiting; no fix → waiting.
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: Self.t0, now: Self.t0 + 120, pause: nil,
+                                   language: .norwegian) == .walking("Gåmodus · 2 min"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: Self.t0, now: Self.t0 + 121, pause: nil,
+                                   language: .norwegian) == .waitingForGPS("Venter på GPS"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: nil, now: Self.t0, pause: nil,
+                                   language: .english) == .waitingForGPS("Waiting for GPS"))
+    }
+
+    @Test func linePausedWinsOverWaitingForGPS() {
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: nil, now: Self.t0, pause: .manual,
+                                   language: .norwegian) == .paused("Pauset"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: nil, now: Self.t0, pause: .auto,
+                                   language: .norwegian) == .paused("Pauset · står stille"))
+        #expect(WalkingStatus.line(isOn: true, startedAt: Self.t0, lastFixAt: nil, now: Self.t0, pause: .auto,
+                                   language: .english) == .paused("Paused · not moving"))
+        #expect(WalkingStatus.Line.paused("Paused").text == "Paused")
+    }
+
     @Test func pausedStaleDate() {
         // Hand: t0 + 120.
         #expect(WalkingStatus.pausedStaleDate(now: Self.t0) == Self.t0 + 120)
