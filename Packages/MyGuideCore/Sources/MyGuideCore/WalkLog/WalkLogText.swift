@@ -14,9 +14,9 @@ public enum WalkLogText {
             return "Fix ±\(whole(f.accuracy)) m\(suffix)"
         case .gps(let found): return found ? "GPS found" : "GPS lost"
         case .fetchStarted: return "Fetching places"
-        case .fetched(let count, let top, let good, _, _, let osmFailed, let osmErrors):
+        case .fetched(let count, let top, let good, _, _, let osmFailed, let osmErrors, _, let dropped, _):
             return "Fetched \(count) places (\(top) top, \(good) good)" + (osmFailed ? " · OpenStreetMap failed" : "")
-                + endpoints(osmErrors)
+                + endpoints(osmErrors) + (dropped.isEmpty ? "" : " · dropped \(dropped.joined(separator: ", "))")
         case .fetchFailed(let error, let osmErrors): return "Fetch failed: \(error)" + endpoints(osmErrors)
         case .quiet(let reason, let due):
             guard !due.isEmpty else { return "Quiet: \(reason.rawValue)" }

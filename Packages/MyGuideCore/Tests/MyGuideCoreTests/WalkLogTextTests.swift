@@ -12,6 +12,10 @@ import Testing
                                                    osmErrors: ["overpass-api.de: timed out", "maps.mail.ru: HTTP 504"])
         #expect(WalkLogText.line(withErrors)
                 == "Fetched 15 places (0 top, 0 good) · OpenStreetMap failed (overpass-api.de: timed out; maps.mail.ru: HTTP 504)")
+        let dropped = WalkLogEvent.Kind.fetched(count: 5, top: 3, good: 2, wikiOnly: 0, places: [], osmFailed: true,
+                                                osmErrors: ["slow"], facts: 8, dropped: ["Jesuittordenen", "Liberatores"])
+        #expect(WalkLogText.line(dropped)
+                == "Fetched 5 places (3 top, 2 good) · OpenStreetMap failed (slow) · dropped Jesuittordenen, Liberatores")
     }
 
     @Test func fetchFailedLine() {

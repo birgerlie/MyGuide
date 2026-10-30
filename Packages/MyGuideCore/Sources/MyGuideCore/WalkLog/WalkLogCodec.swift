@@ -92,7 +92,8 @@ public enum WalkLogCodec {
             return ["state": found ? "found" : "lost"]
         case .fetchStarted(let c):
             return ["lat": coordinate(c.latitude), "lon": coordinate(c.longitude)]
-        case .fetched(let count, let top, let good, let wikiOnly, let places, let osmFailed, let osmErrors):
+        case .fetched(let count, let top, let good, let wikiOnly, let places, let osmFailed, let osmErrors, let facts,
+                      let dropped, let factsFailed):
             let list: [[String: Any]] = places.map {
                 ["id": $0.id, "name": $0.name, "tier": $0.tier.rawValue,
                  "lat": coordinate($0.coordinate.latitude), "lon": coordinate($0.coordinate.longitude)]
@@ -101,6 +102,9 @@ public enum WalkLogCodec {
                                     "osmFailed": osmFailed]
             // Written only when there is something to say, so a line without a failure looks as before.
             if !osmErrors.isEmpty { o["osmErrors"] = osmErrors }
+            if facts != 0 { o["facts"] = facts }
+            if !dropped.isEmpty { o["dropped"] = dropped }
+            if factsFailed != 0 { o["factsFailed"] = factsFailed }
             return o
         case .fetchFailed(let error, let osmErrors):
             var o: [String: Any] = ["error": error]
@@ -248,8 +252,24 @@ public enum WalkLogCodec {
                 osmFailed = flag
             }
             guard let osmErrors = osmErrors(o) else { return nil }
+            // Absent in lines written before Wikidata facts (spec 19.8) and when there is nothing to say; present,
+            // they must be readable.
+            var facts = 0, factsFailed = 0
+            var dropped: [String] = []
+            if o["facts"] != nil {
+                guard let value = int(o, "facts") else { return nil }
+                facts = value
+            }
+            if o["factsFailed"] != nil {
+                guard let value = int(o, "factsFailed") else { return nil }
+                factsFailed = value
+            }
+            if let value = o["dropped"] {
+                guard let names = value as? [String] else { return nil }
+                dropped = names
+            }
             return .fetched(count: count, top: top, good: good, wikiOnly: wikiOnly, places: places, osmFailed: osmFailed,
-                            osmErrors: osmErrors)
+                            osmErrors: osmErrors, facts: facts, dropped: dropped, factsFailed: factsFailed)
         case "fetchFailed":
             guard let error = string(o, "error"), let osmErrors = osmErrors(o) else { return nil }
             return .fetchFailed(error: error, osmErrors: osmErrors)

@@ -31,6 +31,8 @@ import Testing
             .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true),
             .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true,
                      osmErrors: ["overpass-api.de: timed out", "overpass.kumi.systems: HTTP 504"]),
+            .fetched(count: 0, top: 0, good: 0, wikiOnly: 0, places: [], osmFailed: true, osmErrors: ["slow"],
+                     facts: 12, dropped: ["Jesuittordenen", "École française de Rome"], factsFailed: 1),
             .fetchFailed(error: "timeout \"x\""),
             .fetchFailed(error: "http(500)", osmErrors: ["overpass-api.de: HTTP 500"]),
             .quiet(.busy, due: [DuePlace(id: "osm:node/1", name: "Akershus festning", tier: .top, distance: 52, excluded: true)]),
@@ -196,7 +198,7 @@ import Testing
         var places: [WalkingPlace] = []
         for i in 0..<160 { places.append(place(i, i < 10 ? .top : (i < 110 ? .good : .wikiOnly))) }
         let kind = WalkLogEvent.fetched(places.reversed(), around: around, osmFailed: false)
-        guard case .fetched(let count, let top, let good, let wikiOnly, let listed, let osmFailed, _) = kind else { Issue.record("not fetched"); return }
+        guard case .fetched(let count, let top, let good, let wikiOnly, let listed, let osmFailed, _, _, _, _) = kind else { Issue.record("not fetched"); return }
         #expect(!osmFailed)
         #expect(count == 160)
         #expect(top == 10)
@@ -227,6 +229,33 @@ import Testing
         // A present but unreadable value makes the line unreadable, like every other field.
         let bad = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":"yes"}"#
         #expect(WalkLogCodec.event(from: Data(bad.utf8)) == nil)
+    }
+
+    @Test func factsAndDroppedAreWrittenOnlyWhenPresentAndOldLinesDecode() throws {
+        let place = WalkingPlace(candidate: Candidate(id: "wiki:it/1", name: "Il Gesù", coordinate: Self.c,
+                                                      kind: "wikipedia"), tier: .top)
+        let kind = WalkLogEvent.fetched([place], around: Self.c, osmFailed: true, osmErrors: ["slow"], facts: 3,
+                                        dropped: ["Jesuittordenen"], factsFailed: 2)
+        let o = Self.json(WalkLogEvent(at: Self.t0, kind: kind))
+        #expect(o["facts"] as? Int == 3)
+        #expect(o["dropped"] as? [String] == ["Jesuittordenen"])
+        #expect(o["factsFailed"] as? Int == 2)
+        let line = WalkLogCodec.line(WalkLogEvent(at: Self.t0, kind: kind))
+        #expect(WalkLogCodec.event(from: line)?.kind == kind)
+        // Nothing to say: the fields are left out, so the line looks as before.
+        let plain = Self.json(WalkLogEvent(at: Self.t0, kind: WalkLogEvent.fetched([place], around: Self.c, osmFailed: false)))
+        #expect(plain["facts"] == nil && plain["dropped"] == nil && plain["factsFailed"] == nil)
+        // A line written before the fields existed reads with 0 / [] / 0.
+        let old = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":false}"#
+        guard case .fetched(_, _, _, _, _, _, _, let facts, let dropped, let factsFailed)?
+                = WalkLogCodec.event(from: Data(old.utf8))?.kind else { Issue.record("not fetched"); return }
+        #expect(facts == 0 && dropped.isEmpty && factsFailed == 0)
+        // Present but unreadable: the line is unreadable, like every other field.
+        let prefix = #"{"e":"fetched","t":"2026-01-01T10:00:00.000Z","count":0,"top":0,"good":0,"wikiOnly":0,"places":[],"osmFailed":false,"#
+        for bad in [#""facts":"3"}"#, #""facts":1.5}"#, #""dropped":"Jesuittordenen"}"#, #""dropped":[1]}"#,
+                    #""factsFailed":"x"}"#] {
+            #expect(WalkLogCodec.event(from: Data((prefix + bad).utf8)) == nil, "\(bad)")
+        }
     }
 
     @Test func osmErrorsAreWrittenOnlyWhenPresentAndOldLinesDecode() throws {

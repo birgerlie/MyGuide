@@ -60,7 +60,7 @@ public struct WalkLogSummary: Sendable, Equatable {
         for event in events {
             switch event.kind {
             case .fetchStarted: fetches += 1
-            case .fetched(_, _, _, _, let listed, _, _): placeIDs.formUnion(listed.map(\.id))
+            case .fetched(_, _, _, _, let listed, _, _, _, _, _): placeIDs.formUnion(listed.map(\.id))
             case .fetchFailed: fetchFailures += 1; failures += 1
             case .buzz: buzzes += 1
             case .notified: notifications += 1
@@ -104,7 +104,7 @@ public struct WalkLogMapData: Sendable, Equatable {
         var inPause = false
         for event in events {
             switch event.kind {
-            case .fetched(_, _, _, _, let listed, _, _):
+            case .fetched(_, _, _, _, let listed, _, _, _, _, _):
                 for place in listed {
                     if byID[place.id] == nil { order.append(place.id) }
                     byID[place.id] = place
