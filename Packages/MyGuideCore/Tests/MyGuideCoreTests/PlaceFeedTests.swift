@@ -339,6 +339,23 @@ import Testing
         #expect(f.shouldFetch(at: .at(), now: Self.t0 + 60))
     }
 
+    @Test func osmFailedRetryUsesTheListsBackedOffAge() {
+        // Spec 20.8: a list whose OSM part failed for the second time in a row asks for its retry after 120 s.
+        var f = PlaceFeed()
+        f.fetchStarted(now: Self.t0)
+        f.fetchSucceeded([Self.castle], at: .at(), now: Self.t0, osmFailed: true, fetchedAt: Self.t0, osmRetryAge: 120)
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 119))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 120))
+        // The third: 300 s.
+        f.fetchStarted(now: Self.t0 + 120)
+        f.fetchSucceeded([Self.castle], at: .at(), now: Self.t0 + 121, osmFailed: true, fetchedAt: Self.t0 + 121,
+                         osmRetryAge: 300)
+        #expect(!f.shouldFetch(at: .at(), now: Self.t0 + 420))
+        #expect(f.shouldFetch(at: .at(), now: Self.t0 + 421))
+        // Moving 250 m still refetches at once, whatever the age.
+        #expect(f.shouldFetch(at: .at(north: 250), now: Self.t0 + 122))
+    }
+
     @Test func completeListKeepsTheDistanceRule() {
         var f = PlaceFeed()
         f.fetchStarted(now: Self.t0)

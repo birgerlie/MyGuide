@@ -81,7 +81,7 @@ public actor NearbyPlaces {
     }
 
     /// Whether a fix at `position` should start a refresh (a list whose OpenStreetMap part failed counts as old from
-    /// `NearbyList.osmFailedRetryAge` on, for foreground and walking):
+    /// its `NearbyList.osmRetryAge` on, 60, 120 then 300 s while it keeps failing, for foreground and walking):
     /// - foreground: no list, or the list is ≥ `foregroundDistance` away or older than `NearbyList.freshAge`;
     ///   never within `foregroundInterval` of the last fetch attempt;
     /// - walking: no list, or the list is ≥ `walkingDistance` away or older than `NearbyList.freshAge` (a list
@@ -154,6 +154,8 @@ public actor NearbyPlaces {
                 do {
                     let found = try await fetcher.candidates(around: position, language: language)
                     let fetchedAt = self.now()
+                    let streak = NearbyList.osmFailureStreak(previous: list(for: language), osmFailed: found.osmFailed,
+                                                             centre: position, fetchedAt: fetchedAt)
                     let candidates = found.osmFailed
                         ? withCarriedOSMPlaces(found.candidates, around: position, language: language, now: fetchedAt)
                         : found.candidates
@@ -163,7 +165,8 @@ public actor NearbyPlaces {
                                                                             language: language),
                                           osmFailed: found.osmFailed, osmErrors: found.osmErrors,
                                           factsCount: found.factsCount, dropped: found.dropped,
-                                          factsFailed: found.factsFailed)
+                                          factsFailed: found.factsFailed, osmFailedStreak: streak.streak,
+                                          osmFailedSince: streak.since)
                     generation[language, default: 0] += 1
                     keep(list)
                     lastOutcome[language] = .success(list)
@@ -290,7 +293,7 @@ public actor NearbyPlaces {
         return GeoMath.distance(list.centre, position) >= Self.foregroundDistance || Self.isOld(list, now: now)
     }
 
-    /// Older than `NearbyList.freshAge`, or at least `NearbyList.osmFailedRetryAge` old when its OpenStreetMap part
+    /// Older than `NearbyList.freshAge`, or at least its `NearbyList.osmRetryAge` old when its OpenStreetMap part
     /// failed. A list dated in the future (the clock was set back) has an unknown age and counts as old.
     private static func isOld(_ list: NearbyList, now: Date) -> Bool {
         let age = now.timeIntervalSince(list.fetchedAt)

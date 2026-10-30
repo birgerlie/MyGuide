@@ -1192,8 +1192,8 @@ final class WalkingController {
     }
 
     /// Brings the feed up to date through the shared nearby list (trigger `.walking`). `PlaceFeed` still gates when
-    /// this runs (250 m, 60 s after a failure, or 15, 30 then 60 s while the walk has no places, and 60 s after a list
-    /// whose OpenStreetMap part failed); the list then decides between:
+    /// this runs (250 m, 60 s after a failure, or 15, 30 then 60 s while the walk has no places, and 60, 120 then 300 s
+    /// after lists whose OpenStreetMap part keeps failing, spec 20.8); the list then decides between:
     /// - a network refresh: walk log `fetchStarted`, then `fetched` or `fetchFailed`, as before;
     /// - its current list, when that is near and recent enough that it would not refresh (for example one the camera
     ///   just fetched here): the feed takes it, logged as `fetched` around the list's centre with no `fetchStarted`,
@@ -1238,7 +1238,7 @@ final class WalkingController {
                     }
                     let places = list.walkingPlaces
                     self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
-                                             fetchedAt: list.fetchedAt)
+                                             fetchedAt: list.fetchedAt, osmRetryAge: list.osmRetryAge)
                     self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
                                                           osmErrors: list.osmErrors, facts: list.factsCount,
                                                           dropped: list.dropped, factsFailed: list.factsFailed))
@@ -1269,7 +1269,7 @@ final class WalkingController {
                 self.onListRefreshed?(list)
                 let places = list.walkingPlaces
                 self.feed.fetchSucceeded(places, at: list.centre, now: .now, osmFailed: list.osmFailed,
-                                         fetchedAt: list.fetchedAt)
+                                         fetchedAt: list.fetchedAt, osmRetryAge: list.osmRetryAge)
                 self.walkLog.log(WalkLogEvent.fetched(places, around: list.centre, osmFailed: list.osmFailed,
                                                       osmErrors: list.osmErrors, facts: list.factsCount,
                                                       dropped: list.dropped, factsFailed: list.factsFailed))

@@ -1167,4 +1167,108 @@ private struct Boom: Error {}
         #expect(await places.shouldRefresh(at: .at(), trigger: .walking, language: .english))
         #expect(await places.shouldRefresh(at: .at(), trigger: .foreground, language: .english))
     }
+
+    // MARK: - The OSM retry backs off while the list keeps failing (spec 20.8)
+
+    static func failedList(streak: Int, fetchedAt: Date = t0) -> NearbyList {
+        var list = failedList(fetchedAt: fetchedAt)
+        list.osmFailedStreak = streak
+        list.osmFailedSince = list.centre
+        return list
+    }
+
+    @Test func retryAgeBacksOffSixtyThenTwoThenFiveMinutes() {
+        #expect(NearbyList.osmFailedRetryAges == [60, 120, 300])
+        // Streak n → ages[min(n, 3) − 1]: 1 → 60, 2 → 120, 3 → 300, 4 and on → 300.
+        #expect([1, 2, 3, 4, 9].map { Self.failedList(streak: $0).osmRetryAge } == [60, 120, 300, 300, 300])
+        // Boundaries: streak 2 stale from 120 s (119.9 not), streak 3 from 300 s.
+        #expect(!Self.failedList(streak: 2).isStaleAfterOSMFailure(age: 119.9))
+        #expect(Self.failedList(streak: 2).isStaleAfterOSMFailure(age: 120))
+        #expect(!Self.failedList(streak: 3).isStaleAfterOSMFailure(age: 299.9))
+        #expect(Self.failedList(streak: 3).isStaleAfterOSMFailure(age: 300))
+        // serves and isFresh follow: streak 2 at 119 s still serves and is fresh, at 120 s neither.
+        let two = Self.failedList(streak: 2)
+        #expect(two.serves(walkerAt: .at(), now: Self.t0 + 119) && !two.serves(walkerAt: .at(), now: Self.t0 + 120))
+        #expect(two.isFresh(for: .at(), now: Self.t0 + 119) && !two.isFresh(for: .at(), now: Self.t0 + 120))
+        // A streak of 0 on a failed list (not written by the app) counts as the first failure.
+        #expect(Self.failedList(streak: 0).osmRetryAge == 60)
+    }
+    @Test func eachFailedRefreshAtTheSameSpotLengthensTheRetry() async throws {
+        let fetcher = StubFetcher(.success([]))
+        fetcher.set(.success([]), osmFailed: true)
+        let clock = LockedBox(Self.t0)
+        let places = Self.places(fetcher, clock: clock)
+        let first = try await places.refresh(at: .at(), language: .english)
+        #expect(first.osmFailedStreak == 1 && first.osmRetryAge == 60)
+        // Retried at t0+60 (60 s): still failing 30 m away → streak 2, next retry 120 s after t0+60.
+        clock.set(Self.t0 + 60)
+        let second = try await places.refresh(at: .at(north: 30), language: .english)
+        #expect(second.osmFailedStreak == 2 && second.osmRetryAge == 120)
+        #expect(second.osmFailedSince == .at())
+        clock.set(Self.t0 + 60 + 119)
+        #expect(await !places.shouldRefresh(at: .at(north: 30), trigger: .walking, language: .english))
+        clock.set(Self.t0 + 60 + 120)
+        #expect(await places.shouldRefresh(at: .at(north: 30), trigger: .walking, language: .english))
+        let third = try await places.refresh(at: .at(north: 30), language: .english)
+        #expect(third.osmFailedStreak == 3 && third.osmRetryAge == 300)
+        clock.set(Self.t0 + 180 + 299)
+        #expect(await !places.shouldRefresh(at: .at(north: 30), trigger: .walking, language: .english))
+        clock.set(Self.t0 + 180 + 300)
+        #expect(await places.shouldRefresh(at: .at(north: 30), trigger: .walking, language: .english))
+        let fourth = try await places.refresh(at: .at(north: 30), language: .english)
+        #expect(fourth.osmFailedStreak == 4 && fourth.osmRetryAge == 300)
+        // OpenStreetMap answers: the streak ends; the next failure starts at 60 s again.
+        clock.set(Self.t0 + 1_000)
+        fetcher.set(.success([]))
+        let ok = try await places.refresh(at: .at(north: 30), language: .english)
+        #expect(ok.osmFailedStreak == 0 && ok.osmFailedSince == nil)
+        clock.set(Self.t0 + 1_060)
+        fetcher.set(.success([]), osmFailed: true)
+        let again = try await places.refresh(at: .at(north: 30), language: .english)
+        #expect(again.osmFailedStreak == 1 && again.osmRetryAge == 60 && again.osmFailedSince == .at(north: 30))
+    }
+    @Test func movingTwoHundredFiftyMetresFromWhereTheFailuresBeganResetsTheBackoff() async throws {
+        let fetcher = StubFetcher(.success([]))
+        fetcher.set(.success([]), osmFailed: true)
+        let clock = LockedBox(Self.t0)
+        let places = Self.places(fetcher, clock: clock)
+        try await places.refresh(at: .at(), language: .english)
+        clock.set(Self.t0 + 60)
+        // 249 m from where the streak began: it goes on (2).
+        #expect(try await places.refresh(at: .at(north: 249), language: .english).osmFailedStreak == 2)
+        clock.set(Self.t0 + 180)
+        // 250 m from there (though only 1 m from the last list): a new streak at 60 s.
+        let moved = try await places.refresh(at: .at(north: 250), language: .english)
+        #expect(moved.osmFailedStreak == 1 && moved.osmRetryAge == 60 && moved.osmFailedSince == .at(north: 250))
+    }
+    @Test func aFailedListOlderThanTenMinutesStartsANewStreak() async throws {
+        // The previous failed list is 601 s old (> freshAge 600): a new session at the same spot starts at 60 s.
+        let fetcher = StubFetcher(.success([]))
+        fetcher.set(.success([]), osmFailed: true)
+        let clock = LockedBox(Self.t0)
+        let places = Self.places(fetcher, clock: clock)
+        try await places.refresh(at: .at(), language: .english)
+        clock.set(Self.t0 + 60)
+        #expect(try await places.refresh(at: .at(), language: .english).osmFailedStreak == 2)
+        clock.set(Self.t0 + 60 + 600)
+        #expect(try await places.refresh(at: .at(), language: .english).osmFailedStreak == 3)
+        clock.set(Self.t0 + 660 + 601)
+        #expect(try await places.refresh(at: .at(), language: .english).osmFailedStreak == 1)
+    }
+    @Test func streakDecodesFromAnOldFile() throws {
+        // A file written before the streak existed: a failed list is the first failure at its centre; a complete
+        // list has no streak.
+        for failed in [true, false] {
+            var list = Self.list()
+            list.osmFailed = failed
+            var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(list)) as? [String: Any])
+            json["osmFailedStreak"] = nil
+            json["osmFailedSince"] = nil
+            let old = try JSONDecoder().decode(NearbyList.self, from: JSONSerialization.data(withJSONObject: json))
+            #expect(old.osmFailedStreak == (failed ? 1 : 0))
+            #expect(old.osmFailedSince == (failed ? list.centre : nil))
+        }
+        let three = Self.failedList(streak: 3)
+        #expect(try JSONDecoder().decode(NearbyList.self, from: JSONEncoder().encode(three)) == three)
+    }
 }

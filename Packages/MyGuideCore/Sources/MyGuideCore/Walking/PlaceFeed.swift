@@ -3,9 +3,9 @@ import Foundation
 /// Decides when a walk needs a fresh place fetch and holds the latest result.
 /// Shared public services: refetch only after `refetchDistance`, retry a failure no sooner than `retryInterval`
 /// (while the walk has no places, `emptyRetryInterval` doubling per consecutive failure up to `retryInterval`,
-/// spec 19.6). A list whose OpenStreetMap part failed is retried
-/// `NearbyList.osmFailedRetryAge` after it was fetched, without moving, so a walk does not go on with Wikipedia places
-/// only for 250 m.
+/// spec 19.6). A list whose OpenStreetMap part failed is retried its
+/// `NearbyList.osmRetryAge` (60, 120, then 300 s while the lists keep failing, spec 20.8) after it was fetched,
+/// without moving, so a walk does not go on with Wikipedia places only for 250 m.
 /// At the start of a run a stored list may stand in (`claimStaleList`, then `takeStaleList`) until the first fetch
 /// comes back; it sets no centre, so it never holds a fetch back.
 public struct PlaceFeed: Sendable {
@@ -23,6 +23,8 @@ public struct PlaceFeed: Sendable {
     private var lastFailure: Date?
     /// When the current places' list was fetched, if OpenStreetMap failed for it; nil otherwise.
     private var osmFailedAt: Date?
+    /// How long after `osmFailedAt` OpenStreetMap is asked again (the list's `NearbyList.osmRetryAge`).
+    private var osmRetryAge = NearbyList.osmFailedRetryAge
     /// True once a stale list has been claimed, taken or not: one claim per feed (per run).
     private var staleOffered = false
     /// Failed fetches since the last success (or since the start).
@@ -49,7 +51,7 @@ public struct PlaceFeed: Sendable {
         if isFetching { return false }
         if let lastFailure, now.timeIntervalSince(lastFailure) < failureRetryInterval { return false }
         guard let lastCentre else { return true }
-        if let osmFailedAt, now.timeIntervalSince(osmFailedAt) >= NearbyList.osmFailedRetryAge { return true }
+        if let osmFailedAt, now.timeIntervalSince(osmFailedAt) >= osmRetryAge { return true }
         return GeoMath.distance(lastCentre, position) >= Self.refetchDistance
     }
 
@@ -57,16 +59,19 @@ public struct PlaceFeed: Sendable {
         isFetching = true
     }
 
-    /// `osmFailed` and `fetchedAt` describe the list the places came from (`fetchedAt` defaults to `now`; a list
-    /// dated after `now`, the clock set back, counts from `now`).
+    /// `osmFailed`, `fetchedAt` and `osmRetryAge` describe the list the places came from (`fetchedAt` defaults to
+    /// `now`; a list dated after `now`, the clock set back, counts from `now`; `osmRetryAge` is the list's
+    /// `NearbyList.osmRetryAge`, 60 s by default).
     public mutating func fetchSucceeded(_ places: [WalkingPlace], at center: Coordinate, now: Date,
-                                        osmFailed: Bool = false, fetchedAt: Date? = nil) {
+                                        osmFailed: Bool = false, fetchedAt: Date? = nil,
+                                        osmRetryAge: TimeInterval = NearbyList.osmFailedRetryAge) {
         self.places = places
         placesAreStale = false
         lastCentre = center
         lastFailure = nil
         consecutiveFailures = 0
         osmFailedAt = osmFailed ? min(fetchedAt ?? now, now) : nil
+        self.osmRetryAge = osmRetryAge
         isFetching = false
     }
 
