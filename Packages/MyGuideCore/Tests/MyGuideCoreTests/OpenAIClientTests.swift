@@ -103,6 +103,9 @@ import Testing
         (429, #"{"error":{"code":"daily_quota","message":"used up"}}"#, OpenAIError.dailyQuota),
         (503, #"{"error":{"code":"server_budget","message":"paused"}}"#, OpenAIError.serverBudget),
         (401, #"{"error":{"code":"attest_required","message":"attest"}}"#, OpenAIError.attestUnavailable),
+        // A blocked device: the neutral «use your own key» text, not OpenAI's 403 text.
+        (403, #"{"error":{"code":"blocked","message":"This device is blocked."}}"#, OpenAIError.attestUnavailable),
+        (403, #"{"error":{"message":"forbidden"}}"#, OpenAIError.server(403)),
         (401, #"{"error":{"message":"no code"}}"#, OpenAIError.invalidAPIKey),
         (503, "", OpenAIError.server(503)),
         (429, #"{"error":{"code":"rate_limited","message":"slow"}}"#, OpenAIError.rateLimited("slow")),
@@ -331,6 +334,7 @@ import Testing
         (#"error"#, #"{"type":"error","code":"daily_quota","message":"used up"}"#, OpenAIError.dailyQuota),
         (#"error"#, #"{"type":"error","error":{"code":"server_budget","message":"paused"}}"#, OpenAIError.serverBudget),
         (#"error"#, #"{"type":"error","code":"attest_required","message":"attest"}"#, OpenAIError.attestUnavailable),
+        (#"error"#, #"{"type":"error","code":"blocked","message":"blocked"}"#, OpenAIError.attestUnavailable),
         (#"response.failed"#, #"{"type":"response.failed","response":{"id":"r","status":"failed","output":[],"error":{"code":"content_policy_violation","message":"policy"}}}"#, OpenAIError.contentBlocked),
         (#"response.failed"#, #"{"type":"response.failed","response":{"id":"r","status":"failed","output":[],"error":null}}"#, OpenAIError.malformedResponse),
     ])

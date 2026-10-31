@@ -225,11 +225,12 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
     }
 
     /// Guide-server codes (spec 8): the code decides, whatever the status or event.
+    /// A blocked device (403 `blocked`) gets the same neutral «use your own key» text as a failed attestation.
     private static func guideServerError(code: String?) -> OpenAIError? {
         switch code {
         case "daily_quota": return .dailyQuota
         case "server_budget": return .serverBudget
-        case "attest_required": return .attestUnavailable
+        case "attest_required", "blocked": return .attestUnavailable
         default: return nil
         }
     }
