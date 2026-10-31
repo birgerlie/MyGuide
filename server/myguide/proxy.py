@@ -1,8 +1,8 @@
 """The OpenAI pass-through (spec 6, 6.2): allowlisted paths and models, `store` forced false, debit-first
 admission, SSE passed through byte for byte, settlement exactly once, quota headers on every answer.
 
-Order for a known path: authenticate -> per-minute rate -> path -> body size -> body JSON and model -> admit
--> forward -> settle. Every refusal after authentication is counted for the device and carries the
+Order for a known path: authenticate -> per-minute rate -> path -> body size -> body JSON, model and options ->
+calls in flight -> admit -> forward -> settle (which frees the in-flight slot). Every refusal after authentication is counted for the device and carries the
 `X-MyGuide-Free-Left` / `X-MyGuide-Credits` headers.
 
 Upstream errors: 401/403 answer 502 `upstream_unreachable`, 429 `insufficient_quota` answers 503 `server_budget`,
@@ -69,6 +69,13 @@ def _no_constants(name: str) -> Any:
     raise ValueError(f"{name} is not JSON")
 
 
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+_SERVICE_TIERS = ("auto", "default")  # priority, flex, scale bill differently from the configured prices
+
+
 def _parse(raw: bytes, kind: str, settings: Settings) -> tuple[dict, str, bytes] | str:
     """(body, model, payload to forward) or the refusal code. The body is re-serialized, so upstream gets
     exactly the object that was checked (a duplicate `model` key cannot smuggle a second model)."""
@@ -87,6 +94,14 @@ def _parse(raw: bytes, kind: str, settings: Settings) -> tuple[dict, str, bytes]
         return "bad_request"  # a streamed image or speech answer is not metered by this server
     if kind == "story" and (body.get("tools") not in (None, []) or body.get("background") not in (None, False)):
         return "bad_request"  # tools bill outside `usage`; a background call outlives its settlement
+    if "service_tier" in body and body["service_tier"] not in _SERVICE_TIERS:
+        return "bad_request"
+    if kind == "image" and "n" in body and not (_is_int(body["n"]) and body["n"] == 1):
+        return "bad_request"  # one call, one image: the free quota and credits count images, not calls
+    if kind == "story":
+        limit = body.get("max_output_tokens")
+        if limit is not None and not (_is_int(limit) and limit <= settings.max_output_tokens_story):
+            return "bad_request"
     if kind == "story":
         body["store"] = False
     try:
@@ -142,6 +157,7 @@ class _Call:
     """One admitted call: settles exactly once, with the settings snapshot taken at admission."""
 
     def __init__(self, state: State, settings: Settings, admission: Admission, model: str) -> None:
+        """Takes over the device's in-flight slot (taken before admission): `settle` frees it."""
         self.state = state
         self.settings = settings
         self.admission = admission
@@ -164,6 +180,8 @@ class _Call:
                 conn.close()
         except Exception as e:  # the client may already have bytes; only the type is safe to log
             log.error("call %s: settle failed: %s", self.admission.call_id, type(e).__name__)
+        finally:
+            self.state.inflight.release(self.admission.device_id)  # exactly once: guarded by self.settled
         log.info("call %s kind=%s model=%s status=%d latency_ms=%d kept=%d%s", self.admission.call_id,
                  self.admission.kind, self.model, status, latency_ms, 1 if kept else 0,
                  f" error={error}" if error else "")
@@ -385,17 +403,24 @@ def routes(state: State) -> list[Route]:
             raise _refuse(state, settings, device_id, 400, parsed)
         body, model, payload = parsed
 
-        conn = db.connect(state.db_path)
+        if not state.inflight.acquire(device_id, settings.max_inflight_per_device):
+            raise _refuse(state, settings, device_id, 429, "rate_limited")
+        handed_over = False  # until _Call owns the slot, every way out of here frees it
         try:
-            admission = admit(conn, settings, device, kind, state.clock())
+            conn = db.connect(state.db_path)
+            try:
+                admission = admit(conn, settings, device, kind, state.clock())
+            finally:
+                conn.close()
+            if not admission.allowed:
+                assert admission.code is not None
+                raise HTTPError(admission.status, admission.code,
+                                headers=allowance_headers(admission.free_left, admission.credits))
+            call = _Call(state, settings, admission, model)
+            handed_over = True
         finally:
-            conn.close()
-        if not admission.allowed:
-            assert admission.code is not None
-            raise HTTPError(admission.status, admission.code,
-                            headers=allowance_headers(admission.free_left, admission.credits))
-
-        call = _Call(state, settings, admission, model)
+            if not handed_over:
+                state.inflight.release(device_id)
         url = UPSTREAM_BASE + path
         if kind == "story" and body.get("stream") is True:
             return await _forward_stream(state, call, url, payload)

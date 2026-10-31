@@ -361,6 +361,63 @@ def test_harmless_values_of_those_fields_pass(client, upstream, path, body):
     assert len(upstream.requests) == 1
 
 
+@pytest.mark.parametrize("path,body", [
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": 2}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": 10}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": 0}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": True}),  # True == 1 in Python: still refused
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": 1.0}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": "1"}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": None}),
+    ("responses", story_body(service_tier="priority")),
+    ("responses", story_body(service_tier="flex")),
+    ("responses", story_body(service_tier=None)),
+    ("responses", story_body(service_tier=1)),
+    ("audio/speech", {"model": SPEECH, "input": "Hei", "service_tier": "priority"}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "service_tier": "scale"}),
+    ("responses", story_body(max_output_tokens=16001)),  # MAX_OUTPUT_TOKENS_STORY=16000 + 1
+    ("responses", story_body(max_output_tokens=10**12)),
+    ("responses", story_body(max_output_tokens=1e9)),
+    ("responses", story_body(max_output_tokens=100.5)),
+    ("responses", story_body(max_output_tokens="100")),
+    ("responses", story_body(max_output_tokens=True)),
+])
+def test_costly_options_refused_400(client, state, upstream, path, body):
+    r = client.post(f"/v1/{path}", json=body, headers=auth())
+    assert r.status_code == 400
+    assert error_of(r) == "bad_request"
+    assert_allowance(r, FREE_80)
+    assert upstream.requests == []
+    assert today(state)["refused"] == 1 and today(state)["requests"] == 1
+    assert calls(state) == []
+
+
+@pytest.mark.parametrize("path,body", [
+    ("images/generations", {"model": IMAGE, "prompt": "x", "n": 1}),
+    ("responses", story_body(service_tier="auto")),
+    ("responses", story_body(service_tier="default")),
+    ("audio/speech", {"model": SPEECH, "input": "Hei", "service_tier": "default"}),
+    ("images/generations", {"model": IMAGE, "prompt": "x", "service_tier": "auto"}),
+    ("responses", story_body(max_output_tokens=16000)),  # exactly MAX_OUTPUT_TOKENS_STORY
+    ("responses", story_body(max_output_tokens=1)),
+    ("responses", story_body(max_output_tokens=None)),
+])
+def test_allowed_values_of_costly_options_pass(client, upstream, path, body):
+    upstream.respond = lambda req: httpx.Response(200, json={})
+    r = client.post(f"/v1/{path}", json=body, headers=auth())
+    assert r.status_code == 200
+    assert upstream.json_body() == ({**body, "store": False} if path == "responses" else body)
+
+
+def test_max_output_tokens_limit_is_the_setting(make_proxy, upstream):
+    state = make_proxy(MAX_OUTPUT_TOKENS_STORY="500")
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as c:
+        assert c.post("/v1/responses", json=story_body(max_output_tokens=500), headers=auth()).status_code == 200
+        r = c.post("/v1/responses", json=story_body(max_output_tokens=501), headers=auth())
+    assert r.status_code == 400 and error_of(r) == "bad_request"
+    assert len(upstream.requests) == 1
+
+
 def test_upstream_cookie_never_stored_or_sent_back(client, state, upstream):
     upstream.respond = lambda req: httpx.Response(
         200, json=story_ok(),
@@ -974,6 +1031,105 @@ def test_404s_count_toward_the_rate(client, upstream):
     r = client.post("/v1/responses", json=story_body(), headers=auth())
     assert r.status_code == 429 and error_of(r) == "rate_limited"
     assert upstream.requests == []
+
+
+# --- calls in flight per device (MAX_INFLIGHT_PER_DEVICE) -------------------------------------------------
+
+async def _concurrent_calls(state: State, upstream: Upstream, body: dict) -> dict:
+    """Hold 3 upstream calls open, send a 4th, then let the 3 finish and send a 5th."""
+    release = anyio.Event()
+    started = anyio.Event()
+
+    async def held(req):
+        if len(upstream.requests) == 3:
+            started.set()
+        await release.wait()
+        return httpx.Response(200, json=story_ok()) if not body.get("stream") else sse_response(STREAM_PARTS)
+    upstream.respond = held
+    app = create_app(state)
+    results: dict = {"first": []}
+    transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 50000))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+        async def one():
+            r = await c.post("/v1/responses", json=body, headers=auth())
+            results["first"].append(r.status_code)
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+                for _ in range(3):
+                    tg.start_soon(one)
+                await started.wait()
+                results["in_flight"] = state.inflight.count(1)
+                results["fourth"] = await c.post("/v1/responses", json=body, headers=auth())
+                release.set()
+            while state.inflight.count(1):  # a streamed call settles in its pump, just after the body
+                await anyio.sleep(0.01)
+            results["after"] = state.inflight.count(1)
+            results["fifth"] = await c.post("/v1/responses", json=body, headers=auth())
+            while state.inflight.count(1):
+                await anyio.sleep(0.01)
+    await state.aclose()
+    return results
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_fourth_concurrent_call_refused_and_slot_freed_after_settle(make_proxy, upstream, stream):
+    state = make_proxy()
+    res = anyio.run(_concurrent_calls, state, upstream, story_body(stream=stream))
+    assert res["in_flight"] == 3
+    r = res["fourth"]
+    assert r.status_code == 429 and error_of(r) == "rate_limited"
+    assert_allowance(r, "story=77,speech=80,image=4")  # 80 free - 3 reserved by the calls in flight
+    assert sorted(res["first"]) == [200, 200, 200]
+    assert res["after"] == 0
+    assert res["fifth"].status_code == 200
+    assert state.inflight.count(1) == 0
+    assert len(upstream.requests) == 4  # 3 + the 5th; the 4th never went upstream
+    day = today(state)
+    # requests: 3 + refused 4th + 5th = 5; refused: the 4th only
+    assert (day["requests"], day["refused"], day["used_story"]) == (5, 1, 4)
+
+
+def test_inflight_limit_one_is_a_setting(make_proxy, upstream):
+    state = make_proxy(MAX_INFLIGHT_PER_DEVICE="1")
+    state.inflight.acquire(1, 1)  # a call of this device is in flight
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as c:
+        r = c.post("/v1/responses", json=story_body(), headers=auth())
+    assert r.status_code == 429 and error_of(r) == "rate_limited"
+    assert upstream.requests == [] and calls(state) == []
+    assert today(state)["refused"] == 1
+
+
+def test_slot_freed_after_refusals_and_failures_after_admit(make_proxy, upstream):
+    state = make_proxy(QUOTA_STORY_PER_DAY="0")  # no free stories, no credits: admit refuses daily_quota
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as c:
+        for _ in range(5):  # more than MAX_INFLIGHT_PER_DEVICE=3: a leaked slot would show as rate_limited
+            r = c.post("/v1/responses", json=story_body(), headers=auth())
+            assert r.status_code == 429 and error_of(r) == "daily_quota"
+    assert state.inflight.count(1) == 0
+
+    state = make_proxy()
+    outcomes = [
+        lambda req: (_ for _ in ()).throw(httpx.ConnectError("refused")),  # 502 unreachable
+        lambda req: httpx.Response(500, json={}),
+        lambda req: upstream_error(401, "invalid_api_key"),
+        lambda req: httpx.Response(200, json=story_ok()),
+        lambda req: sse_response(STREAM_PARTS[:-1]),  # stream without its final event
+        lambda req: sse_response(STREAM_PARTS),
+    ]
+    with TestClient(create_app(state), client=("127.0.0.1", 50000)) as c:
+        for i, answer in enumerate(outcomes):
+            upstream.respond = answer
+            c.post("/v1/responses", json=story_body(stream=i >= 4), headers=auth())
+            assert state.inflight.count(1) == 0, i
+    assert len(calls(state)) == len(outcomes)
+
+
+@pytest.mark.parametrize("mode", ["2.4", "2.3", "start"])
+def test_slot_freed_after_client_disconnect(make_proxy, upstream, mode):
+    state = make_proxy()
+    upstream.respond = _rest_after_disconnect
+    anyio.run(_drive_disconnect, state, mode)
+    assert state.inflight.count(1) == 0
 
 
 # --- logging and privacy (acceptance 7) --------------------------------------------------------------------

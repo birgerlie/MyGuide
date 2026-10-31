@@ -28,6 +28,7 @@ INT_SETTINGS = [
     "CHALLENGE_TTL_SECONDS", "ATTESTS_PER_IP_PER_HOUR", "LOG_RETENTION_DAYS",
     "CREDITS_PER_STORY", "CREDITS_PER_SPEECH", "CREDITS_PER_IMAGE", "LISTEN_PORT",
     "CHALLENGES_MAX_OUTSTANDING", "CHALLENGES_PER_IP_PER_HOUR", "ATTEST_MAX_BODY_BYTES",
+    "MAX_OUTPUT_TOKENS_STORY", "MAX_INFLIGHT_PER_DEVICE",
 ]
 
 
@@ -54,6 +55,8 @@ def test_template_defaults():
     assert s.challenges_max_outstanding == 10000
     assert s.challenges_per_ip_per_hour == 40
     assert s.attest_max_body_bytes == 65536
+    assert s.max_output_tokens_story == 16000
+    assert s.max_inflight_per_device == 3
 
 
 def test_template_has_empty_key_and_start_refuses():
@@ -77,6 +80,10 @@ def _cases():
         ("challenges per ip neg", {"CHALLENGES_PER_IP_PER_HOUR": "-5"}, "CHALLENGES_PER_IP_PER_HOUR"),
         ("attest body 0", {"ATTEST_MAX_BODY_BYTES": "0"}, "ATTEST_MAX_BODY_BYTES"),
         ("attest body float", {"ATTEST_MAX_BODY_BYTES": "64.5"}, "ATTEST_MAX_BODY_BYTES"),
+        ("max output 0", {"MAX_OUTPUT_TOKENS_STORY": "0"}, "MAX_OUTPUT_TOKENS_STORY"),
+        ("max output abc", {"MAX_OUTPUT_TOKENS_STORY": "abc"}, "MAX_OUTPUT_TOKENS_STORY"),
+        ("inflight 0", {"MAX_INFLIGHT_PER_DEVICE": "0"}, "MAX_INFLIGHT_PER_DEVICE"),
+        ("inflight neg", {"MAX_INFLIGHT_PER_DEVICE": "-1"}, "MAX_INFLIGHT_PER_DEVICE"),
         ("usd word", {"DAILY_SPEND_CAP_USD": "five"}, "DAILY_SPEND_CAP_USD"),
         ("usd negative", {"DEVICE_SPEND_CAP_USD": "-1"}, "DEVICE_SPEND_CAP_USD"),
         ("usd nan", {"DEVICE_SPEND_CAP_USD": "NaN"}, "DEVICE_SPEND_CAP_USD"),
@@ -152,6 +159,8 @@ def test_redacted_hides_key():
     assert ("CHALLENGES_MAX_OUTSTANDING", "10000") in rows
     assert ("CHALLENGES_PER_IP_PER_HOUR", "40") in rows
     assert ("ATTEST_MAX_BODY_BYTES", "65536") in rows
+    assert ("MAX_OUTPUT_TOKENS_STORY", "16000") in rows
+    assert ("MAX_INFLIGHT_PER_DEVICE", "3") in rows
 
 
 def test_load_settings_reads_file(tmp_path):
@@ -174,3 +183,8 @@ def test_attest_guard_settings_accept_one():
     s = parse_settings(template_env(CHALLENGES_MAX_OUTSTANDING="1", CHALLENGES_PER_IP_PER_HOUR="1",
                                     ATTEST_MAX_BODY_BYTES="1"))
     assert (s.challenges_max_outstanding, s.challenges_per_ip_per_hour, s.attest_max_body_bytes) == (1, 1, 1)
+
+
+def test_body_and_inflight_limits_accept_one():
+    s = parse_settings(template_env(MAX_OUTPUT_TOKENS_STORY="1", MAX_INFLIGHT_PER_DEVICE="1"))
+    assert (s.max_output_tokens_story, s.max_inflight_per_device) == (1, 1)

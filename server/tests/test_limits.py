@@ -7,7 +7,7 @@ import pytest
 from myguide import ledger
 from myguide.config import parse_settings
 from myguide.db import connect, create_device
-from myguide.limits import Admission, RateWindow, admit, allowance, count_refused, settle
+from myguide.limits import Admission, InFlight, RateWindow, admit, allowance, count_refused, settle
 from myguide.pricing import Usage
 
 TEMPLATE = Path(__file__).parent.parent / "env.template"
@@ -429,3 +429,37 @@ def test_rate_window_bounded_matches_unbounded_verdicts():
         times.append(t)
         expected = sum(1 for x in times if x > t - window) <= limit
         assert rw.hit("k", t) is expected, t
+
+
+def test_inflight_admits_up_to_the_limit_then_refuses():
+    f = InFlight()
+    assert [f.acquire(1, 3) for _ in range(4)] == [True, True, True, False]
+    assert f.count(1) == 3  # the refused 4th took no slot
+    assert f.acquire(2, 3)  # per device
+    f.release(1)
+    assert f.count(1) == 2
+    assert f.acquire(1, 3)
+    assert f.count(1) == 3
+
+
+def test_inflight_never_negative_and_forgets_idle_devices():
+    f = InFlight()
+    f.release(1)  # a release without an acquire
+    assert f.count(1) == 0
+    assert f.acquire(1, 1)
+    f.release(1)
+    f.release(1)
+    assert f.count(1) == 0
+    assert f.acquire(1, 1) and not f.acquire(1, 1)  # a stray release did not open a second slot
+    f.release(1)
+    assert f._counts == {}
+
+
+def test_inflight_lower_limit_after_reload_refuses_until_below():
+    f = InFlight()
+    assert f.acquire(1, 3) and f.acquire(1, 3)
+    assert not f.acquire(1, 1)  # 2 in flight >= new limit 1
+    f.release(1)
+    assert not f.acquire(1, 1)  # still 1 >= 1
+    f.release(1)
+    assert f.acquire(1, 1)

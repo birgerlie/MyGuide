@@ -45,6 +45,8 @@ class Settings:
     challenges_max_outstanding: int
     challenges_per_ip_per_hour: int
     attest_max_body_bytes: int
+    max_output_tokens_story: int
+    max_inflight_per_device: int
     allow_development_attest: bool
     models_story: frozenset[str]
     models_speech: frozenset[str]
@@ -117,6 +119,8 @@ _INT_SPECS: list[tuple[str, str, int]] = [
     ("CHALLENGES_MAX_OUTSTANDING", "challenges_max_outstanding", 1),
     ("CHALLENGES_PER_IP_PER_HOUR", "challenges_per_ip_per_hour", 1),
     ("ATTEST_MAX_BODY_BYTES", "attest_max_body_bytes", 1),
+    ("MAX_OUTPUT_TOKENS_STORY", "max_output_tokens_story", 1),
+    ("MAX_INFLIGHT_PER_DEVICE", "max_inflight_per_device", 1),
 ]
 _INTS = [(n, a) for n, a, _ in _INT_SPECS]
 _USD = [("DAILY_SPEND_CAP_USD", "daily_spend_cap_micro"), ("DEVICE_SPEND_CAP_USD", "device_spend_cap_micro")]

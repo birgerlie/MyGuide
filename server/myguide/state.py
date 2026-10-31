@@ -14,7 +14,7 @@ from cryptography import x509
 
 from .attest import Challenges, apple_root
 from .config import ConfigError, Settings, load_settings
-from .limits import RateWindow
+from .limits import InFlight, RateWindow
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ class State:
         self.attest_window = RateWindow(lambda: self.settings.attests_per_ip_per_hour, 3600)
         self.challenge_window = RateWindow(lambda: self.settings.challenges_per_ip_per_hour, 3600)
         self.rate_window = RateWindow(lambda: self.settings.rate_per_minute, 60)
+        self.inflight = InFlight()  # calls admitted and not yet settled, per device id (MAX_INFLIGHT_PER_DEVICE)
         self.last_pruned_day: str | None = None  # UTC day of the last log pruning (retention.py)
 
     def reload(self, path: str | Path) -> None:

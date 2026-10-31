@@ -282,3 +282,36 @@ class RateWindow:
         self._last_sweep = now
         for key in [k for k, hits in self._hits.items() if not hits or hits[-1] <= start]:
             del self._hits[key]
+
+
+class InFlight:
+    """Calls admitted and not yet settled, per device, in memory (MAX_INFLIGHT_PER_DEVICE).
+
+    `acquire` takes a slot when fewer than `limit` are held; `release` gives one back and never goes below 0.
+    The limit is passed on every acquire, so a reload applies to the next call. A restart forgets every count,
+    as it ends every call in flight too.
+    """
+
+    def __init__(self) -> None:
+        self._counts: dict[Hashable, int] = {}
+        self._lock = threading.Lock()
+
+    def acquire(self, key: Hashable, limit: int) -> bool:
+        with self._lock:
+            n = self._counts.get(key, 0)
+            if n >= limit:
+                return False
+            self._counts[key] = n + 1
+            return True
+
+    def release(self, key: Hashable) -> None:
+        with self._lock:
+            n = self._counts.get(key, 0)
+            if n <= 1:
+                self._counts.pop(key, None)
+            else:
+                self._counts[key] = n - 1
+
+    def count(self, key: Hashable) -> int:
+        with self._lock:
+            return self._counts.get(key, 0)
