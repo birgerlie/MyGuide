@@ -27,7 +27,8 @@ main() {
         exit 1
     fi
     stage="$(mktemp -d)"
-    trap 'rm -rf "$stage"' EXIT
+    # Expanded now: $stage is local and gone by the time the EXIT trap runs under set -u.
+    trap "rm -rf '$stage'" EXIT
     build_stage "$repo" "$stage"
     # -rlpt, not -a: no owner or group is sent (install.sh chowns to root). --delete is scoped to
     # /opt/myguide/src; the venv lives beside it and is never touched.
