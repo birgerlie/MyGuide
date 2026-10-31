@@ -2,7 +2,8 @@ import Foundation
 import MyGuideCore
 
 /// The guide server's device token in the Keychain (account `guideServerToken`, the app's Keychain service). Writing
-/// nil deletes it. The token is never logged.
+/// nil deletes it. The token is never logged. It is stored `ThisDeviceOnly`: a bearer token must not travel to
+/// another device in a restored backup (that device attests and gets its own).
 struct KeychainGuideTokenStore: GuideTokenStore {
     static let account = "guideServerToken"
 
@@ -18,7 +19,7 @@ struct KeychainGuideTokenStore: GuideTokenStore {
 
     func write(_ token: String?) throws {
         if let token {
-            try keychain.write(token, account: Self.account)
+            try keychain.write(token, account: Self.account, accessibility: .afterFirstUnlockThisDeviceOnly)
         } else {
             try keychain.delete(Self.account)
         }

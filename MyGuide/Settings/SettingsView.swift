@@ -201,11 +201,10 @@ struct SettingsView: View {
             totalsFailed = true
         }
         do {
-            let key = try services.keychain.read(AppServices.apiKeyAccount)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            hasSavedKey = !key.isEmpty
-            savedKeySuffix = APIKeyDisplay.visibleSuffix(of: key)
-            usesGuideServer = !hasSavedKey && DeviceAppAttest().isSupported
+            let key = APIKeySource.usable(try services.keychain.read(AppServices.apiKeyAccount))
+            hasSavedKey = key != nil
+            savedKeySuffix = key.flatMap { APIKeyDisplay.visibleSuffix(of: $0) }
+            usesGuideServer = !hasSavedKey && AppServices.guideServerAvailable
         } catch {
             hasSavedKey = false
             usesGuideServer = false

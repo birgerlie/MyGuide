@@ -14,6 +14,20 @@ public enum KeychainError: Error, Equatable {
     }
 }
 
+/// When a Keychain item can be read. Both kinds are readable after the first unlock since boot (background walks
+/// need that); `ThisDeviceOnly` items are left out of backups and never restored to another device.
+public enum KeychainAccessibility: Sendable {
+    case afterFirstUnlock
+    case afterFirstUnlockThisDeviceOnly
+
+    var value: CFString {
+        switch self {
+        case .afterFirstUnlock: kSecAttrAccessibleAfterFirstUnlock
+        case .afterFirstUnlockThisDeviceOnly: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        }
+    }
+}
+
 /// Generic-password Keychain access keyed on service + account.
 public struct KeychainStore: Sendable {
     private let service: String
@@ -50,24 +64,38 @@ public struct KeychainStore: Sendable {
         }
     }
 
-    public func write(_ value: String, account: String) throws {
+    /// Stores `value`, replacing any existing item. The update sets `accessibility` too, so an item written earlier
+    /// with another accessibility takes the new one.
+    public func write(_ value: String, account: String, accessibility: KeychainAccessibility = .afterFirstUnlock) throws {
         let data = Data(value.utf8)
         let update = SecItemUpdate(
             baseQuery(account) as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
+            Self.updateAttributes(data: data, accessibility: accessibility) as CFDictionary
         )
         switch update {
         case errSecSuccess:
             return
         case errSecItemNotFound:
-            var add = baseQuery(account)
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            let add = addQuery(account, data: data, accessibility: accessibility)
             let status = SecItemAdd(add as CFDictionary, nil)
             guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
         default:
             throw KeychainError.unexpectedStatus(update)
         }
+    }
+
+    /// What `write` changes on an existing item: the data and the accessibility. Internal for tests: the macOS
+    /// file-based keychain `swift test` uses does not keep `kSecAttrAccessible`, so it cannot be read back there.
+    static func updateAttributes(data: Data, accessibility: KeychainAccessibility) -> [String: Any] {
+        [kSecValueData as String: data, kSecAttrAccessible as String: accessibility.value]
+    }
+
+    /// What `write` adds when there is no item yet. Internal for tests, as `updateAttributes`.
+    func addQuery(_ account: String, data: Data, accessibility: KeychainAccessibility) -> [String: Any] {
+        var add = baseQuery(account)
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = accessibility.value
+        return add
     }
 
     public func delete(_ account: String) throws {

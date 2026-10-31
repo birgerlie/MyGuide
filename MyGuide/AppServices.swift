@@ -368,7 +368,7 @@ final class AppServices {
     /// token before anything is sent (constraints, Ruling 1).
     private static func openAI(keychain: KeychainStore, http: HTTPClient, guideHTTP: HTTPClient) throws -> OpenAIClient {
         if let key = try apiKey(keychain: keychain) { return OpenAIClient(apiKey: key, http: http) }
-        guard DeviceAppAttest().isSupported else { throw OpenAIError.missingAPIKey }
+        guard guideServerAvailable else { throw OpenAIError.missingAPIKey }
         return OpenAIClient(apiKey: GuideServer.placeholderKey, http: guideHTTP, baseURL: GuideServer.baseURL)
     }
 
@@ -383,6 +383,10 @@ final class AppServices {
         }
     }
 
+    /// Whether the guide server can be used: App Attest is supported (not in the simulator). The one check for this,
+    /// shared by the routing in `openAI`, `hasAPIKey` and Settings.
+    nonisolated static var guideServerAvailable: Bool { DeviceAppAttest().isSupported }
+
     /// The key the user entered in Settings, trimmed; nil when none or blank. Keychain failures propagate.
     nonisolated static func apiKey(keychain: KeychainStore) throws -> String? {
         APIKeySource.usable(try keychain.read(apiKeyAccount))
@@ -394,7 +398,7 @@ final class AppServices {
     /// silently.
     nonisolated static func hasAPIKey(keychain: KeychainStore) -> Bool {
         do {
-            return try apiKey(keychain: keychain) != nil || DeviceAppAttest().isSupported
+            return try apiKey(keychain: keychain) != nil || guideServerAvailable
         } catch {
             // Only the error: an OSStatus or an error description, never the key.
             keychainLog.error("reading the API key failed: \(KeychainError.diagnostic(error), privacy: .public)")
