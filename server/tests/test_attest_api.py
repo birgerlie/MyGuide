@@ -24,6 +24,7 @@ from myguide import app as app_module
 from myguide import db
 from myguide.app import authenticate, client_ip, create_app, json_error, rate_key
 from myguide.attest import Challenges
+from myguide.config import ConfigError
 from myguide.state import State
 from tests.attest_fixtures import PROD_AAGUID, make_attestation
 from tests.conftest import write_env
@@ -585,6 +586,26 @@ def test_main_refuses_bad_env(tmp_path):
     assert result.returncode == 1
     assert result.stderr.startswith("QUOTA_STORY_PER_DAY")
     assert not db_path.exists()
+
+
+def test_main_ignores_sighup_from_its_first_line(tmp_path, monkeypatch):
+    """Until the reload handler is installed on the event loop, a SIGHUP (a reload during start) must not kill
+    the service: Python's default for SIGHUP is to terminate."""
+    import myguide.__main__ as entry
+
+    seen: list[object] = []
+
+    def fake_load(path):
+        seen.append(signal.getsignal(signal.SIGHUP))
+        raise ConfigError("QUOTA_STORY_PER_DAY: test stop")
+
+    previous = signal.signal(signal.SIGHUP, signal.SIG_DFL)
+    try:
+        monkeypatch.setattr(entry, "load_settings", fake_load)
+        assert entry.main(["--env", str(tmp_path / "env"), "--db", str(tmp_path / "guide.db")]) == 1
+        assert seen == [signal.SIG_IGN]
+    finally:
+        signal.signal(signal.SIGHUP, previous)
 
 
 def _free_port() -> int:

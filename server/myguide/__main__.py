@@ -18,6 +18,9 @@ from .state import State
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A reload (SIGHUP) that lands before the handler below is installed must not kill the service, which is
+    # Python's default for SIGHUP: ignore it until then.
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
     parser = argparse.ArgumentParser(prog="python -m myguide", description="MyGuide guide server")
     parser.add_argument("--env", required=True, type=Path, help="settings file, KEY=VALUE lines")
     parser.add_argument("--db", required=True, type=Path, help="SQLite database file")
