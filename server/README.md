@@ -14,7 +14,7 @@ On the VPS, behind Caddy, on `myguide.itsalie.xyz`:
 | `/opt/myguide/venv` | Python virtualenv with `requirements.txt` |
 | `/etc/myguide/env` | settings and the OpenAI key, `root:myguide` `0640` |
 | `/srv/myguide/guide.db` | SQLite, owned by `myguide` |
-| `/srv/www/myguide` | the static website, served for everything except `/v1/*` and `/health` |
+| `/var/www/myguide` | the static website, served for everything except `/v1/*` and `/health` |
 | `/etc/caddy/sites/myguide.caddy` | the Caddy site file (TLS, proxy to `127.0.0.1:8710`, no access log) |
 | `myguide.service` | systemd unit, limits (`MemoryMax=200M`, `CPUWeight=50`) in `myguide.service.d/limits.conf` |
 
@@ -30,7 +30,7 @@ ufw allows 22, 80 and 443 in; outbound traffic is not restricted.
 
 `install.sh` is idempotent. It never overwrites an existing `/etc/myguide/env`; it only appends settings that are new
 in `env.template` (with the template default) and prints their names. It does not overwrite the website if
-`/srv/www/myguide` already has files, and it stops and prints the line to add if `/etc/caddy/Caddyfile` has other
+`/var/www/myguide` already has files, and it stops and prints the line to add if `/etc/caddy/Caddyfile` has other
 content without `import sites/*.caddy`.
 
 `deploy.sh` ships only the git-tracked files of `server/` and refuses to run with uncommitted changes under

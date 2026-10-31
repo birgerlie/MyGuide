@@ -1,5 +1,7 @@
 # Installed as /etc/caddy/sites/myguide.caddy. No log directive: the server keeps no IP addresses (spec 6.2).
 myguide.itsalie.xyz {
+	header X-Content-Type-Options nosniff
+	header Referrer-Policy strict-origin-when-cross-origin
 	handle /v1/* {
 		reverse_proxy 127.0.0.1:8710 {
 			flush_interval -1
@@ -9,7 +11,8 @@ myguide.itsalie.xyz {
 		reverse_proxy 127.0.0.1:8710
 	}
 	handle {
-		root * /srv/www/myguide
+		root * /var/www/myguide
+		encode zstd gzip
 		file_server
 	}
 }

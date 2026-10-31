@@ -373,7 +373,7 @@ amendments are what the code does.
   are recorded and priced. Only `response.completed` keeps the unit. Once `response.completed` has arrived the
   unit is kept even if the client has gone away; a stream that ends without it returns the unit.
 - **§4, the website.** The same domain (`myguide.itsalie.xyz`) also serves a static website from
-  `/srv/www/myguide`, for every path outside `/v1/*` and `/health`, which go to the guide server.
+  `/var/www/myguide`, for every path outside `/v1/*` and `/health`, which go to the guide server.
 - **§7, admin.** `myguide-admin today` and `days N` show a `calls` column (the admitted calls of each day, kept or
   not) next to `requests` (every counted request, refused ones included).
 - **Deploy.** The systemd unit waits `TimeoutStopSec=150` on stop, so a stream of up to

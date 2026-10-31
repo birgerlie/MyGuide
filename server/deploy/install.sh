@@ -2,7 +2,7 @@
 set -euo pipefail
 # Run as root on the server, from the rsynced copy in /opt/myguide/src. Idempotent.
 # Layout: /opt/myguide/src (code, WorkingDirectory), /opt/myguide/venv, /etc/myguide/env (settings and key),
-# /srv/myguide (SQLite), /srv/www/myguide (website), /etc/caddy/sites/myguide.caddy.
+# /srv/myguide (SQLite), /var/www/myguide (website, the owner's own), /etc/caddy/sites/myguide.caddy.
 # The functions below take their paths from variables so tests can source this file and run them in a temp dir.
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,7 +12,7 @@ OPT="${MYGUIDE_TEST_OPT:-/opt/myguide}"
 ENV_FILE="${MYGUIDE_TEST_ENV_FILE:-/etc/myguide/env}"
 CADDY_DIR="${MYGUIDE_TEST_CADDY_DIR:-/etc/caddy}"
 DATA="${MYGUIDE_TEST_DATA:-/srv/myguide}"
-WWW="${MYGUIDE_TEST_WWW:-/srv/www/myguide}"
+WWW="${MYGUIDE_TEST_WWW:-/var/www/myguide}"
 
 file_md5() {
     if command -v md5sum >/dev/null 2>&1; then md5sum "$1" | awk '{print $1}'; else md5 -q "$1"; fi
@@ -174,7 +174,7 @@ main() {
     install -m 0755 "$SRC/bin/myguide-admin" /usr/local/bin/myguide-admin
 
     # Website directory: never overwrite the owner's own site.
-    install -d -m 0755 /srv/www "$WWW"
+    install -d -m 0755 "$WWW"
     if [ -z "$(ls -A "$WWW")" ]; then
         cp -R "$SRC/www/." "$WWW/"
         chmod -R go+rX "$WWW"

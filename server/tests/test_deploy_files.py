@@ -21,7 +21,9 @@ def test_caddy_site_proxies_api_unbuffered_and_serves_the_website():
     t = text(DEPLOY / "myguide.caddy")
     assert "\nmyguide.itsalie.xyz {" in t
     assert "handle /v1/*" in t and "flush_interval -1" in t and "handle /health" in t
-    assert "127.0.0.1:8710" in t and "root * /srv/www/myguide" in t and "file_server" in t
+    assert "127.0.0.1:8710" in t and "root * /var/www/myguide" in t and "file_server" in t
+    # Compression only on the website: on /v1 it could hold back streamed events.
+    assert t.index("encode zstd gzip") > t.index("handle {")
     assert not re.search(r"^\s*log\b", t, re.M)
 
 
