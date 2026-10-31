@@ -57,6 +57,14 @@ class HTTPError(Exception):
         self.headers = headers
 
 
+class Blocked(HTTPError):
+    """403 `blocked` for a known device, which the proxy counts as a refusal of `device_id`."""
+
+    def __init__(self, device_id: int) -> None:
+        super().__init__(403, "blocked")
+        self.device_id = device_id
+
+
 def json_error(status: int, code: str, message: str, headers: dict[str, str] | None = None) -> JSONResponse:
     """`{"error":{"code":..., "message":...}}` with `status`."""
     return JSONResponse({"error": {"code": code, "message": message}}, status_code=status, headers=headers)
@@ -104,7 +112,7 @@ def rate_key(ip: str) -> str:
 
 def authenticate(request: Request, conn: sqlite3.Connection) -> sqlite3.Row:
     """The device row for the request's bearer token. HTTPError 401 `attest_required` when the token is missing
-    or unknown, 403 `blocked` when the device is blocked."""
+    or unknown, `Blocked` (403 `blocked`) when the device is blocked."""
     header = request.headers.get("authorization", "")
     scheme, _, token = header.partition(" ")
     token = token.strip()
@@ -114,7 +122,7 @@ def authenticate(request: Request, conn: sqlite3.Connection) -> sqlite3.Row:
     if row is None:
         raise HTTPError(401, "attest_required")
     if row["blocked"]:
-        raise HTTPError(403, "blocked")
+        raise Blocked(row["id"])
     return row
 
 

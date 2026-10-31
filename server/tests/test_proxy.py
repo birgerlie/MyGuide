@@ -181,6 +181,15 @@ def test_blocked_device_403_and_upstream_sees_nothing(client, state, upstream):
     assert r.status_code == 403
     assert error_of(r) == "blocked"
     assert upstream.requests == []
+    assert calls(state) == []
+    # The device is known, so the refusal is counted for it: one request, one refused.
+    row = today(state)
+    assert (row["requests"], row["refused"]) == (1, 1)
+    r = client.post("/v1/models", json={}, headers=auth())  # blocked wins over an unknown path
+    assert r.status_code == 403 and error_of(r) == "blocked"
+    row = today(state)
+    assert (row["requests"], row["refused"]) == (2, 2)
+    assert state.inflight.count(1) == 0
 
 
 # --- allowlists and body checks ----------------------------------------------------------------------------

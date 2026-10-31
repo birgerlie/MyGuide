@@ -2,7 +2,7 @@
 admission, SSE passed through byte for byte, settlement exactly once, quota headers on every answer.
 
 Order for a known path: authenticate -> per-minute rate -> path -> body size -> body JSON, model and options ->
-calls in flight -> admit -> forward -> settle (which frees the in-flight slot). Every refusal after authentication is counted for the device and carries the
+calls in flight -> admit -> forward -> settle (which frees the in-flight slot). Every refusal after authentication (and a blocked device's 403) is counted for the device and carries the
 `X-MyGuide-Free-Left` / `X-MyGuide-Credits` headers.
 
 Upstream errors: 401/403 answer 502 `upstream_unreachable`, 429 `insufficient_quota` answers 503 `server_budget`,
@@ -29,7 +29,7 @@ from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from . import db, retention
-from .app import HTTPError, authenticate, read_body
+from .app import Blocked, HTTPError, authenticate, read_body
 from .config import KINDS, Settings
 from .limits import Admission, admit, allowance, count_refused, settle, utc_day
 from .pricing import Usage, usage_from_json
@@ -385,8 +385,14 @@ def routes(state: State) -> list[Route]:
         conn = db.connect(state.db_path)
         try:
             device = authenticate(request, conn)
+        except Blocked as e:  # a known device: its refusal is counted (an unknown token cannot be)
+            blocked = e
+        else:
+            blocked = None
         finally:
             conn.close()
+        if blocked is not None:
+            raise _refuse(state, settings, blocked.device_id, 403, "blocked") from None
         device_id = device["id"]
         if not state.rate_window.hit(device_id, state.monotonic()):
             raise _refuse(state, settings, device_id, 429, "rate_limited")
