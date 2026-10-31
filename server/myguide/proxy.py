@@ -5,6 +5,10 @@ Order for a known path: authenticate -> per-minute rate -> path -> body size -> 
 -> forward -> settle. Every refusal after authentication is counted for the device and carries the
 `X-MyGuide-Free-Left` / `X-MyGuide-Credits` headers.
 
+Upstream errors: 401/403 answer 502 `upstream_unreachable`, 429 `insufficient_quota` answers 503 `server_budget`,
+any other 429 answers 429 `rate_limited` (our JSON, never the upstream text); other statuses pass on as they are.
+The real upstream status is what `calls.status` records.
+
 Nothing personal leaves this module: no body, prompt, token or IP is stored or logged. One info line per
 admitted call: call id, kind, model (an allowlisted name), status, latency, kept, and an error type if any.
 """
@@ -102,6 +106,27 @@ def _usage(kind: str, body: dict, content: bytes, kept: bool) -> Usage:
     except (ValueError, RecursionError):
         return Usage()
     return usage_from_json(obj) if isinstance(obj, dict) else Usage()
+
+
+def _mapped_error(status: int, content: bytes) -> tuple[int, str] | None:
+    """Our (status, code) for an upstream error the app must not see as it is; None to pass it on.
+
+    401/403 mean our key or account is refused: the app cannot fix that, so it is 502 `upstream_unreachable`.
+    429 `insufficient_quota` (code or type) means the OpenAI account is out of money: 503 `server_budget`.
+    Any other 429 is OpenAI's rate limit: 429 `rate_limited`. The upstream body is read only for that code.
+    """
+    if status in (401, 403):
+        return 502, "upstream_unreachable"
+    if status != 429:
+        return None
+    try:
+        obj = json.loads(content)
+    except (ValueError, RecursionError):
+        obj = None
+    error = obj.get("error") if isinstance(obj, dict) else None
+    if isinstance(error, dict) and "insufficient_quota" in (error.get("code"), error.get("type")):
+        return 503, "server_budget"
+    return 429, "rate_limited"
 
 
 def _response_headers(upstream: httpx.Response, allowance_h: dict[str, str]) -> dict[str, str]:
@@ -225,7 +250,11 @@ async def _forward_plain(state: State, call: _Call, kind: str, url: str, body: d
         raise
     kept = 200 <= upstream.status_code < 300
     content = upstream.content
-    call.settle(kept=kept, status=upstream.status_code, usage=_usage(kind, body, content, kept))
+    mapped = None if kept else _mapped_error(upstream.status_code, content)
+    call.settle(kept=kept, status=upstream.status_code, usage=_usage(kind, body, content, kept),
+                error=f"upstream_{upstream.status_code}" if mapped else None)
+    if mapped is not None:
+        raise HTTPError(mapped[0], mapped[1], headers=call.headers_after_settle())
     return Response(content, status_code=upstream.status_code,
                     headers=_response_headers(upstream, call.headers_after_settle()))
 
@@ -256,7 +285,11 @@ async def _forward_stream(state: State, call: _Call, url: str, payload: bytes) -
             raise
         finally:
             await _close_quietly(upstream.aclose)
-        call.settle(kept=False, status=upstream.status_code, usage=_usage("story", {}, content, False))
+        mapped = _mapped_error(upstream.status_code, content)
+        call.settle(kept=False, status=upstream.status_code, usage=_usage("story", {}, content, False),
+                    error=f"upstream_{upstream.status_code}" if mapped else None)
+        if mapped is not None:
+            raise HTTPError(mapped[0], mapped[1], headers=call.headers_after_settle())
         return Response(content, status_code=upstream.status_code,
                         headers=_response_headers(upstream, call.headers_after_settle()))
 

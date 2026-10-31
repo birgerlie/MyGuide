@@ -453,7 +453,7 @@ def test_speech_input_not_a_string_counts_zero(client, state, upstream):
     assert row["speech_chars"] == 0 and row["kept"] == 0
 
 
-@pytest.mark.parametrize("status", [500, 503, 400, 404, 429])
+@pytest.mark.parametrize("status", [500, 503, 400, 404, 409, 422])
 def test_upstream_error_passed_on_unit_returned(client, state, upstream, status):
     body = {"error": {"message": f"upstream said {status}"}}
     upstream.respond = lambda req: httpx.Response(status, json=body)
@@ -464,6 +464,65 @@ def test_upstream_error_passed_on_unit_returned(client, state, upstream, status)
     [row] = calls(state)
     assert row["kept"] == 0 and row["status"] == status
     assert today(state)["used_story"] == 0
+
+
+UPSTREAM_SECRET = "sk-proj-upstream-detail-xyz"  # stands for whatever text OpenAI puts in its error
+
+
+def upstream_error(status: int, code: str | None = None, type_: str | None = None) -> httpx.Response:
+    error = {"message": f"Incorrect API key provided: {UPSTREAM_SECRET}", "code": code, "type": type_}
+    return httpx.Response(status, json={"error": error}, headers={"x-request-id": "req_upstream"})
+
+
+ERROR_MAPPINGS = [
+    # (upstream status, error code, error type) -> (our status, our code)
+    ((401, "invalid_api_key", "invalid_request_error"), (502, "upstream_unreachable")),
+    ((403, "unsupported_country_region_territory", "request_forbidden"), (502, "upstream_unreachable")),
+    ((429, "insufficient_quota", "insufficient_quota"), (503, "server_budget")),
+    ((429, "insufficient_quota", None), (503, "server_budget")),
+    ((429, None, "insufficient_quota"), (503, "server_budget")),
+    ((429, "rate_limit_exceeded", "requests"), (429, "rate_limited")),
+    ((429, None, None), (429, "rate_limited")),
+]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("upstream_answer,ours", ERROR_MAPPINGS)
+def test_upstream_auth_and_429_errors_mapped_to_our_codes(client, state, upstream, stream, upstream_answer, ours):
+    status, code, type_ = upstream_answer
+    upstream.respond = lambda req: upstream_error(status, code, type_)
+    r = client.post("/v1/responses", json=story_body(stream=stream), headers=auth())
+    assert r.status_code == ours[0]
+    assert error_of(r) == ours[1]
+    assert UPSTREAM_SECRET not in r.text and "Incorrect API key" not in r.text
+    assert "x-request-id" not in r.headers
+    assert r.headers["content-type"] == "application/json"
+    assert_allowance(r, FREE_80)  # the unit went back
+    [row] = calls(state)
+    assert row["kept"] == 0 and row["status"] == status  # the real upstream status is logged
+    assert today(state)["used_story"] == 0
+
+
+def test_upstream_429_with_a_body_that_is_not_json_is_rate_limited(client, state, upstream):
+    upstream.respond = lambda req: httpx.Response(429, content=b"<html>Too Many " + UPSTREAM_SECRET.encode())
+    r = client.post("/v1/responses", json=story_body(), headers=auth())
+    assert r.status_code == 429 and error_of(r) == "rate_limited"
+    assert UPSTREAM_SECRET not in r.text
+    [row] = calls(state)
+    assert row["kept"] == 0 and row["status"] == 429
+
+
+@pytest.mark.parametrize("path,body", [
+    ("audio/speech", {"model": SPEECH, "input": "Hei"}),
+    ("images/generations", {"model": IMAGE, "prompt": "x"}),
+])
+def test_upstream_401_on_speech_and_image_mapped(client, state, upstream, path, body):
+    upstream.respond = lambda req: upstream_error(401, "invalid_api_key")
+    r = client.post(f"/v1/{path}", json=body, headers=auth())
+    assert r.status_code == 502 and error_of(r) == "upstream_unreachable"
+    assert UPSTREAM_SECRET not in r.text
+    [row] = calls(state)
+    assert row["kept"] == 0 and row["status"] == 401
 
 
 def test_upstream_error_returns_credits(make_proxy, upstream):
@@ -608,15 +667,15 @@ def test_stream_upstream_breaks_mid_stream_unit_returned_once(client, state, ups
 
 
 def test_stream_upstream_non_2xx_answered_like_non_streaming(client, state, upstream):
-    body = {"error": {"message": "rate limited upstream"}}
-    upstream.respond = lambda req: httpx.Response(429, json=body)
+    body = {"error": {"message": "bad request upstream"}}
+    upstream.respond = lambda req: httpx.Response(400, json=body)
     r = client.post("/v1/responses", json=story_body(stream=True), headers=auth())
-    assert r.status_code == 429
+    assert r.status_code == 400
     assert r.json() == body
     assert r.headers["content-type"] == "application/json"
     assert_allowance(r, FREE_80)
     [row] = calls(state)
-    assert row["kept"] == 0 and row["status"] == 429
+    assert row["kept"] == 0 and row["status"] == 400
 
 
 def test_stream_gzip_from_upstream_reaches_client_decoded(client, state, upstream):
