@@ -6,20 +6,22 @@ set -euo pipefail
 # The functions below take their paths from variables so tests can source this file and run them in a temp dir.
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OPT="${OPT:-/opt/myguide}"
-ENV_FILE="${ENV_FILE:-/etc/myguide/env}"
-CADDY_DIR="${CADDY_DIR:-/etc/caddy}"
-DATA="${DATA:-/srv/myguide}"
-WWW="${WWW:-/srv/www/myguide}"
+# MYGUIDE_TEST_* overrides exist for the tests that source this file; main() refuses to run when any is set,
+# so they can never redirect a real install.
+OPT="${MYGUIDE_TEST_OPT:-/opt/myguide}"
+ENV_FILE="${MYGUIDE_TEST_ENV_FILE:-/etc/myguide/env}"
+CADDY_DIR="${MYGUIDE_TEST_CADDY_DIR:-/etc/caddy}"
+DATA="${MYGUIDE_TEST_DATA:-/srv/myguide}"
+WWW="${MYGUIDE_TEST_WWW:-/srv/www/myguide}"
 
 file_md5() {
     if command -v md5sum >/dev/null 2>&1; then md5sum "$1" | awk '{print $1}'; else md5 -q "$1"; fi
 }
 
-# md5 of the Caddyfile the caddy package ships. MYGUIDE_PACKAGED_MD5 (even empty) overrides the dpkg lookup.
+# md5 of the Caddyfile the caddy package ships. MYGUIDE_TEST_PACKAGED_MD5 (even empty) overrides the dpkg lookup.
 packaged_caddyfile_md5() {
-    if [ -n "${MYGUIDE_PACKAGED_MD5+x}" ]; then
-        printf '%s\n' "$MYGUIDE_PACKAGED_MD5"
+    if [ -n "${MYGUIDE_TEST_PACKAGED_MD5+x}" ]; then
+        printf '%s\n' "$MYGUIDE_TEST_PACKAGED_MD5"
         return 0
     fi
     dpkg-query -W -f='${Conffiles}\n' caddy 2>/dev/null | awk '$1 == "/etc/caddy/Caddyfile" {print $2}' || true
@@ -83,9 +85,18 @@ caddy_main_action() {
 # Stage the would-be Caddy config, validate it, and only then copy it into CADDY_DIR. On any failure nothing under
 # CADDY_DIR changes.
 install_caddy_config() {
-    local action stage
+    local rc=0
+    CADDY_STAGE="$(mktemp -d)"
+    trap 'rm -rf "$CADDY_STAGE"' EXIT INT TERM
+    stage_and_apply_caddy "$CADDY_STAGE" || rc=$?
+    rm -rf "$CADDY_STAGE"
+    trap - EXIT INT TERM
+    return "$rc"
+}
+
+stage_and_apply_caddy() {
+    local stage="$1" action
     action="$(caddy_main_action)" || return 1
-    stage="$(mktemp -d)"
     mkdir "$stage/sites"
     if [ -d "$CADDY_DIR/sites" ]; then
         find "$CADDY_DIR/sites" -maxdepth 1 -name '*.caddy' -exec cp {} "$stage/sites/" \;
@@ -97,11 +108,9 @@ install_caddy_config() {
         cp "$CADDY_DIR/Caddyfile" "$stage/Caddyfile"
     fi
     if ! caddy validate --config "$stage/Caddyfile" --adapter caddyfile; then
-        rm -rf "$stage"
         echo "The staged Caddy config is invalid; nothing under $CADDY_DIR was changed." >&2
         return 1
     fi
-    rm -rf "$stage"
     install -d -m 0755 "$CADDY_DIR" "$CADDY_DIR/sites"
     install -m 0644 "$SRC/deploy/myguide.caddy" "$CADDY_DIR/sites/myguide.caddy"
     if [ "$action" = install ]; then
@@ -110,6 +119,10 @@ install_caddy_config() {
 }
 
 main() {
+    if [ -n "$(compgen -A variable MYGUIDE_TEST_)" ]; then
+        echo "Refusing to run: a MYGUIDE_TEST_* variable is set." >&2
+        exit 1
+    fi
     if [ "$(id -u)" -ne 0 ]; then
         echo "install.sh must run as root." >&2
         exit 1
