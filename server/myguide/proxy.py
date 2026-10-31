@@ -292,7 +292,9 @@ async def _forward_stream(state: State, call: _Call, url: str, payload: bytes) -
             raise
         finally:
             # Settle before the client's stream is closed, so the call is recorded when the client has it all.
-            kept = watcher.completed and not client_gone
+            # Kept iff OpenAI sent response.completed (spec 6: only a stream that ends without its final event
+            # returns the unit), whether or not the client stayed to the end: the story was made and paid for.
+            kept = watcher.completed
             call.settle(kept=kept, status=upstream.status_code, usage=watcher.usage,
                         error=error or ("client_gone" if client_gone else None))
             to_client.close()
@@ -315,7 +317,7 @@ async def _forward_stream(state: State, call: _Call, url: str, payload: bytes) -
         nonlocal client_gone
         await _close_quietly(stream.aclose)
         if not delivered_all:
-            client_gone = True  # the pump drains on, without sending, and settles kept=False
+            client_gone = True  # the pump drains on, without sending, and settles on what upstream sent
         from_pump.close()
 
     a = call.admission

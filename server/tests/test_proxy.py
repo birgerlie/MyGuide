@@ -714,6 +714,16 @@ def _rest_after_disconnect(req):
     return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=parts())
 
 
+def _ends_without_final_event(req):
+    """Two deltas, then (after the client left) the stream ends with no terminal event."""
+    async def parts():
+        yield sse_delta("Det ")
+        await anyio.sleep(0.05)
+        yield sse_delta("var ")
+        await anyio.sleep(0.05)
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=parts())
+
+
 def _stalling_stream(req):
     async def parts():
         yield sse_delta("Det ")
@@ -724,7 +734,7 @@ def _stalling_stream(req):
 
 
 @pytest.mark.parametrize("mode", ["2.4", "2.3", "start"])
-def test_stream_client_disconnect_settles_once(make_proxy, upstream, mode):
+def test_stream_client_disconnect_upstream_completes_unit_kept_once(make_proxy, upstream, mode):
     state = make_proxy()
     upstream.respond = _rest_after_disconnect
     sent, settled = anyio.run(_drive_disconnect, state, mode)
@@ -732,16 +742,84 @@ def test_stream_client_disconnect_settles_once(make_proxy, upstream, mode):
         assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 200
         assert sent[1]["body"] == sse_delta("Det ")
     [row] = settled
-    # The client left before response.completed: not kept, the unit goes back exactly once (never below 0).
-    assert row["kept"] == 0
-    assert today(state)["used_story"] == 0
-    # The pump read on to the final event, so the tokens are counted:
+    # The pump read on to response.completed: OpenAI answered in full, so the unit is kept (spec 6: the unit
+    # is returned only for a stream that ends without its final event), settled exactly once.
+    assert row["kept"] == 1
+    assert today(state)["used_story"] == 1
     # (1000-200)*0.25 + 200*0.025 + 500*2.00 = 200 + 5 + 1000 = 1205 µUSD
     assert (row["tokens_in"], row["tokens_cached"], row["tokens_out"]) == (1000, 200, 500)
     assert row["cost_micro"] == STORY_COST
     day = today(state)
     assert (day["tokens_in"], day["tokens_out"], day["cost_micro"]) == (1000, 500, STORY_COST)
     assert query(state, "SELECT cost_micro FROM server_days WHERE day=?", (DAY,))[0][0] == STORY_COST
+
+
+@pytest.mark.parametrize("mode", ["2.4", "2.3", "start"])
+def test_stream_client_disconnect_before_completed_returns_unit_once(make_proxy, upstream, mode):
+    state = make_proxy()
+    upstream.respond = _ends_without_final_event
+    _, settled = anyio.run(_drive_disconnect, state, mode)
+    [row] = settled
+    # No response.completed ever came: the unit goes back exactly once, never below 0.
+    assert row["kept"] == 0 and row["cost_micro"] == 0
+    assert today(state)["used_story"] == 0
+
+
+def test_client_leaves_right_after_receiving_completed_keeps_the_unit(make_proxy, upstream):
+    """The client takes the whole stream (completed included), then goes away before the stream's end."""
+    state = make_proxy()
+
+    def completed_then_more(req):
+        async def parts():
+            for p in STREAM_PARTS:
+                yield p
+            await anyio.sleep(0.05)  # the client is gone by now: it left after completed arrived
+            yield b": trailing comment\n\n"
+            await anyio.sleep(0.05)  # the send of the trailing chunk fails meanwhile: the client is gone
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=parts())
+    upstream.respond = completed_then_more
+
+    async def run():
+        app = create_app(state)
+        body = json.dumps(story_body(stream=True)).encode()
+        pending = [{"type": "http.request", "body": body, "more_body": False}]
+        received = bytearray()
+
+        async def receive():
+            if pending:
+                return pending.pop(0)
+            await anyio.sleep_forever()
+
+        async def send(message):
+            if message["type"] == "http.response.body":
+                if b"response.completed" in bytes(received):
+                    raise OSError("client went away")  # everything up to completed arrived; then it left
+                received.extend(message.get("body", b""))
+
+        scope = {
+            "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"}, "http_version": "1.1",
+            "method": "POST", "scheme": "http", "path": "/v1/responses", "raw_path": b"/v1/responses",
+            "query_string": b"", "root_path": "", "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+            "headers": [(b"host", b"testserver"), (b"authorization", f"Bearer {TOKEN}".encode()),
+                        (b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())],
+            "state": {},
+        }
+        with anyio.fail_after(5):
+            try:
+                await app(scope, receive, send)
+            except (ClientDisconnect, OSError):
+                pass
+            while not calls(state):
+                await anyio.sleep(0.01)
+        await anyio.sleep(0.1)
+        await state.aclose()
+        return bytes(received)
+
+    received = anyio.run(run)
+    assert received == b"".join(STREAM_PARTS)
+    [row] = calls(state)
+    assert row["kept"] == 1 and row["cost_micro"] == STORY_COST
+    assert today(state)["used_story"] == 1
 
 
 @pytest.mark.parametrize("mode", ["2.4", "2.3"])
@@ -760,7 +838,7 @@ def test_stream_client_disconnect_refunds_credits_once(make_proxy, upstream, mod
     conn = db.connect(state.db_path)
     ledger.grant(conn, 1, 2, "test", NOW)
     conn.close()
-    upstream.respond = _rest_after_disconnect
+    upstream.respond = _ends_without_final_event
     _, settled = anyio.run(_drive_disconnect, state, mode)
     [row] = settled
     assert row["kept"] == 0 and row["paid_with"] == "credits"
@@ -768,6 +846,24 @@ def test_stream_client_disconnect_refunds_credits_once(make_proxy, upstream, mod
     assert reasons == ["grant", "debit", "refund"]
     conn = db.connect(state.db_path)
     assert ledger.balance(conn, 1) == 2
+    conn.close()
+
+
+@pytest.mark.parametrize("mode", ["2.4", "2.3"])
+def test_stream_client_disconnect_upstream_completes_credits_kept(make_proxy, upstream, mode):
+    state = make_proxy(QUOTA_STORY_PER_DAY="0")
+    conn = db.connect(state.db_path)
+    ledger.grant(conn, 1, 2, "test", NOW)
+    conn.close()
+    upstream.respond = _rest_after_disconnect
+    _, settled = anyio.run(_drive_disconnect, state, mode)
+    [row] = settled
+    assert row["kept"] == 1 and row["paid_with"] == "credits"
+    reasons = [e["reason"] for e in query(state, "SELECT reason FROM ledger ORDER BY id")]
+    assert reasons == ["grant", "debit"]
+    conn = db.connect(state.db_path)
+    # 2 granted - 1 debited (CREDITS_PER_STORY=1), no refund = 1
+    assert ledger.balance(conn, 1) == 1
     conn.close()
 
 
