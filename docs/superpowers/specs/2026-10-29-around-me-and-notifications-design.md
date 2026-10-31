@@ -708,3 +708,10 @@ then tuning stops until the owner's field test *(Claude's call)*:
 7. **Merge without Wikidata id.** An English article without a Wikidata id is a duplicate when a story-language
    article has the same normalised title within 100 m.
 8. A skip ends any pending «behind you» on purpose: the owner just asked for quiet.
+
+## 21. A place picked in the list is framed with the owner (owner, 2026-10-31)
+
+The owner asked whether the map should centre on what they tap under «Rundt deg». Claude's call, which the owner approved: frame the owner and the place together rather than the place alone, so the map shows where it is and which way to go.
+- **A tap on a row of the nearby list:** the map frames the owner and the place with room around them (`MapFocus`: the owner–place extent × 1.6 each way, never less than the 600 m owner framing; without a position, the place alone at 600 m). Following ends as after a pan (16.2); locate re-centres and follows again.
+- **A tap on a marker:** the map does not move. The marker is already in view, and the sheet is a safe-area inset, so a marker under it cannot be tapped.
+- **A selection from a buzz while walking:** the map keeps following the owner.

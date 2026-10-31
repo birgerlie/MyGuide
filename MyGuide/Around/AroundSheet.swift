@@ -188,7 +188,7 @@ struct AroundSheet: View {
     private func placeRow(_ candidate: Candidate, distance: Double?) -> some View {
         let isSelected = candidate.id == selectedID
         return Button {
-            model.choose(candidate.id)
+            model.chooseFromList(candidate.id)
             toggle()
         } label: {
             HStack(spacing: 12) {

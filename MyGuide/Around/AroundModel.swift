@@ -39,6 +39,14 @@ final class AroundModel {
     private(set) var listAge: TimeInterval?
     /// True while there is no list in the story language yet ("Finner steder rundt deg …").
     private(set) var loading = true
+    /// The last place the owner picked in the nearby list, for the map to frame with the owner (`MapFocus`).
+    private(set) var focusRequest: FocusRequest?
+
+    /// A pick in the nearby list; `serial` makes a second pick of the same place a new request.
+    struct FocusRequest: Equatable {
+        let coordinate: Coordinate
+        let serial: Int
+    }
 
     /// The story language setting as it is now; the list and the stories use it.
     var language: StoryLanguage { AppServices.currentStoryLanguage() }
@@ -104,6 +112,14 @@ final class AroundModel {
     /// changes until `resumeAutomatic()` (spec 16.1). Ignored without a usable position or for a place not in the list.
     func choose(_ placeID: String) {
         _ = select(placeID, reason: .tap, now: .now)
+    }
+
+    /// The owner tapped a row of the nearby list: as `choose`, and when the place is selected the map is asked to
+    /// frame it with the owner (spec 16, amended 2026-10-31). A marker tap does not move the map: it is in view.
+    func chooseFromList(_ placeID: String) {
+        guard select(placeID, reason: .tap, now: .now),
+              let place = places.first(where: { $0.candidate.id == placeID }) else { return }
+        focusRequest = FocusRequest(coordinate: place.candidate.coordinate, serial: (focusRequest?.serial ?? 0) + 1)
     }
 
     /// The owner tapped locate (spec 16.1): automatic selection resumes; a new winner still needs its dwell.

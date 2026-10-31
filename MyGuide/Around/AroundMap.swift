@@ -7,7 +7,8 @@ import SwiftUI
 /// the notify-worthy places as forest markers and the selected one as a coral pin. A tap on a marker chooses it.
 /// On the first fix the map frames about `ownerSpan` metres around the owner, once, and follows them from there
 /// until they pan or zoom by hand (spec 16.2); then it never re-centres by itself. The round locate button re-centres,
-/// follows the owner again and resumes automatic selection (spec 16.1). Above it, in place of MapKit's compass, the
+/// follows the owner again and resumes automatic selection (spec 16.1). A place picked in the nearby list is framed
+/// together with the owner (`MapFocus`), and following ends as after a pan (spec 16, amended 2026-10-31). Above it, in place of MapKit's compass, the
 /// direction badge, a north arrow pointing to north as seen from the phone, moving only once the heading is 10° from
 /// what it shows (spec 14, amended 2026-10-30); a tap turns a rotated map back to north.
 ///
@@ -21,7 +22,7 @@ struct AroundMap: View {
     let language: StoryLanguage
 
     /// Metres across the narrow side of the map when it frames the owner.
-    static let ownerSpan: CLLocationDistance = 600
+    static let ownerSpan: CLLocationDistance = MapFocus.minimumSpan
 
     /// The map camera's heading, so the cone points the right way when the owner has rotated the map.
     @State private var cameraHeading: CLLocationDirection = 0
@@ -70,6 +71,9 @@ struct AroundMap: View {
                 .overlay(alignment: .topTrailing) { controls }
         }
         .onChange(of: model.position, initial: true) { _, position in follow(position) }
+        .onChange(of: model.focusRequest) { _, request in
+            if let request { focus(on: request.coordinate) }
+        }
         // The heading changes many times a second; the arrow only once it is 10° from what the arrow shows.
         .onChange(of: model.compassHeading, initial: true) { _, heading in
             let next = heading.flatMap { NorthArrow.next(shown: shownHeading, heading: $0) }
@@ -154,8 +158,21 @@ struct AroundMap: View {
         frame(position, animated: !reduceMotion)
     }
 
+    /// A place picked in the nearby list: the owner and the place framed together; following ends until locate, as
+    /// after a pan, so the next fix does not pull the map back.
+    private func focus(on place: Coordinate) {
+        following = false
+        let frame = MapFocus.frame(owner: model.position, place: place)
+        show(MKCoordinateRegion(center: frame.centre.clCoordinate, latitudinalMeters: frame.northSouthMetres,
+                                longitudinalMeters: frame.eastWestMetres), animated: !reduceMotion)
+    }
+
     private func frame(_ centre: Coordinate, animated: Bool) {
-        let framed = MapCameraPosition.region(Self.region(around: centre))
+        show(Self.region(around: centre), animated: animated)
+    }
+
+    private func show(_ region: MKCoordinateRegion, animated: Bool) {
+        let framed = MapCameraPosition.region(region)
         if animated {
             withAnimation(.easeInOut(duration: 0.4)) { position = framed }
         } else {
