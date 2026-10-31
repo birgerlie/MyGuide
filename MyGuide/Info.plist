@@ -33,8 +33,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>MGBundledOpenAIKey</key>
-	<string>$(OPENAI_BUNDLED_KEY)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>MyGuide uses the camera to photograph what you want a story about.</string>
 	<key>NSHealthShareUsageDescription</key>

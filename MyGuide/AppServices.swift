@@ -5,8 +5,9 @@ import os
 import SwiftData
 import UIKit
 
-/// Builds the network clients and the story flow. The API key is read from the Keychain on every call,
-/// so a key saved or removed in Settings takes effect without a relaunch.
+/// Builds the network clients and the story flow. The user's own API key is read from the Keychain on every call,
+/// so a key saved or removed in Settings takes effect without a relaunch. Without one, OpenAI calls go through the
+/// guide server (spec 8).
 @MainActor
 final class AppServices {
     nonisolated static let keychainService = "io.github.birgerlie.MyGuide"
@@ -29,6 +30,9 @@ final class AppServices {
     /// One audio at a time: a photo story starting to speak stops walk audio, and walk audio stops a photo story.
     let audioFocus = AudioFocus()
     private let http: HTTPClient = AppServices.sharedHTTP
+    /// The one way to the guide server: `GuideServerHTTPClient` over the one `GuideServerSession` (its device token in
+    /// the Keychain), over `http`. Every allowance the server reports goes to the walk log.
+    private let guideHTTP: HTTPClient
     /// The one Wikipedia article text cache, for the app's lifetime: photo and walking stories share it.
     private let articles: ArticleTextCache = AppServices.sharedArticles
     /// The one nearby list (spec 7): walking mode, the camera and background wakes all ask it. The same instance as
@@ -73,15 +77,17 @@ final class AppServices {
         let http = http
         let keychain = keychain
         let walkLog = walkLog
+        let guideHTTP = Self.guideServerHTTP(keychain: keychain, http: http, walkLog: walkLog)
+        self.guideHTTP = guideHTTP
         let articles = articles
         let nearby = nearby
         let stories = WalkingStories(
             memory: memory,
             makeFlow: {
-                try Self.walkingFlow(openAI: Self.openAI(keychain: keychain, http: http), memory: memory,
-                                     articles: articles)
+                try Self.walkingFlow(openAI: Self.openAI(keychain: keychain, http: http, guideHTTP: guideHTTP),
+                                     memory: memory, articles: articles)
             },
-            makeSpeech: { try Self.speech(openAI: Self.openAI(keychain: keychain, http: http)) },
+            makeSpeech: { try Self.speech(openAI: Self.openAI(keychain: keychain, http: http, guideHTTP: guideHTTP)) },
             recordUsage: { Self.recordUsage($0, memory: memory) })
         let audioFocus = audioFocus
         audioFocus.stopWalkAudio = { stories.stopListening() }
@@ -351,27 +357,44 @@ final class AppServices {
         memoryLog.error("\(what, privacy: .public): \(String(describing: type(of: error)), privacy: .public) \(ns.domain, privacy: .public) \(ns.code, privacy: .public)")
     }
 
-    /// Throws `OpenAIError.missingAPIKey` when no non-blank key is stored; Keychain failures propagate.
+    /// With a key of the user's own: straight to OpenAI. Without one: through the guide server when App Attest is
+    /// supported. Throws `OpenAIError.missingAPIKey` when neither (the simulator without a key); Keychain failures
+    /// propagate.
     func makeOpenAI() throws -> OpenAIClient {
-        try Self.openAI(keychain: keychain, http: http)
+        try Self.openAI(keychain: keychain, http: http, guideHTTP: guideHTTP)
     }
 
-    private static func openAI(keychain: KeychainStore, http: HTTPClient) throws -> OpenAIClient {
-        guard let source = try apiKey(keychain: keychain) else { throw OpenAIError.missingAPIKey }
-        return OpenAIClient(apiKey: source.key, http: http)
+    /// The guide server path gets `GuideServer.placeholderKey`, which `GuideServerHTTPClient` replaces with the device
+    /// token before anything is sent (constraints, Ruling 1).
+    private static func openAI(keychain: KeychainStore, http: HTTPClient, guideHTTP: HTTPClient) throws -> OpenAIClient {
+        if let key = try apiKey(keychain: keychain) { return OpenAIClient(apiKey: key, http: http) }
+        guard DeviceAppAttest().isSupported else { throw OpenAIError.missingAPIKey }
+        return OpenAIClient(apiKey: GuideServer.placeholderKey, http: guideHTTP, baseURL: GuideServer.baseURL)
     }
 
-    /// The key entered in Settings, else the one a test build carries (`APIKeySource`); nil when neither exists.
-    /// Keychain failures propagate.
-    nonisolated static func apiKey(keychain: KeychainStore) throws -> APIKeySource? {
-        APIKeySource.resolve(stored: try keychain.read(apiKeyAccount), bundled: bundledAPIKey)
+    /// The guide server's client. The allowance callback runs wherever the response arrives; it hops to the main actor
+    /// for the walk log, which writes a `server` line only when the allowance changed (Ruling 8).
+    nonisolated private static func guideServerHTTP(keychain: KeychainStore, http: HTTPClient,
+                                                    walkLog: WalkLog) -> HTTPClient {
+        let session = GuideServerSession(baseURL: GuideServer.baseURL, http: http, attest: DeviceAppAttest(),
+                                         store: KeychainGuideTokenStore(keychain))
+        return GuideServerHTTPClient(session: session, base: http) { allowance in
+            Task { @MainActor in walkLog.logServer(allowance) }
+        }
     }
 
-    /// Whether a key is stored or bundled, for walking mode's readiness. A Keychain failure counts as no key, as
-    /// before, but is logged (`KeychainError.diagnostic`, which keeps the OSStatus) instead of passing silently.
+    /// The key the user entered in Settings, trimmed; nil when none or blank. Keychain failures propagate.
+    nonisolated static func apiKey(keychain: KeychainStore) throws -> String? {
+        APIKeySource.usable(try keychain.read(apiKeyAccount))
+    }
+
+    /// Whether stories can be told, for walking mode's readiness: a key of the user's own is stored, or App Attest is
+    /// supported, so the guide server can be used. A Keychain failure counts as no key (the guide server's token is in
+    /// the Keychain too), but is logged (`KeychainError.diagnostic`, which keeps the OSStatus) instead of passing
+    /// silently.
     nonisolated static func hasAPIKey(keychain: KeychainStore) -> Bool {
         do {
-            return try apiKey(keychain: keychain) != nil
+            return try apiKey(keychain: keychain) != nil || DeviceAppAttest().isSupported
         } catch {
             // Only the error: an OSStatus or an error description, never the key.
             keychainLog.error("reading the API key failed: \(KeychainError.diagnostic(error), privacy: .public)")
@@ -380,11 +403,6 @@ final class AppServices {
     }
 
     nonisolated static let keychainLog = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "keychain")
-
-    /// `MGBundledOpenAIKey` from Info.plist: empty unless Config/Local.xcconfig sets OPENAI_BUNDLED_KEY.
-    nonisolated static var bundledAPIKey: String? {
-        Bundle.main.object(forInfoDictionaryKey: "MGBundledOpenAIKey") as? String
-    }
 
     /// The place source of the nearby list: the same shared OSM and Wikipedia clients as phase 1, with the shared
     /// Wikidata facts.
@@ -398,7 +416,7 @@ final class AppServices {
         URL.cachesDirectory.appending(path: "Speech", directoryHint: .isDirectory)
     }
 
-    /// Throws `OpenAIError.missingAPIKey` when no non-blank key is stored.
+    /// Throws `OpenAIError.missingAPIKey` when there is no own key and no guide server (see `makeOpenAI`).
     func makeSpeech() throws -> SpeechService {
         Self.speech(openAI: try makeOpenAI())
     }
@@ -414,7 +432,7 @@ final class AppServices {
                          pointsOfInterest: MapKitPointsOfInterest(), articles: articles)
     }
 
-    /// Throws `OpenAIError.missingAPIKey` when no key is stored.
+    /// Throws `OpenAIError.missingAPIKey` when there is no own key and no guide server (see `makeOpenAI`).
     func makeFlow() throws -> PhotoStoryFlow {
         let openAI = try makeOpenAI()
         let grounding = GroundingService(overpass: OverpassClient(http: http),
@@ -425,7 +443,8 @@ final class AppServices {
                               articles: articles)
     }
 
-    /// Throws `OpenAIError.missingAPIKey` when no key is stored. Photos are read from memory on the main actor.
+    /// Throws `OpenAIError.missingAPIKey` when there is no own key and no guide server (see `makeOpenAI`). Photos are
+    /// read from memory on the main actor.
     func makeDayStoryFlow() throws -> DayStoryFlow {
         let memory = memory
         return DayStoryFlow(openAI: try makeOpenAI()) { id in

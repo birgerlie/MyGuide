@@ -33,8 +33,6 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         ITSAppUsesNonExemptEncryption: false
-        # A test build may carry the owner's key from the git-ignored Config/Local.xcconfig (empty otherwise).
-        MGBundledOpenAIKey: "$(OPENAI_BUNDLED_KEY)"
         UILaunchScreen: {}
         UIBackgroundModes: [audio, location]
         UIAppFonts: [PlayfairDisplay-Variable.ttf, Inter-Regular.ttf, Inter-Medium.ttf]
@@ -56,6 +54,9 @@ targets:
       properties:
         com.apple.developer.usernotifications.time-sensitive: true
         com.apple.developer.healthkit: true
+        # App Attest for the guide server (spec 5). Development signing uses Apple's development environment;
+        # TestFlight and App Store builds always use production, whatever this says.
+        com.apple.developer.devicecheck.appattest-environment: development
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.birgerlie.MyGuide

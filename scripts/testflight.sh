@@ -14,10 +14,6 @@ build_number=$(git rev-list --count HEAD)
 work=$(mktemp -d -t myguide-testflight)
 archive="$work/MyGuide.xcarchive"
 
-if ! grep -qE '^[[:space:]]*OPENAI_BUNDLED_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' Config/Local.xcconfig 2>/dev/null; then
-  echo "Note: no OPENAI_BUNDLED_KEY in Config/Local.xcconfig, so testers must enter their own key." >&2
-fi
-
 xcodegen generate --quiet
 xcodebuild archive \
   -project MyGuide.xcodeproj -scheme MyGuide -configuration Release \

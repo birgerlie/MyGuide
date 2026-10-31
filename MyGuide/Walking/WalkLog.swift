@@ -16,12 +16,15 @@ final class WalkLog {
     private(set) var currentURL: URL?
     private var writer: WalkLogWriter?
     private var quiet = QuietThrottle()
+    /// The allowance of the last `server` line written in this run; nil before the first.
+    private var lastServer: ServerAllowance?
 
     /// Opens the file of a new run, then deletes the oldest files beyond the newest 20 (the new one counts and is
     /// never deleted). A run still open is ended first. When the file cannot be opened the run has no log.
     func begin(runID: UUID, at date: Date) {
         end()
         quiet.reset()
+        lastServer = nil
         let url = Self.directory.appending(path: WalkLogStore.fileName(start: date, runID: runID),
                                            directoryHint: .notDirectory)
         do {
@@ -48,6 +51,14 @@ final class WalkLog {
     func logQuiet(_ reason: QuietReason, due: [DuePlace], heldBy: HoldingPlace? = nil, at date: Date = .now) {
         guard writer != nil, quiet.shouldLog(reason, due: due, heldBy: heldBy) else { return }
         log(.quiet(reason, due: due, heldBy: heldBy), at: date)
+    }
+
+    /// A `server` line with what the guide server says is left, only when it differs from the last one written in
+    /// this run (constraints, Ruling 8). Without a run nothing is written or remembered.
+    func logServer(_ allowance: ServerAllowance, at date: Date = .now) {
+        guard writer != nil, allowance != lastServer else { return }
+        lastServer = allowance
+        log(.server(allowance), at: date)
     }
 
     /// After a buzz, a pause or a resume the next quiet decision is always written.

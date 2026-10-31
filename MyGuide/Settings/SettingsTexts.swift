@@ -17,10 +17,9 @@ enum SettingsTexts {
         return suffix.map { "\(saved) ••••\($0)" } ?? saved
     }
 
-    static func bundledKey(_ language: StoryLanguage) -> String {
-        language == .norwegian
-            ? "Bruker testnøkkelen som følger med denne versjonen"
-            : "Using the test key built into this version"
+    /// No key of the user's own, and App Attest works: stories go through the guide server (spec 8).
+    static func guideServer(_ language: StoryLanguage) -> String {
+        language == .norwegian ? "Historiene går via MyGuide-serveren." : "Stories go through the MyGuide server."
     }
 
     static func noKey(_ language: StoryLanguage) -> String {

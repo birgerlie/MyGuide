@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		031FC67AC4F02F2C47A0EC45 /* WalkingCheckModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C88C13528A808EC7807C2F /* WalkingCheckModel.swift */; };
+		042F3235961BFE1F84265E58 /* KeychainGuideTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E9E61DC5635E5216DC380C3 /* KeychainGuideTokenStore.swift */; };
 		056D741FF0C50FBDF5B73EEA /* WatchDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = B45F5DE6901B1AF2435EA646 /* WatchDesign.swift */; };
 		05DDE787377A90B8BFDC6DDE /* NotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */; };
 		08860B174F861BFCF4807666 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
@@ -104,6 +105,7 @@
 		D29066A3F7864F88E940863E /* WalkingCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D718A718A1BAB633570C16E /* WalkingCheckView.swift */; };
 		D3286E67112125C2C97C1B4F /* TourPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F73C3D0028C6400F9AD3F3 /* TourPanel.swift */; };
 		DAF446E19642A0E35912F5F4 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C0F406D391D40364290743 /* Theme.swift */; };
+		DD786DDFF858B22D075810F7 /* DeviceAppAttest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C459984F8BB37AF5CF1E302 /* DeviceAppAttest.swift */; };
 		DEA013A61090F530F1145FC8 /* MyGuideNotificationContent.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 217D212EDC5E2D502B4F362C /* MyGuideNotificationContent.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DFDF2CE095968F322A0273DA /* PhoneHeadingProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C1BE4968CEF097E30E75A /* PhoneHeadingProvider.swift */; };
 		E420354402540821B0E98244 /* AroundSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED0A94E737227C527026CAC /* AroundSheet.swift */; };
@@ -214,6 +216,7 @@
 		517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingLiveActivity.swift; sourceTree = "<group>"; };
 		5876C81EBF3249E9F3A2B39C /* StoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryViewModel.swift; sourceTree = "<group>"; };
 		58D59629C52B71A28FA9DCBB /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
+		5C459984F8BB37AF5CF1E302 /* DeviceAppAttest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAppAttest.swift; sourceTree = "<group>"; };
 		5E7A49C840514706DE718EF1 /* WalkStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkStoryView.swift; sourceTree = "<group>"; };
 		5FBB4C46662A35DDEF7D7ADD /* PlayfairDisplay-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "PlayfairDisplay-OFL.txt"; sourceTree = "<group>"; };
 		6095C1673AF14B495B34401A /* NotificationCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCard.swift; sourceTree = "<group>"; };
@@ -247,6 +250,7 @@
 		99E3A26862C96B12EBF7C7C3 /* NotificationPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPayload.swift; sourceTree = "<group>"; };
 		99EF5E4DEFE2C9FEFDB7F630 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		9DCB047CA9CCE580C05EF29B /* DiaryWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryWork.swift; sourceTree = "<group>"; };
+		9E9E61DC5635E5216DC380C3 /* KeychainGuideTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainGuideTokenStore.swift; sourceTree = "<group>"; };
 		A1937BD8CD114DE987914DC8 /* WalkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkLog.swift; sourceTree = "<group>"; };
 		B3FDE1443A09F9C472F02CDD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		B45F5DE6901B1AF2435EA646 /* WatchDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDesign.swift; sourceTree = "<group>"; };
@@ -352,6 +356,7 @@
 				A7D7E3A20BB6FBE11F69FE33 /* Capture */,
 				E4D87F8FFAF6D7F0CC6FB666 /* Design */,
 				0D3471D25E9454F50E8D45FA /* Diary */,
+				BA6F9478C026F538E1A78DF4 /* GuideServer */,
 				EABF7E6D3FEFD2F8655C128B /* History */,
 				C33F1654996717C37D9C0E03 /* Home */,
 				65FCED6406B373ED5C73E009 /* Platform */,
@@ -502,6 +507,15 @@
 				517D4CA3AE7F6077E47F8F13 /* WalkingLiveActivity.swift */,
 			);
 			path = MyGuideWidgets;
+			sourceTree = "<group>";
+		};
+		BA6F9478C026F538E1A78DF4 /* GuideServer */ = {
+			isa = PBXGroup;
+			children = (
+				5C459984F8BB37AF5CF1E302 /* DeviceAppAttest.swift */,
+				9E9E61DC5635E5216DC380C3 /* KeychainGuideTokenStore.swift */,
+			);
+			path = GuideServer;
 			sourceTree = "<group>";
 		};
 		C33F1654996717C37D9C0E03 /* Home */ = {
@@ -843,6 +857,7 @@
 				7786C208D7017F41320B6592 /* DayStoryModel.swift in Sources */,
 				AF3A9690018181FAB376103E /* DayStoryView.swift in Sources */,
 				749C4648B7C19FE0ED8C63CD /* DestinationSearch.swift in Sources */,
+				DD786DDFF858B22D075810F7 /* DeviceAppAttest.swift in Sources */,
 				2E687F1524D66369769F9791 /* DiaryRows.swift in Sources */,
 				70623E8B571F401324C5D2AD /* DiaryTexts.swift in Sources */,
 				46E4D4457B689CC04B681EBB /* DiaryView.swift in Sources */,
@@ -850,6 +865,7 @@
 				CFD5C8229356B6AA61821B4B /* HistoryTexts.swift in Sources */,
 				1D31527EEC126FE83997D8A0 /* HistoryView.swift in Sources */,
 				BD566AA78DCAD3B022E72AB2 /* HomeScreen.swift in Sources */,
+				042F3235961BFE1F84265E58 /* KeychainGuideTokenStore.swift in Sources */,
 				2372F6786301805D64B055F5 /* LibraryImport.swift in Sources */,
 				6B373071ACC715BE3D2A92BF /* LocationProvider.swift in Sources */,
 				97775A64A1EC0F155C4C3DC3 /* MapKitPointsOfInterest.swift in Sources */,

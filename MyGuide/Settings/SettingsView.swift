@@ -9,7 +9,7 @@ struct SettingsView: View {
     @State private var draftKey = ""
     @State private var savedKeySuffix: String?
     @State private var hasSavedKey = false
-    @State private var usesBundledKey = false
+    @State private var usesGuideServer = false
     @State private var errorText: String?
     @State private var totals: UsageTotals?
     @State private var totalsFailed = false
@@ -28,8 +28,8 @@ struct SettingsView: View {
             Section {
                 if hasSavedKey {
                     Text(SettingsTexts.keySaved(suffix: savedKeySuffix, screenLanguage))
-                } else if usesBundledKey {
-                    Text(SettingsTexts.bundledKey(screenLanguage)).opacity(0.75)
+                } else if usesGuideServer {
+                    Text(SettingsTexts.guideServer(screenLanguage)).opacity(0.75)
                 } else {
                     Text(SettingsTexts.noKey(screenLanguage)).opacity(0.75)
                 }
@@ -205,10 +205,10 @@ struct SettingsView: View {
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             hasSavedKey = !key.isEmpty
             savedKeySuffix = APIKeyDisplay.visibleSuffix(of: key)
-            usesBundledKey = !hasSavedKey && APIKeySource.resolve(stored: nil, bundled: AppServices.bundledAPIKey) != nil
+            usesGuideServer = !hasSavedKey && DeviceAppAttest().isSupported
         } catch {
             hasSavedKey = false
-            usesBundledKey = false
+            usesGuideServer = false
             savedKeySuffix = nil
             errorText = SettingsTexts.readKeychainFailed(error, screenLanguage)
         }
