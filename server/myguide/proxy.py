@@ -2,8 +2,9 @@
 admission, SSE passed through byte for byte, settlement exactly once, quota headers on every answer.
 
 Order for a known path: authenticate -> per-minute rate -> path -> body size -> body JSON, model and options ->
-calls in flight -> admit -> forward -> settle (which frees the in-flight slot). Every refusal after authentication (and a blocked device's 403) is counted for the device and carries the
-`X-MyGuide-Free-Left` / `X-MyGuide-Credits` headers.
+calls in flight -> admit -> forward -> settle (which frees the in-flight slot). Every refusal after
+authentication, and a blocked device's 403, is counted for the device and carries the `X-MyGuide-Free-Left` /
+`X-MyGuide-Credits` headers.
 
 Upstream errors: 401/403 answer 502 `upstream_unreachable`, 429 `insufficient_quota` answers 503 `server_budget`,
 any other 429 answers 429 `rate_limited` (our JSON, never the upstream text); other statuses pass on as they are.
@@ -101,8 +102,7 @@ def _parse(raw: bytes, kind: str, settings: Settings) -> tuple[dict, str, bytes]
     if kind == "story":
         limit = body.get("max_output_tokens")
         if limit is not None and not (_is_int(limit) and limit <= settings.max_output_tokens_story):
-            return "bad_request"
-    if kind == "story":
+            return "bad_request"  # absent or null: OpenAI's own limit for the model applies
         body["store"] = False
     try:
         payload = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
