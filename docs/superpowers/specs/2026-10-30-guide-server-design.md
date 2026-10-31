@@ -332,3 +332,50 @@ The `devices` view gains a balance column.
 - The exact SSE parsing.
 - The admin command's output format.
 - The wording of the error JSON messages, which the app does not show.
+
+## Amendments 2026-10-31
+
+Made after the final review of the built branch. The sections above stay as written; where they differ, these
+amendments are what the code does.
+
+- **§5, blocked vs. unknown device.** A blocked device gets 403 `blocked`. Only a missing or unknown token gets
+  401 `attest_required`. The app re-attests only on 401 `attest_required`; a 403 `blocked` (on a call or on
+  `POST /v1/attest` with a blocked `previousToken`) shows the neutral «Add your own OpenAI API key in Settings.»
+  text (`attestUnavailable`), never OpenAI's 403 text.
+- **§6, counting refusals.** A refused request is counted in the device's day (`requests` + 1, `refused` + 1) when
+  the device is known, including a blocked device's 403. A 401 for a missing or unknown token cannot be counted
+  per device: there is no device to count it on.
+- **§8, where the token goes.** The token is attached by `GuideServerHTTPClient`, which sets `Authorization` on
+  every request; `OpenAIClient` carries the placeholder key `guide-server`, which never leaves the device
+  (plan, Ruling 1).
+- **§6, upstream errors.** OpenAI's error answers do not reach the app as they are. Upstream 401 or 403 answers
+  502 `upstream_unreachable`; upstream 429 with code or type `insufficient_quota` answers 503 `server_budget`; any
+  other upstream 429 answers 429 `rate_limited`. These carry the server's own JSON body, never upstream text. Other
+  upstream 4xx and 5xx pass on as before. In every case the unit is returned and `calls.status` records the real
+  upstream status.
+- **§6, body limits.** On top of the model and path lists: `images/generations` with `n` other than absent or 1,
+  any request with `service_tier` other than absent, `"auto"` or `"default"`, and a `/v1/responses` body with
+  `max_output_tokens` that is not a whole number at most `MAX_OUTPUT_TOKENS_STORY` answer 400 `bad_request`
+  (counted as refused). The app sends `n: 1` for images and never sends `service_tier` or `max_output_tokens`.
+- **§6, calls in flight.** At most `MAX_INFLIGHT_PER_DEVICE` calls per device may be admitted and not yet settled
+  at once (counted in memory; a restart resets it). The check runs after authentication and the body checks,
+  before admission; over it answers 429 `rate_limited` (counted as refused). The slot is freed exactly once, when
+  the call settles (streams included) or is refused at admission.
+- **§6.1, two new settings.**
+
+  | Setting | Default | What it limits |
+  |---|---|---|
+  | `MAX_OUTPUT_TOKENS_STORY` | 16000 | the largest `max_output_tokens` a story request may ask for (>= 1) |
+  | `MAX_INFLIGHT_PER_DEVICE` | 3 | calls one device may have in flight at once (>= 1) |
+
+- **§6, Streaming.** The terminal events are `response.completed`, `response.incomplete` and `response.failed`.
+  The usage is read from the `response` object of whichever arrives, so the tokens of a failed or cut-off story
+  are recorded and priced. Only `response.completed` keeps the unit. Once `response.completed` has arrived the
+  unit is kept even if the client has gone away; a stream that ends without it returns the unit.
+- **§4, the website.** The same domain (`myguide.itsalie.xyz`) also serves a static website from
+  `/srv/www/myguide`, for every path outside `/v1/*` and `/health`, which go to the guide server.
+- **§7, admin.** `myguide-admin today` and `days N` show a `calls` column (the admitted calls of each day, kept or
+  not) next to `requests` (every counted request, refused ones included).
+- **Deploy.** The systemd unit waits `TimeoutStopSec=150` on stop, so a stream of up to
+  `UPSTREAM_TIMEOUT_SECONDS=120` can finish; the service ignores SIGHUP from its first line until the reload
+  handler is installed.
