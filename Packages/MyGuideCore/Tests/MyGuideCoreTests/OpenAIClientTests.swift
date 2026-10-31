@@ -328,6 +328,9 @@ import Testing
         (#"error"#, #"{"type":"error","code":"rate_limit_exceeded","message":"Slow down"}"#, OpenAIError.rateLimited("Slow down")),
         (#"error"#, #"{"type":"error","code":"invalid_api_key","message":"bad key"}"#, OpenAIError.invalidAPIKey),
         (#"error"#, #"{"type":"error","code":"model_not_found","message":"gone"}"#, OpenAIError.modelRetired),
+        (#"error"#, #"{"type":"error","code":"daily_quota","message":"used up"}"#, OpenAIError.dailyQuota),
+        (#"error"#, #"{"type":"error","error":{"code":"server_budget","message":"paused"}}"#, OpenAIError.serverBudget),
+        (#"error"#, #"{"type":"error","code":"attest_required","message":"attest"}"#, OpenAIError.attestUnavailable),
         (#"response.failed"#, #"{"type":"response.failed","response":{"id":"r","status":"failed","output":[],"error":{"code":"content_policy_violation","message":"policy"}}}"#, OpenAIError.contentBlocked),
         (#"response.failed"#, #"{"type":"response.failed","response":{"id":"r","status":"failed","output":[],"error":null}}"#, OpenAIError.malformedResponse),
     ])

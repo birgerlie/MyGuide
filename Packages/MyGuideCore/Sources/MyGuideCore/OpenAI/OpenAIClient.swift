@@ -205,13 +205,7 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
     static func mapError(status: Int, body: Data) -> OpenAIError {
         let detail = (try? JSONDecoder().decode(ErrorEnvelope.self, from: body))?.error
         if let blocked = permanentError(code: detail?.code) { return blocked }
-        // Guide-server codes (spec 8): the code decides, whatever the status.
-        switch detail?.code {
-        case "daily_quota": return .dailyQuota
-        case "server_budget": return .serverBudget
-        case "attest_required": return .attestUnavailable
-        default: break
-        }
+        if let server = guideServerError(code: detail?.code) { return server }
         switch status {
         case 401:
             return .invalidAPIKey
@@ -222,6 +216,16 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
             return .rateLimited(detail?.message ?? "Rate limited")
         default:
             return .server(status)
+        }
+    }
+
+    /// Guide-server codes (spec 8): the code decides, whatever the status or event.
+    private static func guideServerError(code: String?) -> OpenAIError? {
+        switch code {
+        case "daily_quota": return .dailyQuota
+        case "server_budget": return .serverBudget
+        case "attest_required": return .attestUnavailable
+        default: return nil
         }
     }
 
@@ -414,6 +418,7 @@ extension OpenAIClient {
     /// The `OpenAIError` an API error inside the stream maps to; `malformedResponse` when nothing specific applies.
     private static func streamError(code: String?, type: String?, message: String?) -> OpenAIError {
         if let permanent = permanentError(code: code) { return permanent }
+        if let server = guideServerError(code: code) { return server }
         if code == "insufficient_quota" || type == "insufficient_quota" { return .quotaExceeded }
         if code == "rate_limit_exceeded" { return .rateLimited(message ?? "Rate limited") }
         if code == "invalid_api_key" { return .invalidAPIKey }

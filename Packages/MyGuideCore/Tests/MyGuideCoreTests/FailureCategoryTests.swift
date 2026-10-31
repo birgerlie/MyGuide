@@ -23,9 +23,9 @@ import Testing
         #expect(FailureCategory(OpenAIError.malformedResponse) == .aiFailed)
         #expect(FailureCategory(OpenAIError.modelRetired) == .aiFailed)
         #expect(FailureCategory(OpenAIError.contentBlocked) == .aiFailed)
-        #expect(FailureCategory(OpenAIError.dailyQuota) == .aiFailed)
-        #expect(FailureCategory(OpenAIError.serverBudget) == .aiFailed)
-        #expect(FailureCategory(OpenAIError.attestUnavailable) == .aiFailed)
+        #expect(FailureCategory(OpenAIError.dailyQuota) == .dailyQuota)
+        #expect(FailureCategory(OpenAIError.serverBudget) == .serverBudget)
+        #expect(FailureCategory(OpenAIError.attestUnavailable) == .noKey)
         // other URL errors and foreign errors are .other
         #expect(FailureCategory(URLError(.badURL)) == .other)
         #expect(FailureCategory(URLError(.badServerResponse)) == .other)
@@ -41,6 +41,10 @@ import Testing
             (.noKey, "Mangler API-nøkkel. Legg den inn i Innstillinger.", "No API key. Add it in Settings."),
             (.timedOut, "Det tok for lang tid. Prøv igjen.", "It took too long. Try again."),
             (.other, "Noe gikk galt. Prøv igjen.", "Something went wrong. Try again."),
+            (.dailyQuota, "Dagens gratis historier er brukt opp. Prøv igjen i morgen.",
+             "Today's free stories are used up. Try again tomorrow."),
+            (.serverBudget, "Guiden tar en pause akkurat nå. Prøv igjen senere.",
+             "The guide is taking a break right now. Try again later."),
         ]
         for (cat, nb, en) in table {
             #expect(cat.text(.norwegian) == nb)

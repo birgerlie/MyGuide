@@ -2,13 +2,15 @@ import Foundation
 
 /// Coarse reason a story could not be fetched; picks the one-line text in the failure notification.
 public enum FailureCategory: Sendable, Equatable {
-    case noNetwork, aiFailed, noKey, timedOut, other
+    case noNetwork, aiFailed, noKey, timedOut, other, dailyQuota, serverBudget
 
     public init(_ error: Error) {
         if let e = error as? OpenAIError {
             switch e {
             case .network: self = .noNetwork
-            case .missingAPIKey, .invalidAPIKey: self = .noKey
+            case .missingAPIKey, .invalidAPIKey, .attestUnavailable: self = .noKey
+            case .dailyQuota: self = .dailyQuota
+            case .serverBudget: self = .serverBudget
             default: self = .aiFailed
             }
         } else if let e = error as? URLError {
@@ -34,6 +36,12 @@ public enum FailureCategory: Sendable, Equatable {
         case .noKey: return nb ? "Mangler API-nøkkel. Legg den inn i Innstillinger." : "No API key. Add it in Settings."
         case .timedOut: return nb ? "Det tok for lang tid. Prøv igjen." : "It took too long. Try again."
         case .other: return nb ? "Noe gikk galt. Prøv igjen." : "Something went wrong. Try again."
+        case .dailyQuota:
+            return nb ? "Dagens gratis historier er brukt opp. Prøv igjen i morgen."
+                : "Today's free stories are used up. Try again tomorrow."
+        case .serverBudget:
+            return nb ? "Guiden tar en pause akkurat nå. Prøv igjen senere."
+                : "The guide is taking a break right now. Try again later."
         }
     }
 }
