@@ -575,14 +575,22 @@ def test_stream_without_final_event_unit_returned(client, state, upstream):
     assert today(state)["used_story"] == 0
 
 
-def test_stream_with_failed_event_unit_returned(client, state, upstream):
-    failed = sse_event("response.failed", {"type": "response.failed", "response": {"usage": USAGE}})
-    upstream.respond = lambda req: sse_response([sse_delta("a"), failed])
+@pytest.mark.parametrize("name", ["response.failed", "response.incomplete"])
+def test_stream_with_failed_event_unit_returned(client, state, upstream, name):
+    final = sse_event(name, {"type": name, "response": {"usage": USAGE}})
+    upstream.respond = lambda req: sse_response([sse_delta("a"), final])
     r = client.post("/v1/responses", json=story_body(stream=True), headers=auth())
     assert r.status_code == 200
     [row] = calls(state)
     assert row["kept"] == 0
     assert today(state)["used_story"] == 0
+    # The tokens were spent even though the story failed / was cut off, so they are recorded:
+    # (1000-200)*0.25 + 200*0.025 + 500*2.00 = 200 + 5 + 1000 = 1205 µUSD
+    assert (row["tokens_in"], row["tokens_cached"], row["tokens_out"]) == (1000, 200, 500)
+    assert row["cost_micro"] == STORY_COST
+    day = today(state)
+    assert (day["tokens_in"], day["tokens_out"], day["cost_micro"]) == (1000, 500, STORY_COST)
+    assert query(state, "SELECT cost_micro FROM server_days WHERE day=?", (DAY,))[0][0] == STORY_COST
 
 
 def test_stream_upstream_breaks_mid_stream_unit_returned_once(client, state, upstream):

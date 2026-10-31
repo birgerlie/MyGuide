@@ -107,17 +107,43 @@ def test_completed_event_without_final_blank_line_is_not_dispatched():
     assert not w.completed
 
 
-@pytest.mark.parametrize("name", ["response.failed", "response.incomplete", "error"])
-def test_other_final_events_not_completed(name):
+@pytest.mark.parametrize("name", ["response.failed", "response.incomplete"])
+def test_failed_and_incomplete_are_terminal_with_usage_but_not_completed(name):
+    # The tokens of a failed or cut-off story were spent: usage 1000 in / 200 cached / 500 out is counted,
+    # but only response.completed keeps the unit.
     data = json.dumps({"type": name, "response": {"usage": USAGE}})
-    w = feed_all(f"event: {name}\ndata: {data}\n\n".encode())
+    w = feed_all(delta("a") + f"event: {name}\ndata: {data}\n\n".encode())
     assert not w.completed
+    assert w.usage == Usage(1000, 200, 500)
+
+
+@pytest.mark.parametrize("name", ["response.failed", "response.incomplete"])
+def test_failed_and_incomplete_identified_by_data_type_without_event_line(name):
+    data = json.dumps({"type": name, "response": {"usage": USAGE}})
+    w = feed_all(f"data: {data}\n\n".encode())
+    assert not w.completed
+    assert w.usage == Usage(1000, 200, 500)
+
+
+def test_failed_without_response_object_counts_nothing():
+    w = feed_all(b'event: response.failed\ndata: {"type":"response.failed"}\n\n')
+    assert not w.completed
+    assert w.usage == Usage()
+
+
+def test_error_event_is_not_terminal_and_counts_nothing():
+    data = json.dumps({"type": "error", "response": {"usage": USAGE}})
+    w = feed_all(f"event: error\ndata: {data}\n\n".encode())
+    assert not w.completed
+    assert w.usage == Usage()
 
 
 def test_event_name_wins_over_data_type():
+    # Named response.failed: terminal (usage counted) but not completed, whatever the data's type says.
     data = json.dumps({"type": "response.completed", "response": {"usage": USAGE}})
     w = feed_all(f"event: response.failed\ndata: {data}\n\n".encode())
     assert not w.completed
+    assert w.usage == Usage(1000, 200, 500)
 
 
 def test_multi_line_data_joined_with_newline():

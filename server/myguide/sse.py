@@ -1,4 +1,8 @@
-"""Watch a Responses SSE stream on its way through for the final `response.completed` event (spec 6, Streaming).
+"""Watch a Responses SSE stream on its way through for its terminal event (spec 6, Streaming).
+
+Terminal events are `response.completed`, `response.incomplete` and `response.failed`. The usage is taken from
+the `response` object of any of them (the tokens were spent either way); `completed` is true only for
+`response.completed`, which alone keeps the unit.
 
 The bytes themselves are passed on unchanged by the proxy; this only reads them. Event framing follows the
 SSE spec: lines end in LF, CRLF or a lone CR; `field: value` lines (one space after the colon is dropped);
@@ -14,6 +18,7 @@ import json
 from .pricing import Usage, usage_from_json
 
 _COMPLETED = "response.completed"
+_TERMINAL = frozenset({_COMPLETED, "response.incomplete", "response.failed"})
 
 
 class CompletedWatcher:
@@ -65,7 +70,7 @@ class CompletedWatcher:
             value = value[1:]
         if name == b"event":
             self._event = value.decode("utf-8", "replace")
-        elif name == b"data" and self._event in (None, _COMPLETED):
+        elif name == b"data" and (self._event is None or self._event in _TERMINAL):
             self._data.append(value)  # data of other named events is never parsed, so not kept
 
     def _dispatch(self) -> None:
@@ -73,7 +78,7 @@ class CompletedWatcher:
         self._event, self._data = None, []
         if not data:
             return
-        if event is not None and event != _COMPLETED:
+        if event is not None and event not in _TERMINAL:
             return
         try:
             obj = json.loads(b"\n".join(data))
@@ -83,7 +88,7 @@ class CompletedWatcher:
             return
         name = event if event is not None else obj.get("type")
         response = obj.get("response")
-        if name != _COMPLETED or not isinstance(response, dict):
+        if name not in _TERMINAL or not isinstance(response, dict):
             return
-        self.completed = True
+        self.completed = name == _COMPLETED
         self.usage = usage_from_json(response)
