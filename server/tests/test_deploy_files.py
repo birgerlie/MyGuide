@@ -50,6 +50,15 @@ def test_unit_hardening_and_layout():
     assert "MemoryMax" not in t and "CPUWeight" not in t
 
 
+def test_unit_stop_timeout_outlasts_the_longest_call():
+    # A stop (deploy, reboot) lets calls in flight finish: a stream may run UPSTREAM_TIMEOUT_SECONDS=120,
+    # so systemd waits 150 s (120 + 30 s for settling and shutdown) before it kills the service.
+    lines = text(DEPLOY / "myguide.service").splitlines()
+    assert "TimeoutStopSec=150" in lines
+    template = dict(l.split("=", 1) for l in text(SERVER / "env.template").splitlines() if l and not l.startswith("#"))
+    assert 150 > int(template["UPSTREAM_TIMEOUT_SECONDS"])
+
+
 def test_limits_drop_in():
     t = text(DEPLOY / "limits.conf").splitlines()
     assert "[Service]" in t and "MemoryMax=200M" in t and "CPUWeight=50" in t
