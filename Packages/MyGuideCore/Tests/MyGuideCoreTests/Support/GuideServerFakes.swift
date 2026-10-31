@@ -145,7 +145,9 @@ enum FakeGuideServer {
     static let challenge = challengeBytes.base64EncodedString()
     static let base = URL(string: "https://guide.test/v1")!
 
+    /// A non-200 attest answers `attestBody`, by default an `attest_required` envelope.
     static func responder(challengeStatus: Int = 200, challengeBody: String? = nil, attestStatus: Int = 200,
+                          attestBody: String? = nil,
                           proxy: @escaping RecordingHTTPClient.Responder = { _ in .json(200, "{}") })
         -> RecordingHTTPClient.Responder {
         let issued = LockedBox(0)
@@ -155,7 +157,7 @@ enum FakeGuideServer {
                 return .json(challengeStatus, challengeBody ?? #"{"challenge":"\#(challenge)"}"#)
             case "/v1/attest":
                 guard attestStatus == 200 else {
-                    return .json(attestStatus, #"{"error":{"code":"attest_required","message":"no"}}"#)
+                    return .json(attestStatus, attestBody ?? #"{"error":{"code":"attest_required","message":"no"}}"#)
                 }
                 let n = issued.withValue { $0 += 1; return $0 }
                 return .json(200, #"{"token":"token-\#(n)"}"#)

@@ -7,8 +7,9 @@ import os
 /// bytes, then `POST {base}/attest`, which answers the token. The token goes to `store` and is kept in memory.
 ///
 /// At most one attestation is in flight: every caller that arrives while one runs waits for that one's result.
-/// Errors: no App Attest, a failed attestation or a non-2xx from either endpoint → `OpenAIError.attestUnavailable`;
-/// a `URLError` → `OpenAIError.network`; cancellation stays `CancellationError`.
+/// Errors: no App Attest, a failed attestation or a refusal (400, 401, 403, 413, …) from either endpoint →
+/// `OpenAIError.attestUnavailable`; 429 and 5xx → `OpenAIClient.mapError` (`rateLimited`, `serverBudget`,
+/// `server(n)`); a `URLError` → `OpenAIError.network`; cancellation stays `CancellationError`.
 /// Tokens, challenges and attestations are never logged.
 public actor GuideServerSession {
     private static let log = Logger(subsystem: "io.github.birgerlie.MyGuide", category: "guide-server")
@@ -43,7 +44,12 @@ public actor GuideServerSession {
     /// `rejected` as `previousToken` so the server re-keys the same device and its wallet stays. A failed attestation
     /// throws and leaves the kept token as it was.
     public func renewToken(rejected: String) async throws -> String {
-        if let attestation { return try await attestation.value }
+        // A running attestation that ends with the very token the server refused is no renewal: attest again.
+        while let running = attestation {
+            let token = try await running.value
+            if token != rejected { return token }
+            if attestation == running { break }
+        }
         if let token = try keptToken(), token != rejected { return token }
         return try await attestOnce(previousToken: rejected)
     }
@@ -57,11 +63,15 @@ public actor GuideServerSession {
     }
 
     /// Starts the one attestation and waits for it. Only called when none is in flight; the actor is not entered
-    /// again before `attestation` is set, so later callers find it.
+    /// again before `attestation` is set, so later callers find it. The task clears the slot itself as it ends
+    /// (before any waiter resumes), so no caller is handed a finished attestation's token as a fresh one, and a
+    /// late-resuming starter can never clear a newer attestation's slot.
     private func attestOnce(previousToken: String?) async throws -> String {
-        let task = Task { try await self.attestAndKeep(previousToken: previousToken) }
+        let task = Task {
+            defer { self.attestation = nil }
+            return try await self.attestAndKeep(previousToken: previousToken)
+        }
         attestation = task
-        defer { attestation = nil }
         return try await task.value
     }
 
@@ -104,7 +114,8 @@ public actor GuideServerSession {
         return token
     }
 
-    /// `POST {base}/path` without authorisation. Non-2xx → `attestUnavailable`.
+    /// `POST {base}/path` without authorisation. 429 and 5xx are mapped like any guide-server answer
+    /// (`rateLimited`, `serverBudget`, `server(n)`); every other non-2xx → `attestUnavailable`.
     private func post(_ path: String, body: Data?) async throws -> Data {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
@@ -123,6 +134,9 @@ public actor GuideServerSession {
         }
         guard (200..<300).contains(response.statusCode) else {
             Self.log.error("Guide server \(path, privacy: .public) answered \(response.statusCode)")
+            if response.statusCode == 429 || response.statusCode >= 500 {
+                throw OpenAIClient.mapError(status: response.statusCode, body: data)
+            }
             throw OpenAIError.attestUnavailable
         }
         return data

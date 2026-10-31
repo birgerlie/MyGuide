@@ -66,18 +66,44 @@ import Testing
         #expect(store.writeCount == 0)
     }
 
-    @Test(arguments: [400, 403, 413, 429, 500])
-    func attestEndpointRefusalIsAttestUnavailable(status: Int) async throws {
-        let http = RecordingHTTPClient(FakeGuideServer.responder(attestStatus: status))
+    @Test(arguments: [(400, "bad_request"), (401, "attest_required"), (403, "blocked"), (413, "body_too_large"),
+                      (404, "not_found")])
+    func attestEndpointRefusalIsAttestUnavailable(status: Int, code: String) async throws {
+        let http = RecordingHTTPClient(FakeGuideServer.responder(attestStatus: status,
+                                                                 attestBody: #"{"error":{"code":"\#(code)","message":"m"}}"#))
         await #expect(throws: OpenAIError.attestUnavailable) { try await makeSession(http: http).token() }
     }
 
-    @Test(arguments: [429, 500, 502])
+    /// 429 and 5xx are a busy or broken server, not a device that cannot attest: mapped like any guide-server answer.
+    static let overloads: [(Int, String, OpenAIError)] = [
+        (429, #"{"error":{"code":"rate_limited","message":"slow down"}}"#, .rateLimited("slow down")),
+        (503, #"{"error":{"code":"server_budget","message":"pause"}}"#, .serverBudget),
+        (500, "", .server(500)),
+        (502, #"{"error":{"code":"upstream_unreachable","message":"x"}}"#, .server(502)),
+    ]
+
+    @Test(arguments: overloads)
+    func attestEndpointOverloadIsMappedLikeOtherServerAnswers(status: Int, body: String, expected: OpenAIError) async throws {
+        let store = MemoryTokenStore("old")
+        let http = RecordingHTTPClient(FakeGuideServer.responder(attestStatus: status, attestBody: body))
+        await #expect(throws: expected) { try await makeSession(http: http, store: store).renewToken(rejected: "old") }
+        #expect(store.token == "old")
+    }
+
+    @Test(arguments: [400, 403, 404])
     func challengeRefusalIsAttestUnavailable(status: Int) async throws {
-        let http = RecordingHTTPClient(FakeGuideServer.responder(challengeStatus: status))
+        let http = RecordingHTTPClient(FakeGuideServer.responder(challengeStatus: status, challengeBody: "{}"))
         let attest = FakeAttestProvider()
         await #expect(throws: OpenAIError.attestUnavailable) { try await makeSession(http: http, attest: attest).token() }
         #expect(await http.paths == ["/v1/attest/challenge"])
+        #expect(attest.generateKeyCalls == 0)
+    }
+
+    @Test(arguments: overloads)
+    func challengeOverloadIsMappedLikeOtherServerAnswers(status: Int, body: String, expected: OpenAIError) async throws {
+        let http = RecordingHTTPClient(FakeGuideServer.responder(challengeStatus: status, challengeBody: body))
+        let attest = FakeAttestProvider()
+        await #expect(throws: expected) { try await makeSession(http: http, attest: attest).token() }
         #expect(attest.generateKeyCalls == 0)
     }
 
@@ -219,6 +245,40 @@ import Testing
         #expect(tokens == ["token-1", "token-1"])
         #expect(attest.attestKeyCalls == 1)
         #expect(await http.paths == ["/v1/attest/challenge", "/v1/attest"])
+    }
+
+    @Test func renewRejectingTheInFlightResultAttestsAgain() async throws {
+        // A caller holding "token-1" (say from a just-finished attestation) has it refused and renews while the
+        // attestation that issues "token-1" is still in flight: handing back "token-1" would only be refused again.
+        let http = RecordingHTTPClient(FakeGuideServer.responder())
+        let gate = Gate()
+        let attest = FakeAttestProvider(gate: gate)
+        let session = makeSession(http: http, attest: attest)
+        async let first = session.token()
+        try await eventually { attest.attestKeyCalls >= 1 }
+        async let renewed = session.renewToken(rejected: "token-1")
+        try await Task.sleep(for: .milliseconds(100))
+        await gate.open()
+        #expect(try await first == "token-1")
+        #expect(try await renewed == "token-2")
+        #expect(attest.attestKeyCalls == 2)
+        let previous = await http.requests.filter { $0.url?.path == "/v1/attest" }.map { $0.jsonBody["previousToken"] as? String }
+        #expect(previous == [nil, "token-1"])
+    }
+
+    @Test func attestationSlotIsFreeAfterFailure() async throws {
+        // A failed attestation must not stay in flight: the next call attests anew instead of rethrowing the old error.
+        let failing = LockedBox(true)
+        let server = FakeGuideServer.responder()
+        let gated = RecordingHTTPClient { request in
+            if failing.value { throw URLError(.notConnectedToInternet) }
+            return try await server(request)
+        }
+        let attest = FakeAttestProvider()
+        let session = makeSession(http: gated, attest: attest)
+        await #expect(throws: OpenAIError.self) { try await session.token() }
+        failing.set(false)
+        #expect(try await session.token() == "token-1")
     }
 
     @Test func tokenDuringRenewalWaitsForTheNewToken() async throws {

@@ -169,6 +169,55 @@ import Testing
         #expect(allowances.value == [ServerAllowance(freeLeft: ["story": 0, "speech": 40, "image": 4], credits: 0)])
     }
 
+    /// OpenAI's own 401, passed through by the proxy after auth (the server's OpenAI key revoked or mistyped).
+    static let upstreamUnauthorized = #"{"error":{"code":"invalid_api_key","message":"Incorrect API key"}}"#
+
+    @Test func otherUnauthorizedIsReturnedUnchangedWithoutAttesting() async throws {
+        for body in [Self.upstreamUnauthorized, "", "not json", #"{"error":{"message":"no code"}}"#] {
+            let http = RecordingHTTPClient(FakeGuideServer.responder { _ in .json(401, body) })
+            let attest = FakeAttestProvider()
+            let store = MemoryTokenStore("kept")
+            let (data, response) = try await makeClient(http: http, attest: attest, store: store).send(Self.proxyRequest())
+
+            #expect(response.statusCode == 401)
+            #expect(data == Data(body.utf8))
+            #expect(attest.generateKeyCalls == 0)
+            #expect(attest.attestKeyCalls == 0)
+            #expect(await http.requests.count == 1)
+            #expect(store.token == "kept")
+        }
+    }
+
+    @Test func otherUnauthorizedReachesOpenAIClientAsItsOwnError() async throws {
+        let http = RecordingHTTPClient(FakeGuideServer.responder { _ in .json(401, Self.upstreamUnauthorized) })
+        let attest = FakeAttestProvider()
+        let openAI = OpenAIClient(apiKey: GuideServer.placeholderKey,
+                                  http: makeClient(http: http, attest: attest, store: MemoryTokenStore("kept")),
+                                  baseURL: FakeGuideServer.base)
+        await #expect(throws: OpenAIError.invalidAPIKey) {
+            try await openAI.respond(model: "m", reasoningEffort: nil, instructions: "s", text: "t", imageJPEG: nil,
+                                     schemaName: "s", schema: ["type": "object"])
+        }
+        #expect(attest.attestKeyCalls == 0)
+    }
+
+    @Test func linesOtherUnauthorizedIsReturnedWithItsBodyWithoutAttesting() async throws {
+        let body = "{\"error\":\n{\"code\":\"invalid_api_key\",\"message\":\"Incorrect API key\"}}"
+        let http = RecordingHTTPClient(FakeGuideServer.responder { _ in .json(401, body) })
+        let attest = FakeAttestProvider()
+        let (stream, response) = try await makeClient(http: http, attest: attest, store: MemoryTokenStore("kept"))
+            .lines(Self.proxyRequest())
+        var lines: [String] = []
+        for try await line in stream { lines.append(line) }
+
+        #expect(response.statusCode == 401)
+        #expect(lines == ServerSentEventLineSplitter.lines(in: Data(body.utf8)))
+        #expect(lines.count == 2)
+        #expect(OpenAIClient.mapError(status: 401, body: Data(lines.joined(separator: "\n").utf8)) == .invalidAPIKey)
+        #expect(attest.generateKeyCalls == 0)
+        #expect(await http.lineRequests == 1)
+    }
+
     @Test func blockedIsFinalAndNeverReattests() async throws {
         let http = RecordingHTTPClient(FakeGuideServer.responder { _ in .json(403, #"{"error":{"code":"blocked","message":"b"}}"#) })
         let attest = FakeAttestProvider()

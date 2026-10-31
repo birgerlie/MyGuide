@@ -202,6 +202,11 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
         var error: Detail?
     }
 
+    /// The `error.code` of an error body (`{"error":{"code":…}}`), nil when the body has none.
+    static func errorCode(in body: Data) -> String? {
+        (try? JSONDecoder().decode(ErrorEnvelope.self, from: body))?.error?.code
+    }
+
     static func mapError(status: Int, body: Data) -> OpenAIError {
         let detail = (try? JSONDecoder().decode(ErrorEnvelope.self, from: body))?.error
         if let blocked = permanentError(code: detail?.code) { return blocked }
