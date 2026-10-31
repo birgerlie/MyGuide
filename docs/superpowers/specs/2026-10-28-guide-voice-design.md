@@ -88,7 +88,8 @@ Length depends on what triggered the story and, for app-triggered stories, on ho
 | App-triggered first level (walking buzz, stop story), tier 1 place | 75 | 30 s | 2–3 |
 | App-triggered first level, tier 2 place | 60 | 24 s | 2–3 |
 | App-triggered first level, tier 3 place, or no tier | 40 | 16 s | 2–3 |
-| Owner-triggered: photo story first level; "More" (level 2) after any story | 200 | 80 s | 3–4 |
+| Photo story first level (amended 2026-10-31: what it is and why it matters, first) | 75 | 30 s | 2–3 |
+| "More" (level 2) after any story | 200 | 80 s | 3–4 |
 | "Even more" (level 3) | 300 | 2 min | as many as the facts carry |
 
 - **Tier for a buzz:** the buzzed place's tier. **For a stop story:** the best tier among the OSM/Wikipedia places in its request; 40 words if none (including the "nothing here, but nearby" case of section 9). Never-tier places and Apple Maps places count as no tier.
@@ -226,3 +227,10 @@ Apple Maps places (7.3) never decide a step: steps 1, 2 and 4 look only at the O
 - How the route memory (6.5) and the 3-hour list (6.7) are threaded through `WalkingController`, `WalkingStories`, `AppServices` and `MemoryStore`.
 - Wikipedia API parameters for 7.1.
 - Task sentences per story kind, within section 6.9.
+
+## Amendment 2026-10-31: open with what and why
+
+The owner's wish after using the app: every story should say at once what the thing is and why it is interesting, briefly, and that should be the first thing the app gives, photo stories included.
+- The instructions' first rule becomes: open with what it is and why it is worth their attention, naming the thing plainly and giving the single most striking reason it matters, in the first one or two sentences.
+- The photo story's first level drops from 200 words (3–4 points) to 75 words (2–3 points), the same as a tier 1 buzz. "More" (200) and "Even more" (300) are unchanged and carry the depth.
+- The photo first level's task ends "Then tell the user what it is and why it is interesting."

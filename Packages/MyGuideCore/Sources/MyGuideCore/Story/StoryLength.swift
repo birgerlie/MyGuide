@@ -14,8 +14,8 @@ public struct StoryLength: Sendable, Equatable {
         self.points = points
     }
 
-    /// First level of an unprompted buzz scales with the place's tier; a stop is capped at 50 words;
-    /// everything the listener asks for is 200 words, then 300.
+    /// First level of an unprompted buzz scales with the place's tier; a stop is capped at 50 words; a photo story
+    /// opens short (75 words: what it is and why it matters); "More" is 200 words, then 300.
     public static func of(kind: StoryKind, level: StoryLevel, tier: PlaceTier?) -> StoryLength {
         switch level {
         case .more: return StoryLength(words: 200, points: "3–4")
@@ -28,7 +28,7 @@ public struct StoryLength: Sendable, Equatable {
             case .wikiOnly, nil: buzzWords = 40
             }
             switch kind {
-            case .photo: return StoryLength(words: 200, points: "3–4")
+            case .photo: return StoryLength(words: 75, points: "2–3")
             case .buzz: return StoryLength(words: buzzWords, points: "2–3")
             case .stop: return StoryLength(words: min(buzzWords, 50), points: "2–3")
             }

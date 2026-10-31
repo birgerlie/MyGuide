@@ -64,6 +64,7 @@ import Foundation
         let s = PromptBuilder.systemInstructions
         #expect(s.hasPrefix("You are a brilliant private guide walking beside the user."))
         #expect(s.contains("Never recommend a particular restaurant, café or shop."))
+        #expect(s.contains("- Open with what it is and why it is worth their attention:"))
         #expect(s.contains(#"Never repeat anything listed under "Told in the last 3 hours" or "Told here before"; find a new point."#))
         #expect(s.hasSuffix("and say plainly that you know no recorded history of it."))
         for banned in ["{{", "◆", "English", "Norwegian"] { #expect(!s.contains(banned)) }
@@ -90,9 +91,9 @@ import Foundation
         #expect(s.contains("Also on Apple Maps:\n- Albertina (museum), 70 m, ahead-left\n"))
         #expect(s.contains("Told in the last 3 hours:\n- 13:36 Hofburg level 1: \"The palace grew for 600 years.\"\n"))
         #expect(s.contains("Told here before:\n- [osm:way/1] level 1: The emperor rode out here.\n"))
-        // 200 words · 60 / 150 = 80 s.
-        #expect(s.contains("\nLength: about 200 words (80 seconds spoken), 3–4 points\nAnswer in: English\n"))
-        #expect(l.last == "Task: Identify what the photo shows, preferring places in view. Set matchedCandidateID only if the subject is one of the listed places (use its id in brackets). Then tell the user about it. If nothing listed matches what you see, talk about what can actually be seen in the frame and say plainly that you know no recorded history of it.")
+        // The photo first level opens short: 75 words · 60 / 150 = 30 s.
+        #expect(s.contains("\nLength: about 75 words (30 seconds spoken), 2–3 points\nAnswer in: English\n"))
+        #expect(l.last == "Task: Identify what the photo shows, preferring places in view. Set matchedCandidateID only if the subject is one of the listed places (use its id in brackets). Then tell the user what it is and why it is interesting. If nothing listed matches what you see, talk about what can actually be seen in the frame and say plainly that you know no recorded history of it.")
         #expect(!s.contains("Map data unavailable"))
     }
     @Test func photoFirstInputSidesFollowTheHeading() {

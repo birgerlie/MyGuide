@@ -100,7 +100,7 @@ The best human guides tell stories about people, not dates and buildings, and th
 4. One OpenAI vision request receives the photo, the position, the heading, the candidate places and their summaries, the story language, the active theme (if any) and the list of stories already told about these places. It must:
    - identify what is in the photo, preferring candidates that match position and heading;
    - say plainly when it is unsure what the subject is;
-   - write the first story (about **200 words**, section 6 "Story lengths") in the style rules of section 6, labelling legend and uncertainty.
+   - write the first story (about **75 words**, what it is and why it matters first; guide-voice design, amendment 2026-10-31) in the style rules of section 6, labelling legend and uncertainty.
 5. The story appears as text immediately and is spoken with OpenAI text-to-speech. Audio plays through the phone speaker or connected AirPods.
 6. "Tell me more" generates the second level (about **200 words**); "even more" generates the third (about **300 words**). Each level continues the previous one rather than restarting, and avoids what has been said before.
 7. "Show me how it looked" generates a labelled AI reconstruction image of the scene in the relevant era.

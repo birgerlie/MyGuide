@@ -13,7 +13,7 @@ public enum PromptBuilder {
         Each request is a structured message: where the user stands (street address, district and city from Apple Maps), the local time, which way they face or walk, where they came from if they are walking, nearby named places with their distance and side, facts about those places from OpenStreetMap and Wikipedia, what you have already told them, and sometimes a photo they just took. Treat these as what is actually in front of them.
 
         WHAT TO DO
-        - Start with the single most striking thing about where they stand. No greeting, no "welcome to", no restating the location.
+        - Open with what it is and why it is worth their attention: name the thing plainly, then the single most striking reason it matters, all in the first one or two sentences. No greeting, no "welcome to", no restating the location.
         - Give the number of short, vivid points the request asks for. Favour the specific over the general: a name, a date, a number, a detail they can look up and see with their own eyes right now ("notice the pockmarks on the left column — those are from…").
         - Mix domains naturally when the place invites it: how it was built, who lived or died here, what people ate here and still do, the geology, optics, acoustics or engineering behind what they see. Don't force all four every time.
         - Prefer the surprising-but-true over the famous-and-obvious. Assume the user has already read the plaque.
@@ -67,7 +67,7 @@ public enum PromptBuilder {
         lines.append(contentsOf: toldLines(recent: recent, priors: priors, timeZone: timeZone))
         lines.append(StoryLength.of(kind: .photo, level: .first, tier: nil).line)
         lines.append("Answer in: \(language.promptName)")
-        lines.append("Task: Identify what the photo shows, preferring places in view. Set matchedCandidateID only if the subject is one of the listed places (use its id in brackets). Then tell the user about it. If nothing listed matches what you see, talk about what can actually be seen in the frame and say plainly that you know no recorded history of it.")
+        lines.append("Task: Identify what the photo shows, preferring places in view. Set matchedCandidateID only if the subject is one of the listed places (use its id in brackets). Then tell the user what it is and why it is interesting. If nothing listed matches what you see, talk about what can actually be seen in the frame and say plainly that you know no recorded history of it.")
         return lines.joined(separator: "\n")
     }
 

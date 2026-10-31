@@ -16,8 +16,14 @@ struct StoryLengthTests {
         #expect(StoryLength.of(kind: .stop, level: .first, tier: .good).words == 50)
         #expect(StoryLength.of(kind: .stop, level: .first, tier: nil).words == 40)
     }
+    @Test func photoFirstLevelOpensShortWhateverTheTier() {
+        // 75 words · 60 / 150 = 30 s: what it is and why it matters; the tier does not change it.
+        for tier in [PlaceTier.top, .good, .wikiOnly, nil] as [PlaceTier?] {
+            #expect(StoryLength.of(kind: .photo, level: .first, tier: tier) == StoryLength(words: 75, points: "2–3"))
+        }
+        #expect(StoryLength.of(kind: .photo, level: .first, tier: nil).seconds == 30)
+    }
     @Test func ownerTriggeredLevelsAre200ThenEvenMore300() {
-        #expect(StoryLength.of(kind: .photo, level: .first, tier: nil) == StoryLength(words: 200, points: "3–4"))
         for kind in [StoryKind.photo, .buzz, .stop] {
             #expect(StoryLength.of(kind: kind, level: .more, tier: .top) == StoryLength(words: 200, points: "3–4"))
             #expect(StoryLength.of(kind: kind, level: .evenMore, tier: nil) == StoryLength(words: 300, points: "as many as the facts carry"))
