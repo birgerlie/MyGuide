@@ -261,6 +261,26 @@ def test_today_prints_the_days_cost_in_usd(adm):
     assert row[0] == DAY and row[1] == "2" and row[-1] == "0.0024"
 
 
+def test_today_and_days_show_calls_next_to_requests(adm):
+    a, b = adm.device("ka", "ta"), adm.device("kb", "tb")
+    adm.day_row(a, DAY, 0, requests=5)
+    adm.day_row(b, DAY, 0, requests=2)
+    adm.day_row(a, "2026-10-29", 0, requests=4)
+    for i in range(3):
+        adm.call_row(a, DAY, f"a-{i}", kept=i % 2)
+    adm.call_row(b, DAY, "b-0")
+    adm.call_row(a, "2026-10-29", "a-old")
+    out = adm.run("today")[1].splitlines()
+    assert out[0].split()[:5] == ["day", "devices", "requests", "calls", "refused"]
+    # 10-30: requests 5 + 2 = 7; calls 3 (device a, kept or not) + 1 (device b) = 4
+    assert out[1].split()[:4] == [DAY, "2", "7", "4"]
+    assert len(out) == 2
+    out = adm.run("days", "2")[1].splitlines()
+    assert out[1].split()[:4] == [DAY, "2", "7", "4"]
+    # 10-29: one device, 4 requests, 1 call
+    assert out[2].split()[:4] == ["2026-10-29", "1", "4", "1"]
+
+
 @pytest.mark.parametrize("micro,text", [(0, "0.0000"), (1205, "0.0012"), (50, "0.0001"), (49, "0.0000"),
                                         (1_000_000, "1.0000"), (12_345_678, "12.3457")])
 def test_usd_rounds_half_up(micro, text):

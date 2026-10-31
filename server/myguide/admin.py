@@ -83,12 +83,15 @@ _SUMS = ("COALESCE(SUM(requests),0) r, COALESCE(SUM(refused),0) f, COALESCE(SUM(
 
 
 def _per_day(conn: sqlite3.Connection, out: TextIO, since: str) -> None:
+    # requests: every request of a known device (refused ones too); calls: the admitted ones, kept or not.
     rows = conn.execute(
-        f"SELECT day, COUNT(DISTINCT device_id) d, {_SUMS} FROM device_days WHERE day >= ? "
-        "GROUP BY day ORDER BY day DESC", (since,)).fetchall()
-    table(out, ["day", "devices", "requests", "refused", "tokens in", "tokens out", "tokens cached",
+        f"SELECT dd.day, COUNT(DISTINCT dd.device_id) d, {_SUMS}, "
+        "(SELECT COUNT(*) FROM calls c WHERE c.day = dd.day) n "
+        "FROM device_days dd WHERE dd.day >= ? GROUP BY dd.day ORDER BY dd.day DESC", (since,)).fetchall()
+    table(out, ["day", "devices", "requests", "calls", "refused", "tokens in", "tokens out", "tokens cached",
                 "speech chars", "cost USD"],
-          [(r["day"], r["d"], r["r"], r["f"], r["ti"], r["tout"], r["tc"], r["sc"], usd(r["c"])) for r in rows])
+          [(r["day"], r["d"], r["r"], r["n"], r["f"], r["ti"], r["tout"], r["tc"], r["sc"], usd(r["c"]))
+           for r in rows])
 
 
 def _devices(conn: sqlite3.Connection, out: TextIO, since: str) -> None:
