@@ -205,6 +205,13 @@ public struct OpenAIClient: Sendable, CustomStringConvertible, CustomDebugString
     static func mapError(status: Int, body: Data) -> OpenAIError {
         let detail = (try? JSONDecoder().decode(ErrorEnvelope.self, from: body))?.error
         if let blocked = permanentError(code: detail?.code) { return blocked }
+        // Guide-server codes (spec 8): the code decides, whatever the status.
+        switch detail?.code {
+        case "daily_quota": return .dailyQuota
+        case "server_budget": return .serverBudget
+        case "attest_required": return .attestUnavailable
+        default: break
+        }
         switch status {
         case 401:
             return .invalidAPIKey

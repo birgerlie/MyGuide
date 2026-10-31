@@ -542,7 +542,8 @@ final class StoryViewModel {
                 guard !Task.isCancelled, let self else { return }
                 var message: String?
                 if let e = error as? OpenAIError,
-                   e == .invalidAPIKey || e == .quotaExceeded || e == .missingAPIKey || e == .modelRetired {
+                   e == .invalidAPIKey || e == .quotaExceeded || e == .missingAPIKey || e == .modelRetired
+                    || e == .dailyQuota || e == .serverBudget || e == .attestUnavailable {
                     message = UserFacingMessage.message(for: e, language: UILanguage.current)
                 }
                 self.speech[level] = .failed(message: message)

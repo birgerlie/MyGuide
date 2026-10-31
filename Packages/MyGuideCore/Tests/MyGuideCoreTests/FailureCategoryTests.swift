@@ -23,6 +23,9 @@ import Testing
         #expect(FailureCategory(OpenAIError.malformedResponse) == .aiFailed)
         #expect(FailureCategory(OpenAIError.modelRetired) == .aiFailed)
         #expect(FailureCategory(OpenAIError.contentBlocked) == .aiFailed)
+        #expect(FailureCategory(OpenAIError.dailyQuota) == .aiFailed)
+        #expect(FailureCategory(OpenAIError.serverBudget) == .aiFailed)
+        #expect(FailureCategory(OpenAIError.attestUnavailable) == .aiFailed)
         // other URL errors and foreign errors are .other
         #expect(FailureCategory(URLError(.badURL)) == .other)
         #expect(FailureCategory(URLError(.badServerResponse)) == .other)

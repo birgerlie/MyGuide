@@ -100,6 +100,12 @@ import Testing
         (400, #"{"error":{"message":"blocked","code":"moderation_blocked"}}"#, OpenAIError.contentBlocked),
         (400, #"{"error":{"message":"policy","code":"content_policy_violation"}}"#, OpenAIError.contentBlocked),
         (400, #"{"error":{"message":"bad request","code":"invalid_value"}}"#, OpenAIError.server(400)),
+        (429, #"{"error":{"code":"daily_quota","message":"used up"}}"#, OpenAIError.dailyQuota),
+        (503, #"{"error":{"code":"server_budget","message":"paused"}}"#, OpenAIError.serverBudget),
+        (401, #"{"error":{"code":"attest_required","message":"attest"}}"#, OpenAIError.attestUnavailable),
+        (401, #"{"error":{"message":"no code"}}"#, OpenAIError.invalidAPIKey),
+        (503, "", OpenAIError.server(503)),
+        (429, #"{"error":{"code":"rate_limited","message":"slow"}}"#, OpenAIError.rateLimited("slow")),
     ])
     func mapsHTTPErrors(status: Int, body: String, expected: OpenAIError) async {
         await #expect(throws: expected) { try await call(OpenAIClient(apiKey: "k", http: StubHTTPClient { _ in (status, Data(body.utf8)) })) }

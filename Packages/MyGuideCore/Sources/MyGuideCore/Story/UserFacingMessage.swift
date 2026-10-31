@@ -43,6 +43,15 @@ public enum UserFacingMessage {
             // Worded for images, but it reads correctly for a blocked story too.
             case .contentBlocked:
                 return no ? "OpenAI ville ikke lage dette bildet." : "OpenAI wouldn't make this image."
+            case .dailyQuota:
+                return no ? "Dagens gratis historier er brukt opp. Prøv igjen i morgen."
+                    : "Today's free stories are used up. Try again tomorrow."
+            case .serverBudget:
+                return no ? "Guiden tar en pause akkurat nå. Prøv igjen senere."
+                    : "The guide is taking a break right now. Try again later."
+            case .attestUnavailable:
+                return no ? "Legg inn en egen OpenAI-nøkkel i Innstillinger."
+                    : "Add your own OpenAI API key in Settings."
             }
         case let e as PhotoStoryError:
             switch e {
