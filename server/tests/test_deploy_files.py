@@ -25,9 +25,13 @@ def test_caddy_site_proxies_api_unbuffered_and_serves_the_website():
     assert not re.search(r"^\s*log\b", t, re.M)
 
 
-def test_main_caddyfile_only_imports_sites():
-    lines = [l.strip() for l in text(DEPLOY / "Caddyfile.main").splitlines() if l.strip() and not l.strip().startswith("#")]
-    assert lines == ["import sites/*.caddy"]
+def test_main_caddyfile_imports_sites_and_strips_addresses_from_the_log():
+    t = text(DEPLOY / "Caddyfile.main")
+    body = [l.strip() for l in t.splitlines() if l.strip() and not l.strip().startswith("#")]
+    assert body[0] == "{" and body[-1] == "import sites/*.caddy"
+    assert "format filter" in t and "wrap json" in t
+    for f in ("request>remote_ip", "request>client_ip", "request>remote_port", "request>headers"):
+        assert f"{f} delete" in t
 
 
 def test_placeholder_site_has_no_script_and_no_external_request():
@@ -40,7 +44,7 @@ def test_unit_hardening_and_layout():
     t = text(DEPLOY / "myguide.service")
     for line in ("User=myguide", "Group=myguide", "WorkingDirectory=/opt/myguide/src", "ProtectSystem=strict",
                  "ReadWritePaths=/srv/myguide", "ProtectHome=yes", "PrivateTmp=yes", "NoNewPrivileges=yes",
-                 "Restart=on-failure", "ExecReload=/bin/kill -HUP $MAINPID",
+                 "Restart=on-failure", "ExecReload=/bin/kill -HUP $MAINPID", "RestartSec=5",
                  "ExecStart=/opt/myguide/venv/bin/python -m myguide --env /etc/myguide/env --db /srv/myguide/guide.db"):
         assert line in t.splitlines(), line
     assert "MemoryMax" not in t and "CPUWeight" not in t
@@ -91,7 +95,8 @@ def test_deploy_script_needs_the_go_flag_before_touching_the_network():
     t = text(SERVER / "deploy.sh")
     guard = t.index("MYGUIDE_DEPLOY_GO")
     assert guard < t.index("rsync") and guard < t.index("ssh ")
-    assert "--exclude .venv" in t and "--exclude tests" in t and "--delete" in t
+    assert "git -C" in t and "ls-files -z" in t and "--files-from=-" in t and "--chown=root:root" in t
+    assert "status --porcelain server" in t and sum("--delete" in l for l in t.splitlines() if not l.lstrip().startswith("#")) == 1
     assert "/opt/myguide/src/" in t and "bash /opt/myguide/src/deploy/install.sh" in t
 
 
@@ -106,3 +111,154 @@ def test_install_never_prints_or_overwrites_the_key():
     t = text(DEPLOY / "install.sh")
     assert "cat /etc/myguide/env" not in t and "OPENAI_API_KEY" in t
     assert "chmod 0640" in t or "install -m 0640" in t
+
+
+def test_install_exports_needrestart_guards_and_has_one_validated_apply_path():
+    t = text(DEPLOY / "install.sh")
+    assert "NEEDRESTART_SUSPEND=1" in t and "NEEDRESTART_MODE=l" in t
+    assert t.index("NEEDRESTART_SUSPEND=1") < t.index("apt-get install")
+
+
+# --- the env merge and the Caddy decision, executed under bash ---
+
+INSTALL = DEPLOY / "install.sh"
+
+
+def run_fn(tmp_path, call, env=None, stub_caddy=None):
+    """Source install.sh (its main is guarded) and run `call` with every path inside tmp_path."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    if stub_caddy is not None:
+        stub = bin_dir / "caddy"
+        stub.write_text(stub_caddy)
+        stub.chmod(0o755)
+    e = {"PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin", "ENV_FILE": str(tmp_path / "env"),
+         "CADDY_DIR": str(tmp_path / "caddy"), "HOME": str(tmp_path), **(env or {})}
+    return subprocess.run(["bash", "-c", f"source {INSTALL}; {call}"], env=e, capture_output=True, text=True)
+
+
+def tree(root):
+    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(Path(root).rglob("*")) if p.is_file()}
+
+
+def test_env_is_created_from_the_template_when_missing(tmp_path):
+    r = run_fn(tmp_path, f"sync_env {SERVER / 'env.template'}")
+    assert r.returncode == 0
+    assert (tmp_path / "env").read_text() == text(SERVER / "env.template")
+
+
+def test_env_merge_keeps_values_appends_missing_and_never_prints_the_key(tmp_path):
+    # No trailing newline on the last line, and a changed value and a secret that must survive untouched.
+    (tmp_path / "env").write_text("QUOTA_STORY_PER_DAY=7\nOPENAI_API_KEY=sk-secret-value\nLISTEN_PORT=9999")
+    r = run_fn(tmp_path, f"sync_env {SERVER / 'env.template'}")
+    assert r.returncode == 0
+    got = (tmp_path / "env").read_text()
+    lines = got.splitlines()
+    assert lines[:3] == ["QUOTA_STORY_PER_DAY=7", "OPENAI_API_KEY=sk-secret-value", "LISTEN_PORT=9999"]
+    for name in ("CHALLENGES_MAX_OUTSTANDING", "CHALLENGES_PER_IP_PER_HOUR", "ATTEST_MAX_BODY_BYTES", "QUOTA_IMAGE_PER_DAY"):
+        assert f"{name}=" in got and name in r.stdout
+    assert "OPENAI_API_KEY" not in r.stdout  # present already, so not "added"
+    assert "sk-secret-value" not in r.stdout + r.stderr
+    assert got.count("QUOTA_STORY_PER_DAY=") == 1 and got.count("LISTEN_PORT=") == 1 and got.count("OPENAI_API_KEY=") == 1
+    # Second run changes nothing and prints nothing about additions.
+    before = got
+    r2 = run_fn(tmp_path, f"sync_env {SERVER / 'env.template'}")
+    assert (tmp_path / "env").read_text() == before and "Added" not in r2.stdout
+
+
+def test_env_merge_reads_a_template_whose_last_line_has_no_newline(tmp_path):
+    tpl = tmp_path / "t"
+    tpl.write_text("A=1\nB=2")
+    (tmp_path / "env").write_text("A=5\n")
+    assert run_fn(tmp_path, f"sync_env {tpl}").returncode == 0
+    assert (tmp_path / "env").read_text() == "A=5\nB=2\n"
+
+
+DEBIAN_DEFAULT = ":80 {\n\troot * /usr/share/caddy\n\tfile_server\n}\n"
+OK_CADDY = "#!/bin/sh\nexit 0\n"
+BAD_CADDY = "#!/bin/sh\necho invalid >&2\nexit 1\n"
+
+
+def md5(s):
+    import hashlib
+    return hashlib.md5(s.encode()).hexdigest()
+
+
+def caddy_dir(tmp_path, content=None):
+    d = tmp_path / "caddy"
+    d.mkdir()
+    if content is not None:
+        (d / "Caddyfile").write_text(content)
+    return d
+
+
+def apply(tmp_path, md5_of_default, caddy=OK_CADDY):
+    # SRC is the real server/ directory (install.sh derives it from its own location).
+    return run_fn(tmp_path, "install_caddy_config", env={"MYGUIDE_PACKAGED_MD5": md5_of_default}, stub_caddy=caddy)
+
+
+def test_packaged_default_caddyfile_is_replaced_and_site_installed(tmp_path):
+    d = caddy_dir(tmp_path, DEBIAN_DEFAULT)
+    r = apply(tmp_path, md5(DEBIAN_DEFAULT))
+    assert r.returncode == 0, r.stderr
+    assert (d / "Caddyfile").read_text() == text(DEPLOY / "Caddyfile.main")
+    assert (d / "sites" / "myguide.caddy").read_text() == text(DEPLOY / "myguide.caddy")
+
+
+def test_missing_or_empty_caddyfile_gets_ours(tmp_path):
+    d = caddy_dir(tmp_path)
+    assert apply(tmp_path, "").returncode == 0
+    assert (d / "Caddyfile").read_text() == text(DEPLOY / "Caddyfile.main")
+
+
+def test_default_block_plus_another_site_is_not_the_default_and_is_left_alone(tmp_path):
+    # Contains the default's root line but is not byte-identical to the packaged file.
+    mine = DEBIAN_DEFAULT + "other.example.com {\n\trespond hi\n}\n"
+    d = caddy_dir(tmp_path, mine)
+    before = tree(d)
+    r = apply(tmp_path, md5(DEBIAN_DEFAULT))
+    assert r.returncode != 0 and "import sites/*.caddy" in r.stderr
+    assert tree(d) == before
+
+
+def test_unknown_dpkg_info_means_other_content(tmp_path):
+    d = caddy_dir(tmp_path, DEBIAN_DEFAULT)
+    before = tree(d)
+    assert apply(tmp_path, "").returncode != 0
+    assert tree(d) == before
+
+
+def test_existing_file_that_imports_our_sites_is_kept_and_site_added(tmp_path):
+    mine = "{\n\temail me@example.com\n}\nimport sites/*.caddy\n"
+    d = caddy_dir(tmp_path, mine)
+    (d / "sites").mkdir()
+    (d / "sites" / "other.caddy").write_text("other.example.com {\n}\n")
+    r = apply(tmp_path, "")
+    assert r.returncode == 0, r.stderr
+    assert (d / "Caddyfile").read_text() == mine
+    assert (d / "sites" / "other.caddy").exists() and (d / "sites" / "myguide.caddy").exists()
+
+
+def test_validation_failure_leaves_everything_unchanged_and_validates_the_staged_main(tmp_path):
+    d = caddy_dir(tmp_path, DEBIAN_DEFAULT)
+    before = tree(d)
+    r = apply(tmp_path, md5(DEBIAN_DEFAULT), caddy=BAD_CADDY)
+    assert r.returncode != 0 and "nothing under" in r.stderr
+    assert tree(d) == before and not (d / "sites").exists()
+
+
+def test_validation_runs_on_a_staged_copy_with_the_new_site_not_on_etc_caddy(tmp_path):
+    caddy_dir(tmp_path, DEBIAN_DEFAULT)
+    log = tmp_path / "args"
+    stub = f'#!/bin/sh\necho "$@" > {log}\ncat "$(dirname "$3")/sites/myguide.caddy" >> {log}\nexit 0\n'
+    r = apply(tmp_path, md5(DEBIAN_DEFAULT), caddy=stub)
+    assert r.returncode == 0, r.stderr
+    first = log.read_text().splitlines()[0]
+    assert first.startswith("validate --config ") and "--adapter caddyfile" in first
+    assert str(tmp_path / "caddy") not in first and "myguide.itsalie.xyz" in log.read_text()
+
+
+def test_deploy_script_refuses_without_the_go_flag():
+    # Safe to execute: it exits before any git, rsync or ssh call. Never run it with the flag set.
+    r = subprocess.run(["bash", str(SERVER / "deploy.sh")], env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True)
+    assert r.returncode == 1 and "MYGUIDE_DEPLOY_GO=1" in r.stderr

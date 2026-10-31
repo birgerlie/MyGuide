@@ -33,6 +33,17 @@ in `env.template` (with the template default) and prints their names. It does no
 `/srv/www/myguide` already has files, and it stops and prints the line to add if `/etc/caddy/Caddyfile` has other
 content without `import sites/*.caddy`.
 
+`deploy.sh` ships only the git-tracked files of `server/` and refuses to run with uncommitted changes under
+`server/`. `install.sh` installs `python3.14-venv` if `venv` is missing, which may upgrade the python3.14 patch
+release the machine shares with the other product; it exports `NEEDRESTART_SUSPEND=1` and `NEEDRESTART_MODE=l` so apt
+never restarts other services.
+
+Caddy: `install.sh` replaces `/etc/caddy/Caddyfile` only when it is byte-identical to the packaged default (md5 from
+`dpkg-query`), and it validates a staged copy of the config before touching `/etc/caddy`. If you keep your own main
+Caddyfile, add `import sites/*.caddy` and the global options block from `deploy/Caddyfile.main` (a default `log` with
+`format filter` that deletes `request>remote_ip`, `request>client_ip`, `request>remote_port` and `request>headers`),
+so Caddy's own error log carries no client addresses.
+
 After editing `/etc/myguide/env`, `myguide-admin reload` re-reads it without a restart (SIGHUP).
 
 ## myguide-admin

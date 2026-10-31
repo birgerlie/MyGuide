@@ -1,1 +1,16 @@
+# Global options: Caddy's own log must not carry client addresses (spec 6.2).
+{
+	log {
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>client_ip delete
+				request>remote_port delete
+				request>headers delete
+			}
+		}
+	}
+}
+
 import sites/*.caddy

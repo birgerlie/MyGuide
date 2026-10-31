@@ -10,6 +10,7 @@ WorkingDirectory=/opt/myguide/src
 ExecStart=/opt/myguide/venv/bin/python -m myguide --env /etc/myguide/env --db /srv/myguide/guide.db
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
+RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/srv/myguide
