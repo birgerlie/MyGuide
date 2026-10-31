@@ -57,6 +57,7 @@ public enum WalkLogCodec {
         case .resumed: "resumed"
         case .failure: "failure"
         case .shown: "shown"
+        case .server: "server"
         }
     }
 
@@ -159,6 +160,10 @@ public enum WalkLogCodec {
             return ["context": context, "error": error]
         case .shown(let placeID, let name, let reason):
             return ["placeID": orNull(placeID), "name": orNull(name), "reason": reason.rawValue]
+        case .server(let allowance):
+            var o: [String: Any] = ["freeLeft": allowance.freeLeft]
+            if let credits = allowance.credits { o["credits"] = credits }
+            return o
         }
     }
 
@@ -378,6 +383,21 @@ public enum WalkLogCodec {
             guard let reason = raw(o, "reason", ShownReason.self),
                   let placeID = optionalString(o, "placeID"), let name = optionalString(o, "name") else { return nil }
             return .shown(placeID: placeID, name: name, reason: reason)
+        case "server":
+            // `freeLeft` must be an object of whole numbers; `credits` is absent when the server gave none, and
+            // present it must be a whole number.
+            guard let free = o["freeLeft"] as? [String: Any] else { return nil }
+            var freeLeft: [String: Int] = [:]
+            for key in free.keys {
+                guard let count = int(free, key) else { return nil }
+                freeLeft[key] = count
+            }
+            var credits: Int?
+            if o["credits"] != nil {
+                guard let value = int(o, "credits") else { return nil }
+                credits = value
+            }
+            return .server(ServerAllowance(freeLeft: freeLeft, credits: credits))
         default:
             return nil
         }

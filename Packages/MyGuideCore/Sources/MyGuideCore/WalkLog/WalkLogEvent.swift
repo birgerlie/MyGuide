@@ -192,6 +192,8 @@ public struct WalkLogEvent: Sendable, Equatable {
         /// The place the map selected while walking, or nil id and name when it was cleared (spec 19.7). Which
         /// selections are written is `ShownLogGate`'s call.
         case shown(placeID: String?, name: String?, reason: ShownReason)
+        /// What the guide server says is left after a call (spec 8): free calls per kind and credits.
+        case server(ServerAllowance)
     }
 
     public static let maxErrorLength = 300

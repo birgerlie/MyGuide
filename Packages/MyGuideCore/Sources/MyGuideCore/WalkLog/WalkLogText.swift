@@ -50,6 +50,13 @@ public enum WalkLogText {
         case .failure(let context, let error): return "Failure in \(context): \(error)"
         case .shown(let placeID, let name, let reason):
             return "Map shows \(name ?? placeID ?? "nothing") (\(reason.rawValue))"
+        case .server(let allowance):
+            // Story, speech, image in that order; a kind the server did not report is left out; any other key follows
+            // alphabetically so nothing it says is lost.
+            let known = ["story", "speech", "image"]
+            let extra = allowance.freeLeft.keys.filter { !known.contains($0) }.sorted()
+            let free = (known + extra).compactMap { kind in allowance.freeLeft[kind].map { "\(kind) \($0)" } }
+            return "server · free" + free.map { " " + $0 }.joined() + " · credits " + (allowance.credits.map(String.init) ?? "–")
         }
     }
 

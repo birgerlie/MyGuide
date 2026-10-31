@@ -64,6 +64,8 @@ import Testing
             .shown(placeID: "osm:node/1", name: "Akershus festning", reason: .tap),
             .shown(placeID: "osm:node/1", name: "Akershus festning", reason: .buzz),
             .shown(placeID: nil, name: nil, reason: .cleared),
+            .server(ServerAllowance(freeLeft: ["story": 12, "speech": 40, "image": 4], credits: 37)),
+            .server(ServerAllowance(freeLeft: [:], credits: nil)),
         ]
     }
 
@@ -79,13 +81,13 @@ import Testing
     }
 
     @Test func everyCaseIsCovered() {
-        // 24 cases in Kind; the list above has 44 events (some cases several times: 2 started, 2 stopped, 2 app,
+        // 25 cases in Kind; the list above has 46 events (some cases several times: 2 started, 2 stopped, 2 app,
         // 2 fix, 2 gps, 1 fetchStarted, 5 fetched, 2 fetchFailed, 2 quiet, 1 buzz, 2 notified, 2 notifyFailed, 1 busy,
-        // 3 story, 1 stopDetected, 2 stopStory, 1 stopShown, 1 motion, 3 paused, 2 resumed, 1 failure, 4 shown = 44).
-        // Distinct event names must be all 24.
+        // 3 story, 1 stopDetected, 2 stopStory, 1 stopShown, 1 motion, 3 paused, 2 resumed, 1 failure, 4 shown, 2 server = 46).
+        // Distinct event names must be all 25.
         let names = Set(Self.everyKind.map { Self.json(WalkLogEvent(at: Self.t0, kind: $0))["e"] as! String })
-        #expect(Self.everyKind.count == 44)
-        #expect(names.count == 24)
+        #expect(Self.everyKind.count == 46)
+        #expect(names.count == 25)
     }
 
     @Test func oldLinesWithoutSourceDecode() {
@@ -345,6 +347,38 @@ import Testing
                     #"{"e":"shown","t":"2026-01-01T10:00:00.000Z","placeID":"a","name":["A"],"reason":"tap"}"#] {
             #expect(WalkLogCodec.event(from: Data(bad.utf8)) == nil, "\(bad)")
         }
+    }
+
+    @Test func serverFieldsAndRoundTrip() throws {
+        let full = Self.json(WalkLogEvent(at: Self.t0, kind: .server(
+            ServerAllowance(freeLeft: ["story": 12, "speech": 40, "image": 4], credits: 37))))
+        #expect(full["e"] as? String == "server")
+        #expect(full["freeLeft"] as? [String: Int] == ["story": 12, "speech": 40, "image": 4])
+        #expect(full["credits"] as? Int == 37)
+        let noCredits = Self.json(WalkLogEvent(at: Self.t0, kind: .server(ServerAllowance(freeLeft: ["story": 0], credits: nil))))
+        #expect(noCredits["credits"] == nil)
+        #expect(noCredits["freeLeft"] as? [String: Int] == ["story": 0])
+        // Same bytes every time: keys sorted at every level.
+        let line = String(decoding: WalkLogCodec.line(WalkLogEvent(at: Self.t0, kind: .server(
+            ServerAllowance(freeLeft: ["story": 12, "speech": 40, "image": 4], credits: 37)))), as: UTF8.self)
+        #expect(line == #"{"credits":37,"e":"server","freeLeft":{"image":4,"speech":40,"story":12},"t":"1970-01-12T13:46:40.250Z"}"# + "\n")
+
+        let without = #"{"e":"server","t":"2026-01-01T10:00:00.000Z","freeLeft":{"story":3}}"#
+        #expect(WalkLogCodec.event(from: Data(without.utf8))?.kind
+                == .server(ServerAllowance(freeLeft: ["story": 3], credits: nil)))
+        for bad in [#"{"e":"server","t":"2026-01-01T10:00:00.000Z","credits":5}"#,
+                    #"{"e":"server","t":"2026-01-01T10:00:00.000Z","freeLeft":[1]}"#,
+                    #"{"e":"server","t":"2026-01-01T10:00:00.000Z","freeLeft":{"story":"3"}}"#,
+                    #"{"e":"server","t":"2026-01-01T10:00:00.000Z","freeLeft":{"story":1.5}}"#,
+                    #"{"e":"server","t":"2026-01-01T10:00:00.000Z","freeLeft":{},"credits":"5"}"#] {
+            #expect(WalkLogCodec.event(from: Data(bad.utf8)) == nil, "\(bad)")
+        }
+    }
+
+    @Test func lineFromTheCurrentFormatStillDecodes() {
+        let old = #"{"e":"shown","t":"2026-01-01T10:00:00.000Z","placeID":"osm:node/1","name":"Akershus festning","reason":"tap"}"#
+        #expect(WalkLogCodec.event(from: Data(old.utf8))?.kind
+                == .shown(placeID: "osm:node/1", name: "Akershus festning", reason: .tap))
     }
 
     @Test func osmErrorsAreWrittenOnlyWhenPresentAndOldLinesDecode() throws {

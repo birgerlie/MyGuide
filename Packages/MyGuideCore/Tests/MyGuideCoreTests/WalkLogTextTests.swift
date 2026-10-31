@@ -33,6 +33,16 @@ import Testing
         #expect(WalkLogText.line(.shown(placeID: "osm:node/1", name: nil, reason: .tap)) == "Map shows osm:node/1 (tap)")
     }
 
+    @Test func serverLines() {
+        #expect(WalkLogText.line(.server(ServerAllowance(freeLeft: ["image": 4, "story": 12, "speech": 40], credits: 37)))
+                == "server · free story 12 speech 40 image 4 · credits 37")
+        #expect(WalkLogText.line(.server(ServerAllowance(freeLeft: ["story": 12], credits: nil)))
+                == "server · free story 12 · credits –")
+        #expect(WalkLogText.line(.server(ServerAllowance(freeLeft: ["speech": 0, "image": 1], credits: 0)))
+                == "server · free speech 0 image 1 · credits 0")
+        #expect(WalkLogText.line(.server(ServerAllowance(freeLeft: [:], credits: 5))) == "server · free · credits 5")
+    }
+
     @Test func fetchFailedLine() {
         #expect(WalkLogText.line(.fetchFailed(error: "http(500)")) == "Fetch failed: http(500)")
         #expect(WalkLogText.line(.fetchFailed(error: "http(500)", osmErrors: ["overpass-api.de: HTTP 500"]))
